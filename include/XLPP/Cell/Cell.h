@@ -14,6 +14,15 @@
 namespace xlpp {
 using CellValue = std::variant<std::monostate, double, bool, std::string, CellError, DateTime>;
 
+// Excel 365 dynamic array / new functions that require the _xlfn. prefix in
+// the stored formula so Excel 2016-2019 & 365 parse them correctly. Returns the
+// prefixed form, or the input unchanged if it already has a prefix.
+inline std::string xlfn(std::string_view function) {
+    if (function.empty()) return {};
+    if (function.size() > 6 && function.substr(0, 6) == "_xlfn.") return std::string(function);
+    return "_xlfn." + std::string(function);
+}
+
 class Cell {
 public:
     Cell() = default;
@@ -109,6 +118,15 @@ public:
     void setFormula(std::string formula) { formula_ = std::move(formula); }
     void setSharedFormula(std::string formula, unsigned sharedIndex, std::string reference = {}) { formula_ = std::move(formula); formulaMetadata_.setType(FormulaType::Shared); formulaMetadata_.setSharedIndex(sharedIndex); formulaMetadata_.setReference(std::move(reference)); }
     void setArrayFormula(std::string formula, std::string reference) { formula_ = std::move(formula); formulaMetadata_.setType(FormulaType::Array); formulaMetadata_.setReference(std::move(reference)); }
+    // Excel 365 dynamic array formula: t="array" + ref + aca="1" on save.
+    // The formula string should use the _xlfn. prefix for new functions
+    // (e.g. "_xlfn.SORT(A1:A10)") — see xlfn() helper.
+    void setDynamicArrayFormula(std::string formula, std::string reference) {
+        formula_ = std::move(formula);
+        formulaMetadata_.setType(FormulaType::DynamicArray);
+        formulaMetadata_.setReference(std::move(reference));
+        formulaMetadata_.setAlwaysCalculateArray(true);
+    }
     FormulaMetadata& formulaMetadata() noexcept { return formulaMetadata_; }
     const FormulaMetadata& formulaMetadata() const noexcept { return formulaMetadata_; }
     void clearFormula() noexcept { formula_.clear(); formulaMetadata_ = FormulaMetadata{}; }

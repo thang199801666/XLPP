@@ -9,7 +9,11 @@ enum class FormulaType {
     Normal,
     Shared,
     Array,
-    DataTable
+    DataTable,
+    // Excel 365 dynamic array formula (spill range). Serialized as t="array"
+    // with ref + aca="1"; the formula uses the _xlfn. prefix for functions
+    // like SORT, FILTER, UNIQUE, SEQUENCE, XLOOKUP.
+    DynamicArray
 };
 
 class FormulaMetadata {

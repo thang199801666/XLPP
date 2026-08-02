@@ -562,6 +562,7 @@ void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatal
                     const auto& metadata = cell.formulaMetadata();
                     if (metadata.type() == xlpp::FormulaType::Shared) xml << " t=\"shared\"";
                     else if (metadata.type() == xlpp::FormulaType::Array) xml << " t=\"array\"";
+                    else if (metadata.type() == xlpp::FormulaType::DynamicArray) xml << " t=\"array\"";
                     else if (metadata.type() == xlpp::FormulaType::DataTable) xml << " t=\"dataTable\"";
                     if (!metadata.reference().empty()) { xml << " ref=\""; writeXmlEscaped(xml, metadata.reference()); xml << "\""; }
                     if (metadata.sharedIndex()) xml << " si=\"" << *metadata.sharedIndex() << "\"";
@@ -583,6 +584,7 @@ void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatal
         const auto& metadata = cell.formulaMetadata();
         if (metadata.type() == xlpp::FormulaType::Shared) xml << " t=\"shared\"";
         else if (metadata.type() == xlpp::FormulaType::Array) xml << " t=\"array\"";
+        else if (metadata.type() == xlpp::FormulaType::DynamicArray) xml << " t=\"array\"";
         else if (metadata.type() == xlpp::FormulaType::DataTable) xml << " t=\"dataTable\"";
         if (!metadata.reference().empty()) { xml << " ref=\""; writeXmlEscaped(xml, metadata.reference()); xml << "\""; }
         if (metadata.sharedIndex()) xml << " si=\"" << *metadata.sharedIndex() << "\"";
@@ -1415,9 +1417,14 @@ for (auto& c : internal::tags(xml, "c")) {
     const auto formulaTags = internal::tags(c, "f");
     if (!formulaTags.empty()) {
         const auto& formulaTag = formulaTags.front();
-        cell.setFormula(internal::tagText(c, "f"));
+        auto formulaText = internal::tagText(c, "f");
+        cell.setFormula(formulaText);
         const auto formulaType = internal::attribute(formulaTag, "t");
-        if (formulaType == "shared") cell.formulaMetadata().setType(FormulaType::Shared);
+        // Detect Excel 365 dynamic array formulas: _xlfn. prefix + aca="1"
+        if (formulaText.rfind("_xlfn.", 0) == 0 &&
+            internal::attribute(formulaTag, "aca") == "1")
+            cell.formulaMetadata().setType(FormulaType::DynamicArray);
+        else if (formulaType == "shared") cell.formulaMetadata().setType(FormulaType::Shared);
         else if (formulaType == "array") cell.formulaMetadata().setType(FormulaType::Array);
         else if (formulaType == "dataTable") cell.formulaMetadata().setType(FormulaType::DataTable);
         const auto reference = internal::attribute(formulaTag, "ref");

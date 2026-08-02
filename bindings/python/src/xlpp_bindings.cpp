@@ -317,6 +317,9 @@ PYBIND11_MODULE(xlpp, m) {
             [](const Cell& c) { return cellvalue_to_py(c.value()); },
             [](Cell& c, const py::object& v) { c.setValue(py_to_cellvalue(v)); })
         .def("set_formula", [](Cell& c, const std::string& f) { c.setFormula(f); })
+        .def("set_dynamic_array_formula", [](Cell& c, const std::string& f, const std::string& ref) {
+            c.setDynamicArrayFormula(f, ref);
+        })
         .def_property_readonly("formula", &Cell::formula)
         .def("has_formula", &Cell::hasFormula)
         .def("clear", &Cell::clear)
@@ -533,4 +536,9 @@ PYBIND11_MODULE(xlpp, m) {
         });
 
     m.attr("__version__") = "1.0.0";
+
+    // Excel 365 dynamic-array function prefix helper
+    m.def("xlfn", [](const std::string& f) { return xlpp::xlfn(f); },
+          py::arg("function"),
+          "Prefix an Excel 365 function name with _xlfn. (e.g. SORT -> _xlfn.SORT)");
 }
