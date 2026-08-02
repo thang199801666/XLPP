@@ -16,7 +16,7 @@
 # Debug
 msbuild XL++.sln /p:Configuration=Debug /p:Platform=x64 /m
 
-# Release (required for Python/C# bindings)
+# Release (required for bindings/python/C# bindings)
 msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m
 ```
 
@@ -31,7 +31,7 @@ Outputs:
 ### Install
 
 ```powershell
-cd python
+cd bindings\python
 
 # Install pybind11
 pip install pybind11 setuptools
@@ -92,7 +92,7 @@ print(wb2["Sheet1"]["A1"].value)
 ### CMake build (alternative)
 
 ```powershell
-cd python
+cd bindings\python
 mkdir build && cd build
 cmake .. -Dpybind11_DIR="C:/path/to/pybind11/share/cmake/pybind11"
 cmake --build . --config Release
@@ -187,19 +187,27 @@ class Program
 XLPP/
 ├── include/XLPP/          # Public headers
 ├── src/XLPP/              # Implementation
+│   ├── Packaging/         # ZIP archive I/O + MappedFile
+│   ├── Streaming/         # Streaming read/write + shared strings
+│   ├── Threading/         # ThreadPool
+│   ├── Workbook/
+│   ├── Worksheet/
+│   └── XML/               # XML scanning + utilities
 ├── third_party/zlib/      # zlib compression
-├── python/                # Python binding
-│   ├── setup.py
-│   ├── CMakeLists.txt
-│   └── src/xlpp_bindings.cpp
-├── bindings/              # C / C# bindings
-│   ├── c/
+├── bindings/              # Language bindings
+│   ├── python/            # Python (pybind11)
+│   │   ├── setup.py
+│   │   ├── CMakeLists.txt
+│   │   └── src/xlpp_bindings.cpp
+│   ├── c/                 # C API (DLL for P/Invoke)
 │   │   ├── xlpp_capi.h
 │   │   └── xlpp_capi.cpp
-│   └── cs/
+│   └── csharp/            # C# P/Invoke wrapper
 │       └── XlppNet.cs
 ├── tests/                 # C++ unit tests
 ├── samples/               # C++ sample
-└── scripts/
-    └── pgo.ps1            # PGO build script
+├── scripts/
+│   └── pgo.ps1            # PGO build script
+├── .github/workflows/     # CI/CD
+└── BUILDING.md
 ```

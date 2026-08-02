@@ -68,6 +68,10 @@
     <ClInclude Include="XML\XmlUtilities.h" />
     <ClInclude Include="XML\XmlPullReader.h" />
     <ClInclude Include="Streaming\SharedStringsReader.h" />
+    <ClInclude Include="Packaging\MappedFile.h" />
+    <ClInclude Include="Threading\ThreadPool.h" />
+    <ClInclude Include="XML\SimdScan.h" />
+    <ClInclude Include="XML\XmlScanner.h" />
     <ClInclude Include="..\..\include\XLPP\Workbook.h" />
     <ClInclude Include="..\..\include\XLPP\Worksheet.h" />
     <ClInclude Include="..\..\include\XLPP\Range.h" />

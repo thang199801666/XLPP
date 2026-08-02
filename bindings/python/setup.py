@@ -3,7 +3,7 @@ import sys
 from setuptools import setup
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 
-xlpp_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+xlpp_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 debug = os.environ.get("XLPP_DEBUG", "0") == "1"
 config = "Debug" if debug else "Release"

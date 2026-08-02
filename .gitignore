@@ -14,13 +14,15 @@ out/
 *.tlog
 *.lastbuildstate
 *.unsuccessfulbuild
+*.exp
+*.lib
 
 # Python
-python/build/
-python/dist/
-python/*.egg-info/
-python/__pycache__/
-python/*.pyd
+bindings/python/build/
+bindings/python/dist/
+bindings/python/*.egg-info/
+bindings/python/__pycache__/
+bindings/python/*.pyd
 *.pyc
 
 # IDE
@@ -33,3 +35,4 @@ python/*.pyd
 # OS
 Thumbs.db
 .DS_Store
+*.xlsx

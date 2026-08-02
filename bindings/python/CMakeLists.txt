@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Python COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 
-set(XLPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+set(XLPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 
 pybind11_add_module(xlpp
     src/xlpp_bindings.cpp

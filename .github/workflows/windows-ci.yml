@@ -58,7 +58,7 @@ jobs:
       - run: msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
       - run: pip install pybind11 setuptools
       - name: Build + Test Python
-        working-directory: python
+        working-directory: bindings/python
         run: |
           python setup.py build_ext --inplace
           python -c "
