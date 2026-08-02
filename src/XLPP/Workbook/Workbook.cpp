@@ -1042,20 +1042,52 @@ std::vector<std::string> serializeSheets(const std::vector<xlpp::Worksheet>& she
                                          const StyleCatalog& styles, const DxfCatalog& dxfs,
                                          bool date1904, bool strict, std::size_t workers,
                                          bool parallelRows,
-                                         const std::unordered_map<std::string, std::size_t>* sstIndex) {
+                                         const std::unordered_map<std::string, std::size_t>* sstIndex,
+                                         std::vector<std::string>* cache) {
     std::vector<std::string> result(sheets.size());
-    if (workers > 1 && sheets.size() > 1) {
-        xlpp::internal::ThreadPool pool(std::min(workers, sheets.size()));
-        pool.parallelFor(0, sheets.size(), [&](std::size_t i) {
-            result[i] = sheetXml(sheets[i], styles, dxfs, date1904, strict, sstIndex, 0);
+    // Determine which sheets are dirty and need re-serialization
+    std::vector<char> needsSerialize(sheets.size());
+    bool anyDirty = false;
+    if (cache) {
+        for (std::size_t i = 0; i < sheets.size(); ++i) {
+            needsSerialize[i] = sheets[i].dirty() || i >= cache->size();
+            if (needsSerialize[i]) anyDirty = true;
+        }
+        if (!anyDirty) {
+            // Nothing changed — reuse the entire cache
+            for (std::size_t i = 0; i < sheets.size(); ++i) result[i] = (*cache)[i];
+            return result;
+        }
+    } else {
+        for (auto& n : needsSerialize) n = true;
+    }
+
+    // Serialize dirty sheets in parallel
+    std::vector<std::size_t> dirtyIndexes;
+    for (std::size_t i = 0; i < sheets.size(); ++i)
+        if (needsSerialize[i]) dirtyIndexes.push_back(i);
+
+    auto serializeOne = [&](std::size_t i) {
+        result[i] = sheetXml(sheets[i], styles, dxfs, date1904, strict, sstIndex, 0);
+    };
+
+    if (workers > 1 && dirtyIndexes.size() > 1) {
+        xlpp::internal::ThreadPool pool(std::min(workers, dirtyIndexes.size()));
+        pool.parallelFor(0, dirtyIndexes.size(), [&](std::size_t j) {
+            serializeOne(dirtyIndexes[j]);
         });
-    } else if (parallelRows && workers > 1 && sheets.size() == 1) {
-        // Single large sheet: parallelize across rows within the sheet
-        for (std::size_t i = 0; i < sheets.size(); ++i)
+    } else if (parallelRows && workers > 1 && dirtyIndexes.size() == 1) {
+        for (auto i : dirtyIndexes)
             result[i] = sheetXml(sheets[i], styles, dxfs, date1904, strict, sstIndex, workers);
     } else {
+        for (auto i : dirtyIndexes) serializeOne(i);
+    }
+
+    // Update cache
+    if (cache) {
+        if (cache->size() < sheets.size()) cache->resize(sheets.size());
         for (std::size_t i = 0; i < sheets.size(); ++i)
-            result[i] = sheetXml(sheets[i], styles, dxfs, date1904, strict, sstIndex, 0);
+            (*cache)[i] = result[i];
     }
     return result;
 }
@@ -1349,7 +1381,8 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
             for (const auto& rule : formatting.rules()) if (rule.hasDifferentialStyle()) dxfCatalog.id(rule.differentialStyle());
     }
     for (const auto& named : namedStyles_) styleCatalog.id(named.style());
-    const auto sheetXmls = serializeSheets(sheets_, styleCatalog, dxfCatalog, date1904_, strict, options.parallelSheets ? options.parallelWorkers : 0, options.parallelRows, &sstIndex);
+    const auto sheetXmls = serializeSheets(sheets_, styleCatalog, dxfCatalog, date1904_, strict, options.parallelSheets ? options.parallelWorkers : 0, options.parallelRows, &sstIndex, &cachedSheetXml_);
+    for (auto& sheet : sheets_) sheet.clearDirty();
     internal::ZipArchive z;
     z.setCompressionLevel(zlibLevel(options.compressionLevel));
     z.setCompressionStrategy(zlibStrategy(options.compressionStrategy));
@@ -1533,6 +1566,9 @@ for(const auto& node:internal::tags(wb,"definedName")){DefinedName item(internal
             || part.extension == "gif" || part.extension == "bmp" || part.extension == "bin");
         preservedParts_.push_back(std::move(part));
     }
+    // After a successful load, mark all sheets clean so the next save can
+    // benefit from differential caching.
+    for (auto& s : sheets_) s.clearDirty();
 }
 
 void Workbook::load(std::istream& stream) { load(stream, LoadOptions{}); }

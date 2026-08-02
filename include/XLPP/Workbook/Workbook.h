@@ -112,5 +112,7 @@ private:
     LoadDiagnostics diagnostics_;
     bool date1904_{false};
     bool strictNamespaces_{false};
+    // Differential-save cache: serialized sheet XML reused when a sheet is clean.
+    mutable std::vector<std::string> cachedSheetXml_;
 };
 }

@@ -24,6 +24,7 @@ namespace xlpp {
 void Worksheet::rename(std::string name) {
     if (name.empty()) throw std::invalid_argument("Worksheet name cannot be empty");
     name_ = std::move(name);
+    dirty_ = true;
 }
 
 Cell& Worksheet::cell(const std::string& address) {
@@ -34,6 +35,7 @@ Cell& Worksheet::cell(const std::string& address) {
 Cell& Worksheet::cell(std::size_t row, std::size_t column) {
     const auto key = makeCellKey(row, column);
     auto [it, inserted] = cells_.try_emplace(key, row, column);
+    dirty_ = true;
     return it->second;
 }
 
@@ -104,6 +106,7 @@ void Worksheet::append(const std::vector<CellValue>& values) {
     const auto targetRow = cells_.empty() ? 1 : 1 + (cells_.rbegin()->first >> 20);
     for (std::size_t column = 1; column <= values.size(); ++column)
         cell(targetRow, column).setValue(values[column - 1]);
+    dirty_ = true;
 }
 
 void Worksheet::insertRows(std::size_t index, std::size_t amount) {
@@ -142,6 +145,7 @@ void Worksheet::shiftRows(std::size_t index, std::size_t amount, bool insert) {
         shifted.emplace(makeCellKey(row, column), std::move(source));
     }
     cells_ = std::move(shifted);
+    dirty_ = true;
 }
 
 void Worksheet::shiftColumns(std::size_t index, std::size_t amount, bool insert) {
@@ -160,6 +164,7 @@ void Worksheet::shiftColumns(std::size_t index, std::size_t amount, bool insert)
         shifted.emplace(makeCellKey(row, column), std::move(source));
     }
     cells_ = std::move(shifted);
+    dirty_ = true;
 }
 }
 
@@ -173,6 +178,7 @@ void Worksheet::mergeCells(const std::string& rangeAddress) {
     if (std::find(mergedRanges_.begin(), mergedRanges_.end(), canonical) == mergedRanges_.end()) {
         mergedRanges_.push_back(canonical);
         mergedRangesParsed_.push_back({first.row, first.column, last.row, last.column});
+        dirty_ = true;
     }
 }
 
@@ -185,6 +191,7 @@ void Worksheet::unmergeCells(const std::string& rangeAddress) {
     const auto index = static_cast<std::size_t>(std::distance(mergedRanges_.begin(), it));
     mergedRanges_.erase(it);
     mergedRangesParsed_.erase(mergedRangesParsed_.begin() + static_cast<std::ptrdiff_t>(index));
+    dirty_ = true;
 }
 
 bool Worksheet::isMerged(const std::string& cellAddress) const {
@@ -199,6 +206,7 @@ bool Worksheet::isMerged(const std::string& cellAddress) const {
 void Worksheet::freezePanes(const std::string& topLeftCell) {
     const auto ref = CellReference::parse(topLeftCell);
     freezePane_ = ref.address();
+    dirty_ = true;
 }
 
 RowDimension& Worksheet::rowDimension(std::size_t row) {
@@ -228,6 +236,7 @@ const ColumnDimension* Worksheet::tryColumnDimension(std::size_t column) const n
 Table& Worksheet::addTable(std::string name, std::string reference) {
     if (table(name)) throw std::invalid_argument("Duplicate table name: " + name);
     tables_.emplace_back(std::move(name), std::move(reference));
+    dirty_ = true;
     return tables_.back();
 }
 Table* Worksheet::table(const std::string& name) noexcept {

@@ -150,6 +150,12 @@ public:
 
     const std::map<std::uint64_t, Cell>& cells() const noexcept { return cells_; }
 
+    // Dirty tracking for differential save. A worksheet becomes dirty when
+    // any of its content is mutated; `save()` only re-serializes dirty sheets.
+    bool dirty() const noexcept { return dirty_; }
+    void markDirty() noexcept { dirty_ = true; }
+    void clearDirty() const noexcept { dirty_ = false; }
+
 private:
     void shiftRows(std::size_t index, std::size_t amount, bool insert);
     void shiftColumns(std::size_t index, std::size_t amount, bool insert);
@@ -176,5 +182,6 @@ private:
     std::string printArea_, printTitlesRows_, printTitlesCols_;
     std::vector<Chart> charts_;
     std::vector<PivotTable> pivotTables_;
+    mutable bool dirty_{true};
 };
 }
