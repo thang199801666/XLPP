@@ -2,10 +2,16 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <sstream>
 
 namespace xlpp::internal {
 std::string xmlEscape(std::string_view value);
 std::string xmlUnescape(std::string_view value);
+
+// Streaming variant: writes the XML-escaped form of `s` directly into `out`
+// without constructing an intermediate std::string. Used by the hot save path
+// to avoid per-cell temporary allocations.
+void writeXmlEscaped(std::ostringstream& out, std::string_view s);
 
 // Zero-allocation attribute extractor (uses SIMD scan internally).
 // Returns a view into `tag` or empty view when absent. Does not decode entities.

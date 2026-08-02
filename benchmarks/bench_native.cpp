@@ -54,15 +54,26 @@ void bench(int rows, int cols, const char* label) {
     auto sz = std::filesystem::file_size(tmp);
     std::cout << "  Save:   " << std::fixed << std::setw(8) << std::setprecision(1) << ms(t3-t2) << " ms  (" << sz << " bytes)\n";
 
-    // Save parallel (4 threads)
+    // Save parallel (4 threads) — force dirty so it does real work
     if (rows >= 5000) {
         SaveOptions parOpt;
         parOpt.parallelWorkers = 4;
         parOpt.parallelSheets = true;
+        for (auto& ws0 : wb.worksheets()) ws0.markDirty();
         auto tp = Clock::now();
         wb.save(tmp, parOpt);
         auto tq = Clock::now();
         std::cout << "  Save(4):" << std::fixed << std::setw(8) << std::setprecision(1) << ms(tq-tp) << " ms\n";
+
+        // Per-row parallel (best for single large sheet)
+        SaveOptions rowOpt;
+        rowOpt.parallelWorkers = 4;
+        rowOpt.parallelRows = true;
+        for (auto& ws0 : wb.worksheets()) ws0.markDirty();
+        auto tr = Clock::now();
+        wb.save(tmp, rowOpt);
+        auto ts = Clock::now();
+        std::cout << "  Save(rows4):" << std::fixed << std::setw(8) << std::setprecision(1) << ms(ts-tr) << " ms\n";
     }
 
     // Load

@@ -13,6 +13,7 @@
 #include <iomanip>
 
 using xlpp::internal::xmlEscape;
+using xlpp::internal::writeXmlEscaped;
 namespace {
 
 // Map public compression enums onto zlib values without exposing zlib.h.
@@ -553,11 +554,11 @@ void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatal
                     if (metadata.type() == xlpp::FormulaType::Shared) xml << " t=\"shared\"";
                     else if (metadata.type() == xlpp::FormulaType::Array) xml << " t=\"array\"";
                     else if (metadata.type() == xlpp::FormulaType::DataTable) xml << " t=\"dataTable\"";
-                    if (!metadata.reference().empty()) xml << " ref=\"" << xmlEscape(metadata.reference()) << "\"";
+                    if (!metadata.reference().empty()) { xml << " ref=\""; writeXmlEscaped(xml, metadata.reference()); xml << "\""; }
                     if (metadata.sharedIndex()) xml << " si=\"" << *metadata.sharedIndex() << "\"";
                     if (metadata.alwaysCalculateArray()) xml << " aca=\"1\"";
                     if (metadata.calculateOnLoad()) xml << " ca=\"1\"";
-                    xml << ">" << xmlEscape(cell.formula()) << "</f>";
+                    xml << ">"; writeXmlEscaped(xml, cell.formula()); xml << "</f>";
                 }
                 xml << "<v>" << it->second << "</v></c>";
                 return;
@@ -574,20 +575,22 @@ void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatal
         if (metadata.type() == xlpp::FormulaType::Shared) xml << " t=\"shared\"";
         else if (metadata.type() == xlpp::FormulaType::Array) xml << " t=\"array\"";
         else if (metadata.type() == xlpp::FormulaType::DataTable) xml << " t=\"dataTable\"";
-        if (!metadata.reference().empty()) xml << " ref=\"" << xmlEscape(metadata.reference()) << "\"";
+        if (!metadata.reference().empty()) { xml << " ref=\""; writeXmlEscaped(xml, metadata.reference()); xml << "\""; }
         if (metadata.sharedIndex()) xml << " si=\"" << *metadata.sharedIndex() << "\"";
         if (metadata.alwaysCalculateArray()) xml << " aca=\"1\"";
         if (metadata.calculateOnLoad()) xml << " ca=\"1\"";
-        xml << ">" << xmlEscape(cell.formula()) << "</f>";
+        xml << ">"; writeXmlEscaped(xml, cell.formula()); xml << "</f>";
     }
-    if (const auto* stringValue = std::get_if<std::string>(&cell.value()))
-        xml << "<is><t xml:space=\"preserve\">" << xmlEscape(*stringValue) << "</t></is>";
+    if (const auto* stringValue = std::get_if<std::string>(&cell.value())) {
+        xml << "<is><t xml:space=\"preserve\">"; writeXmlEscaped(xml, *stringValue); xml << "</t></is>";
+    }
     else if (const auto* numberValue = std::get_if<double>(&cell.value()))
         xml << "<v>" << *numberValue << "</v>";
     else if (const auto* booleanValue = std::get_if<bool>(&cell.value()))
         xml << "<v>" << (*booleanValue ? 1 : 0) << "</v>";
-    else if (const auto* errorValue = std::get_if<xlpp::CellError>(&cell.value()))
-        xml << "<v>" << xmlEscape(xlpp::toString(*errorValue)) << "</v>";
+    else if (const auto* errorValue = std::get_if<xlpp::CellError>(&cell.value())) {
+        xml << "<v>"; writeXmlEscaped(xml, xlpp::toString(*errorValue)); xml << "</v>";
+    }
     else if (const auto* dateValue = std::get_if<xlpp::DateTime>(&cell.value()))
         xml << "<v>" << xlpp::toExcelSerial(*dateValue, date1904) << "</v>";
     xml << "</c>";
@@ -1397,8 +1400,9 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
         std::ostringstream sstXml;
         sstXml << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><sst xmlns=\"" << nsMain(strict)
                << "\" count=\"" << sstOccurrences << "\" uniqueCount=\"" << sstStrings.size() << "\">";
-        for (const auto& text : sstStrings)
-            sstXml << "<si><t xml:space=\"preserve\">" << xmlEscape(text) << "</t></si>";
+        for (const auto& text : sstStrings) {
+            sstXml << "<si><t xml:space=\"preserve\">"; writeXmlEscaped(sstXml, text); sstXml << "</t></si>";
+        }
         sstXml << "</sst>";
         z.add("xl/sharedStrings.xml", sstXml.str());
     }

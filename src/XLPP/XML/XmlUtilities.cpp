@@ -10,6 +10,27 @@ std::string xmlEscape(std::string_view s) {
     return out;
 }
 
+void writeXmlEscaped(std::ostringstream& out, std::string_view s) {
+    std::size_t start = 0;
+    const std::string_view specials = "&<>\"'";
+    for (;;) {
+        const std::size_t pos = s.find_first_of(specials, start);
+        if (pos == std::string_view::npos) {
+            if (start < s.size()) out.write(s.data() + start, static_cast<std::streamsize>(s.size() - start));
+            return;
+        }
+        if (pos > start) out.write(s.data() + start, static_cast<std::streamsize>(pos - start));
+        switch (s[pos]) {
+            case '&': out << "&amp;"; break;
+            case '<': out << "&lt;"; break;
+            case '>': out << "&gt;"; break;
+            case '"': out << "&quot;"; break;
+            case '\'': out << "&apos;"; break;
+        }
+        start = pos + 1;
+    }
+}
+
 std::string xmlUnescape(std::string_view s) {
     std::string out(s);
     const std::pair<const char*,const char*> r[]={{"&amp;","&"},{"&lt;","<"},{"&gt;",">"},{"&quot;","\""},{"&apos;","'"}};

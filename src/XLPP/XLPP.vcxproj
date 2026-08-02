@@ -69,6 +69,7 @@
     <ClInclude Include="XML\XmlPullReader.h" />
     <ClInclude Include="Streaming\SharedStringsReader.h" />
     <ClInclude Include="Packaging\MappedFile.h" />
+    <ClInclude Include="Threading\Arena.h" />
     <ClInclude Include="Threading\ThreadPool.h" />
     <ClInclude Include="XML\SimdScan.h" />
     <ClInclude Include="XML\XmlScanner.h" />
