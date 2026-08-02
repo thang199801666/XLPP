@@ -1,6 +1,7 @@
 #pragma once
 #include <XLPP/Styles/Style.h>
 #include <cstddef>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -10,7 +11,10 @@ namespace xlpp {
 
 enum class ConditionalRuleType {
     Formula,
-    CellIs
+    CellIs,
+    DataBar,
+    ColorScale,
+    IconSet
 };
 
 enum class ConditionalOperator {
@@ -22,6 +26,72 @@ enum class ConditionalOperator {
     GreaterThanOrEqual,
     Between,
     NotBetween
+};
+
+// Conditional format value object (cfvo): the min/max/midpoint of a data bar,
+// color scale, or icon set threshold.
+struct Cfvo {
+    // "num", "percent", "percentile", "min", "max", "formula"
+    std::string type{"num"};
+    double value{0};
+    bool hasValue{false};
+    std::string formula;
+    std::optional<std::string> color; // ARGB for color scale stops
+
+    Cfvo() = default;
+    explicit Cfvo(std::string type_, double val) : type(std::move(type_)), value(val), hasValue(true) {}
+    Cfvo(std::string type_, std::string formula_) : type(std::move(type_)), formula(std::move(formula_)), hasValue(true) {}
+};
+
+// Data bar conditional formatting (Excel 2010+).
+class DataBar {
+public:
+    std::string color{"FF638EC6"};
+    Cfvo min;
+    Cfvo max;
+    bool showValue{true};
+    // direction: "leftToRight", "rightToLeft", "context"
+    std::string direction{"leftToRight"};
+    std::optional<double> axisPosition;
+};
+
+// Color scale conditional formatting (2-3 stops).
+class ColorScale {
+public:
+    std::vector<Cfvo> stops; // each stop has type/value + color
+    void addStop(Cfvo stop) { stops.push_back(std::move(stop)); }
+};
+
+// Icon set conditional formatting (Excel 2010+).
+enum class IconSetStyle {
+    ThreeArrows,
+    ThreeArrowsGray,
+    ThreeFlags,
+    ThreeTrafficLights,
+    ThreeSigns,
+    ThreeSymbols,
+    ThreeStars,
+    ThreeTriangles,
+    FourArrows,
+    FourArrowsGray,
+    FourRedToBlack,
+    FourRating,
+    FourTrafficLights,
+    FiveArrows,
+    FiveArrowsGray,
+    FiveRating,
+    FiveQuarters,
+    FiveBoxes
+};
+
+class IconSet {
+public:
+    std::string icons{"3Arrows"};
+    std::vector<Cfvo> thresholds;
+    bool reverse{false};
+    bool showValue{true};
+    std::optional<IconSetStyle> style;
+    void addThreshold(Cfvo stop) { thresholds.push_back(std::move(stop)); }
 };
 
 class ConditionalRule {
@@ -50,6 +120,26 @@ public:
         return rule;
     }
 
+    static ConditionalRule dataBar(std::string color = "FF638EC6") {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::DataBar;
+        rule.dataBar_.color = std::move(color);
+        return rule;
+    }
+
+    static ConditionalRule colorScale() {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::ColorScale;
+        return rule;
+    }
+
+    static ConditionalRule iconSet(std::string icons = "3Arrows") {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::IconSet;
+        rule.iconSet_.icons = std::move(icons);
+        return rule;
+    }
+
     ConditionalRuleType type() const noexcept { return type_; }
     ConditionalOperator op() const noexcept { return operator_; }
     void setOperator(ConditionalOperator value) noexcept { operator_ = value; }
@@ -70,6 +160,18 @@ public:
     void setDifferentialStyle(Style value) { differentialStyle_ = std::move(value); hasDifferentialStyle_ = true; }
     void clearDifferentialStyle() noexcept { differentialStyle_ = Style{}; hasDifferentialStyle_ = false; }
 
+    // DataBar access
+    DataBar& getDataBar() noexcept { return dataBar_; }
+    const DataBar& getDataBar() const noexcept { return dataBar_; }
+
+    // ColorScale access
+    ColorScale& getColorScale() noexcept { return colorScale_; }
+    const ColorScale& getColorScale() const noexcept { return colorScale_; }
+
+    // IconSet access
+    IconSet& getIconSet() noexcept { return iconSet_; }
+    const IconSet& getIconSet() const noexcept { return iconSet_; }
+
 private:
     ConditionalRuleType type_{ConditionalRuleType::Formula};
     ConditionalOperator operator_{ConditionalOperator::Equal};
@@ -78,6 +180,9 @@ private:
     bool stopIfTrue_{false};
     Style differentialStyle_;
     bool hasDifferentialStyle_{false};
+    DataBar dataBar_;
+    ColorScale colorScale_;
+    IconSet iconSet_;
 };
 
 class ConditionalFormattingEntry {
@@ -129,4 +234,4 @@ private:
     std::vector<ConditionalFormattingEntry> entries_;
 };
 
-}
+} // namespace xlpp

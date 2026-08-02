@@ -147,6 +147,15 @@ xlpp::ConditionalOperator parseConditionalOperator(const std::string& value) {
     return xlpp::ConditionalOperator::Equal;
 }
 
+// Write a <cfvo> element for data bars / color scales / icon sets.
+void writeCfvo(std::ostringstream& xml, const xlpp::Cfvo& cfvo) {
+    xml << "<cfvo type=\"" << xmlEscape(cfvo.type) << "\"";
+    if (cfvo.hasValue) xml << " val=\"" << cfvo.value << "\"";
+    xml << "/>";
+    if (!cfvo.formula.empty())
+        xml << "<f>" << xmlEscape(cfvo.formula) << "</f>";
+}
+
 
 std::string dataValidationTypeName(xlpp::DataValidationType type) {
     switch (type) {
@@ -765,15 +774,57 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
         if (entry.rules().empty()) continue;
         xml << "<conditionalFormatting sqref=\"" << xmlEscape(entry.reference()) << "\">";
         for (const auto& rule : entry.rules()) {
-            xml << "<cfRule type=\"" << (rule.type() == xlpp::ConditionalRuleType::Formula ? "expression" : "cellIs") << "\"";
-            if (rule.type() == xlpp::ConditionalRuleType::CellIs)
-                xml << " operator=\"" << conditionalOperatorName(rule.op()) << "\"";
-            if (rule.hasDifferentialStyle()) xml << " dxfId=\"" << dxfs.find(rule.differentialStyle()) << "\"";
-            xml << " priority=\"" << rule.priority() << "\"";
-            if (rule.stopIfTrue()) xml << " stopIfTrue=\"1\"";
-            xml << ">";
-            for (const auto& formula : rule.formulas()) xml << "<formula>" << xmlEscape(formula) << "</formula>";
-            xml << "</cfRule>";
+            switch (rule.type()) {
+                case xlpp::ConditionalRuleType::Formula:
+                case xlpp::ConditionalRuleType::CellIs: {
+                    xml << "<cfRule type=\"" << (rule.type() == xlpp::ConditionalRuleType::Formula ? "expression" : "cellIs") << "\"";
+                    if (rule.type() == xlpp::ConditionalRuleType::CellIs)
+                        xml << " operator=\"" << conditionalOperatorName(rule.op()) << "\"";
+                    if (rule.hasDifferentialStyle()) xml << " dxfId=\"" << dxfs.find(rule.differentialStyle()) << "\"";
+                    xml << " priority=\"" << rule.priority() << "\"";
+                    if (rule.stopIfTrue()) xml << " stopIfTrue=\"1\"";
+                    xml << ">";
+                    for (const auto& formula : rule.formulas()) xml << "<formula>" << xmlEscape(formula) << "</formula>";
+                    xml << "</cfRule>";
+                    break;
+                }
+                case xlpp::ConditionalRuleType::DataBar: {
+                    const auto& db = rule.getDataBar();
+                    xml << "<cfRule type=\"dataBar\" priority=\"" << rule.priority() << "\"";
+                    if (!db.showValue) xml << " showValue=\"0\"";
+                    xml << "><dataBar";
+                    if (!db.direction.empty() && db.direction != "leftToRight") xml << " direction=\"" << db.direction << "\"";
+                    xml << ">";
+                    writeCfvo(xml, db.min);
+                    writeCfvo(xml, db.max);
+                    xml << "<color rgb=\"" << xmlEscape(db.color) << "\"/>";
+                    xml << "</dataBar></cfRule>";
+                    break;
+                }
+                case xlpp::ConditionalRuleType::ColorScale: {
+                    const auto& cs = rule.getColorScale();
+                    xml << "<cfRule type=\"colorScale\" priority=\"" << rule.priority() << "\">";
+                    xml << "<colorScale>";
+                    if (!cs.stops.empty()) {
+                        for (const auto& stop : cs.stops) writeCfvo(xml, stop);
+                        for (const auto& stop : cs.stops)
+                            if (stop.color) xml << "<color rgb=\"" << xmlEscape(*stop.color) << "\"/>";
+                    }
+                    xml << "</colorScale></cfRule>";
+                    break;
+                }
+                case xlpp::ConditionalRuleType::IconSet: {
+                    const auto& is = rule.getIconSet();
+                    xml << "<cfRule type=\"iconSet\" priority=\"" << rule.priority() << "\"";
+                    if (!is.showValue) xml << " showValue=\"0\"";
+                    xml << "><iconSet";
+                    if (is.reverse) xml << " reverse=\"1\"";
+                    xml << " iconSet=\"" << xmlEscape(is.icons) << "\">";
+                    for (const auto& t : is.thresholds) writeCfvo(xml, t);
+                    xml << "</iconSet></cfRule>";
+                    break;
+                }
+            }
         }
         xml << "</conditionalFormatting>";
     }
@@ -1200,10 +1251,64 @@ for (auto& formattingTag : internal::tags(xml, "conditionalFormatting")) {
         const auto formulaNodes = internal::tags(ruleTag, "formula");
         std::vector<std::string> formulas;
         for (const auto& formulaNode : formulaNodes) formulas.push_back(internal::tagText(formulaNode, "formula"));
-        ConditionalRule rule = type == "cellIs"
-            ? ConditionalRule::cellIs(parseConditionalOperator(internal::attribute(ruleTag, "operator")), formulas.empty() ? std::string{} : formulas.front())
-            : ConditionalRule::formula(formulas.empty() ? std::string{} : formulas.front());
-        rule.setFormulas(std::move(formulas));
+        ConditionalRule rule;
+        if (type == "cellIs") {
+            rule = ConditionalRule::cellIs(parseConditionalOperator(internal::attribute(ruleTag, "operator")), formulas.empty() ? std::string{} : formulas.front());
+            rule.setFormulas(std::move(formulas));
+        } else if (type == "dataBar") {
+            rule = ConditionalRule::dataBar();
+            for (const auto& dbTag : internal::tags(ruleTag, "dataBar")) {
+                const auto dir = internal::attribute(dbTag, "direction");
+                if (!dir.empty()) rule.getDataBar().direction = dir;
+                rule.getDataBar().showValue = internal::attribute(dbTag, "showValue") != "0";
+                const auto cfvoTags = internal::tags(dbTag, "cfvo");
+                if (cfvoTags.size() >= 1) {
+                    rule.getDataBar().min.type = internal::attribute(cfvoTags[0], "type");
+                    const auto minVal = internal::attribute(cfvoTags[0], "val");
+                    if (!minVal.empty()) { rule.getDataBar().min.value = std::stod(minVal); rule.getDataBar().min.hasValue = true; }
+                }
+                if (cfvoTags.size() >= 2) {
+                    rule.getDataBar().max.type = internal::attribute(cfvoTags[1], "type");
+                    const auto maxVal = internal::attribute(cfvoTags[1], "val");
+                    if (!maxVal.empty()) { rule.getDataBar().max.value = std::stod(maxVal); rule.getDataBar().max.hasValue = true; }
+                }
+                const auto colorTags = internal::tags(dbTag, "color");
+                if (!colorTags.empty()) rule.getDataBar().color = internal::attribute(colorTags.front(), "rgb");
+            }
+        } else if (type == "colorScale") {
+            rule = ConditionalRule::colorScale();
+            for (const auto& csTag : internal::tags(ruleTag, "colorScale")) {
+                const auto cfvoTags = internal::tags(csTag, "cfvo");
+                const auto colorTags = internal::tags(csTag, "color");
+                std::size_t idx = 0;
+                for (const auto& cfvoTag : cfvoTags) {
+                    Cfvo stop;
+                    stop.type = internal::attribute(cfvoTag, "type");
+                    const auto val = internal::attribute(cfvoTag, "val");
+                    if (!val.empty()) { stop.value = std::stod(val); stop.hasValue = true; }
+                    if (idx < colorTags.size()) stop.color = internal::attribute(colorTags[idx], "rgb");
+                    rule.getColorScale().addStop(std::move(stop));
+                    ++idx;
+                }
+            }
+        } else if (type == "iconSet") {
+            rule = ConditionalRule::iconSet();
+            for (const auto& isTag : internal::tags(ruleTag, "iconSet")) {
+                rule.getIconSet().icons = internal::attribute(isTag, "iconSet");
+                rule.getIconSet().reverse = internal::attribute(isTag, "reverse") == "1";
+                rule.getIconSet().showValue = internal::attribute(isTag, "showValue") != "0";
+                for (const auto& cfvoTag : internal::tags(isTag, "cfvo")) {
+                    Cfvo stop;
+                    stop.type = internal::attribute(cfvoTag, "type");
+                    const auto val = internal::attribute(cfvoTag, "val");
+                    if (!val.empty()) { stop.value = std::stod(val); stop.hasValue = true; }
+                    rule.getIconSet().addThreshold(std::move(stop));
+                }
+            }
+        } else {
+            rule = ConditionalRule::formula(formulas.empty() ? std::string{} : formulas.front());
+            rule.setFormulas(std::move(formulas));
+        }
         const auto priority = internal::attribute(ruleTag, "priority");
         if (!priority.empty()) rule.setPriority(static_cast<std::size_t>(std::stoul(priority)));
         rule.setStopIfTrue(internal::attribute(ruleTag, "stopIfTrue") == "1");
