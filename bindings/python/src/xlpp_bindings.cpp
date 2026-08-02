@@ -2,6 +2,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl/filesystem.h>
 #include <pybind11/functional.h>
+#include <pybind11/numpy.h>
 #include <XLPP/XLPP.h>
 #include <datetime.h>
 
@@ -67,6 +68,52 @@ static py::object cellvalue_to_py(const CellValue& v) {
         else if constexpr (std::is_same_v<T, DateTime>) return datetime_to_py(arg);
         return py::none{};
     }, v);
+}
+
+// --- NumPy bulk write: write a 2D numeric array to cells (row1, col1)+ ---
+static void write_numpy_array(Worksheet& ws, const py::array_t<double>& arr,
+                              std::size_t row0, std::size_t col0, bool transpose) {
+    auto buf = arr.request();
+    if (buf.ndim < 1 || buf.ndim > 2)
+        throw std::invalid_argument("array must be 1D or 2D");
+    const std::size_t rows = buf.ndim == 1 ? 1 : static_cast<std::size_t>(buf.shape[0]);
+    const std::size_t cols = buf.ndim == 1 ? static_cast<std::size_t>(buf.shape[0])
+                                           : static_cast<std::size_t>(buf.shape[1]);
+    if (row0 == 0) row0 = 1;
+    if (col0 == 0) col0 = 1;
+    const double* data = static_cast<const double*>(buf.ptr);
+    const py::ssize_t stride0 = buf.strides[0] / static_cast<py::ssize_t>(sizeof(double));
+    const py::ssize_t stride1 = buf.ndim == 1 ? 1 : buf.strides[1] / static_cast<py::ssize_t>(sizeof(double));
+    if (transpose) {
+        for (std::size_t r = 0; r < rows; ++r)
+            for (std::size_t c = 0; c < cols; ++c)
+                ws.cell(row0 + c, col0 + r).setValue(data[r * stride0 + c * stride1]);
+    } else {
+        for (std::size_t r = 0; r < rows; ++r)
+            for (std::size_t c = 0; c < cols; ++c)
+                ws.cell(row0 + r, col0 + c).setValue(data[r * stride0 + c * stride1]);
+    }
+}
+
+// --- NumPy bulk read: read a 2D numeric region into a numpy array ---
+static py::array_t<double> read_numpy_array(const Worksheet& ws,
+                                            std::size_t minRow, std::size_t minCol,
+                                            std::size_t maxRow, std::size_t maxCol) {
+    if (maxRow == 0) maxRow = ws.maxRow();
+    if (maxCol == 0) maxCol = ws.maxColumn();
+    if (minRow == 0) minRow = 1;
+    if (minCol == 0) minCol = 1;
+    const std::size_t rows = maxRow - minRow + 1;
+    const std::size_t cols = maxCol - minCol + 1;
+    py::array_t<double> result({rows, cols});
+    auto buf = result.request();
+    double* data = static_cast<double*>(buf.ptr);
+    for (std::size_t r = 0; r < rows; ++r)
+        for (std::size_t c = 0; c < cols; ++c) {
+            const auto* cell = ws.tryCell(minRow + r, minCol + c);
+            data[r * cols + c] = cell ? cell->numericValueOr(0.0) : 0.0;
+        }
+    return result;
 }
 
 // --- Module ---
@@ -333,6 +380,63 @@ PYBIND11_MODULE(xlpp, m) {
             }
             ws.append(cv);
         })
+        .def("write_array",
+            [](Worksheet& ws, const py::array_t<double>& arr, std::size_t row0, std::size_t col0,
+               bool transpose) {
+                write_numpy_array(ws, arr, row0, col0, transpose);
+            },
+            py::arg("array"), py::arg("row") = 1, py::arg("col") = 1, py::arg("transpose") = false)
+        .def("to_array",
+            [](const Worksheet& ws, std::size_t minRow, std::size_t minCol,
+               std::size_t maxRow, std::size_t maxCol) {
+                return read_numpy_array(ws, minRow, minCol, maxRow, maxCol);
+            },
+            py::arg("min_row") = 0, py::arg("min_col") = 0,
+            py::arg("max_row") = 0, py::arg("max_col") = 0)
+        .def("from_records",
+            [](Worksheet& ws, const py::list& rows, const py::object& columns, bool header) {
+                const auto rowCount = rows.size();
+                if (rowCount == 0) return;
+                const auto& first = rows[0];
+                const auto colCount = py::len(first);
+                std::size_t r0 = 1;
+                // Header row
+                if (header && !columns.is_none()) {
+                    for (std::size_t c = 0; c < colCount; ++c)
+                        ws.cell(1, c + 1).setValue(py::cast<std::string>(columns.attr("__getitem__")(static_cast<py::ssize_t>(c))));
+                    r0 = 2;
+                }
+                for (std::size_t r = 0; r < static_cast<std::size_t>(rowCount); ++r) {
+                    const auto& row = rows[static_cast<py::ssize_t>(r)];
+                    for (std::size_t c = 0; c < colCount; ++c)
+                        ws.cell(r0 + r, c + 1).setValue(py_to_cellvalue(py::reinterpret_borrow<py::object>(row.attr("__getitem__")(static_cast<py::ssize_t>(c)))));
+                }
+            },
+            py::arg("rows"), py::arg("columns") = py::none{}, py::arg("header") = true)
+        .def("to_records",
+            [](const Worksheet& ws, bool include_header) {
+                const auto maxR = ws.maxRow();
+                const auto maxC = ws.maxColumn();
+                py::list result;
+                if (include_header) {
+                    py::list header;
+                    for (std::size_t c = 1; c <= maxC; ++c) {
+                        const auto* cell = ws.tryCell(1, c);
+                        header.append(cell && cell->isString() ? cell->stringValueOr("") : "");
+                    }
+                    result.append(header);
+                }
+                for (std::size_t r = include_header ? 2 : 1; r <= maxR; ++r) {
+                    py::list row;
+                    for (std::size_t c = 1; c <= maxC; ++c) {
+                        const auto* cell = ws.tryCell(r, c);
+                        row.append(cell ? cellvalue_to_py(cell->value()) : py::none{});
+                    }
+                    result.append(row);
+                }
+                return result;
+            },
+            py::arg("include_header") = true)
         .def("merge_cells", &Worksheet::mergeCells)
         .def("unmerge_cells", &Worksheet::unmergeCells)
         .def("is_merged", &Worksheet::isMerged)

@@ -139,3 +139,56 @@ col.add_value("Widget")
 | `datetime.date` | `DateTime{date only}` |
 | `datetime.datetime` | `DateTime{date + time}` |
 | `None` | `std::monostate` (empty) |
+
+## NumPy & Pandas integration
+
+Bulk operations bypass the per-cell Python overhead for maximum throughput.
+
+### NumPy array write/read
+
+```python
+import numpy as np
+
+# Write a 2D array to a worksheet (row1, col1 by default)
+arr = np.random.rand(1000, 10)
+ws.write_array(arr)                    # writes to A1:J1000
+ws.write_array(arr, 2, 1)              # writes to A2:J1001
+ws.write_array(arr, 1, 1, transpose=True)  # transposed
+
+# Read a region back into a numpy array
+out = ws.to_array(1, 1, 1000, 10)      # shape (1000, 10)
+out = ws.to_array()                    # full used range
+```
+
+**Performance**: 1000×10 array = **3 ms** (vs ~200 ms per-cell).
+
+### Records (list-of-lists)
+
+```python
+# Write with header row
+ws.from_records(
+    [["Alice", 30, 9.5], ["Bob", 25, 8.0]],
+    columns=["Name", "Age", "Score"]
+)
+
+# Read back (list of rows, header first)
+records = ws.to_records()
+# [['Name', 'Age', 'Score'], ['Alice', 30.0, 9.5], ...]
+```
+
+### Pandas DataFrame
+
+```python
+import pandas as pd
+
+df = pd.DataFrame({"Name": ["A", "B"], "Age": [30, 25], "Score": [9.5, 8.0]})
+
+# DataFrame -> worksheet (via from_records)
+ws.from_records(df.values.tolist(), columns=list(df.columns))
+
+# Worksheet -> DataFrame (via to_records)
+records = ws.to_records()
+df2 = pd.DataFrame(records[1:], columns=records[0])
+```
+
+> Note: Excel stores all numbers as double, so `int` columns become `float` on round-trip.
