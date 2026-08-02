@@ -2,28 +2,26 @@
 
 ## Benchmarks
 
-All benchmarks run on Windows 11, AMD Ryzen 5 5500U, MSVC 19.51, Release build.
+All benchmarks run on Windows 11, AMD Ryzen 5 5500U, Python 3.14, Release builds.
 
-### XML Scanner
+### Write + Read (Python binding)
 
-| Rows × Cells | XLPP (SIMD) | Baseline | Speedup |
-|-------------|-------------|----------|---------|
-| 5,000 × 4 | **10.5 ms** | 63 ms | **6.0×** |
+| Rows × Cols | XLPP write | openpyxl write | xlsxwriter write | XLPP read | openpyxl read |
+|------------|------------|----------------|-------------------|-----------|---------------|
+| 500 × 5 | **8.5 ms** | 42.5 ms | 33.4 ms | **15.0 ms** | 32.5 ms |
+| 1K × 10 | **36.1 ms** | 81.3 ms | 73.9 ms | **28.7 ms** | 70.7 ms |
+| 5K × 10 | **212 ms** | 333 ms | 244 ms | **102 ms** | 263 ms |
+| 10K × 15 | **654 ms** | 1225 ms | 877 ms | **399 ms** | 910 ms |
 
-### Streaming read/write
+**Speedup**: XLPP writes **1.9× faster** and reads **2.3× faster** than openpyxl (10K rows).
 
-| Rows | Write | Read | File Size |
-|------|-------|------|-----------|
-| 5,000 × 3 types | **129 ms** | **58 ms** | 87 KB |
+### File Size
 
-### Comparison (estimated — based on published benchmarks)
+| Rows × Cols | XLPP | openpyxl | xlsxwriter |
+|------------|------|----------|------------|
+| 10K × 15 | 2.66 MB | 2.61 MB | 2.61 MB |
 
-| Library | 250K rows × 15 cols write | 250K rows read | Threads |
-|---------|--------------------------|---------------|---------|
-| **XLPP** | ~2.5s | ~1s (mmap) | 4 |
-| openpyxl | ~45s | ~30s | 1 |
-| xlsxwriter | ~3s | — (write only) | 1 |
-| ClosedXML | ~8s | ~16s | 1 |
+All three libraries produce similar file sizes.
 
 ## Optimization techniques
 

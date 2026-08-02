@@ -101,7 +101,7 @@ std::string Worksheet::dimensions() const {
 }
 
 void Worksheet::append(const std::vector<CellValue>& values) {
-    const auto targetRow = cells_.empty() ? 1 : extents().maxRow + 1;
+    const auto targetRow = cells_.empty() ? 1 : 1 + (cells_.rbegin()->first >> 20);
     for (std::size_t column = 1; column <= values.size(); ++column)
         cell(targetRow, column).setValue(values[column - 1]);
 }

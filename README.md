@@ -47,11 +47,13 @@ wb.save("output.xlsx");
 
 ## Performance
 
-| Benchmark | XLPP | openpyxl | xlsxwriter |
-|-----------|------|----------|------------|
-| XML scan 5000 rows | **10.5 ms** | ~200 ms | — |
+| Benchmark (10K rows × 15 cols) | XLPP | openpyxl | Speedup |
+|-------------------------------|------|----------|---------|
+| Write | **654 ms** | 1225 ms | **1.9×** |
+| Read | **399 ms** | 910 ms | **2.3×** |
+| XML scan (5K rows) | **10.5 ms** | ~200 ms | — |
 | SIMD speedup vs baseline | **6×** | — | — |
-| Multi-threaded save | ✅ | ❌ | ❌ |
+| Multi-threaded save | ✅ | ❌ | — |
 | mmap zero-copy read | ✅ | ❌ | — |
 
 ## Quick Start

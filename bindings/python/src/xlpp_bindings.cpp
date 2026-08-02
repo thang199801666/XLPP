@@ -45,6 +45,8 @@ static py::object datetime_to_py(const DateTime& dt) {
 
 // --- CellValue converters ---
 static CellValue py_to_cellvalue(const py::object& obj) {
+    // Fast path: str is most common
+    if (PyUnicode_Check(obj.ptr())) return obj.cast<std::string>();
     if (py::isinstance<py::none>(obj)) return std::monostate{};
     if (py::isinstance<py::bool_>(obj)) return obj.cast<bool>();
     if (py::isinstance<py::int_>(obj)) return obj.cast<double>();
@@ -320,6 +322,15 @@ PYBIND11_MODULE(xlpp, m) {
             std::vector<CellValue> cv;
             cv.reserve(values.size());
             for (auto item : values) cv.push_back(py_to_cellvalue(py::reinterpret_borrow<py::object>(item)));
+            ws.append(cv);
+        })
+        .def("append_strings", [](Worksheet& ws, const py::list& values) {
+            std::vector<CellValue> cv;
+            cv.reserve(values.size());
+            for (auto item : values) {
+                if (!PyUnicode_Check(item.ptr())) cv.push_back(py_to_cellvalue(py::reinterpret_borrow<py::object>(item)));
+                else cv.push_back(py::cast<std::string>(item));
+            }
             ws.append(cv);
         })
         .def("merge_cells", &Worksheet::mergeCells)
