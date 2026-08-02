@@ -1,0 +1,8 @@
+{
+  "name": "xlpp",
+  "version": "1.0.0",
+  "description": "High-performance C++20 Excel xlsx library",
+  "dependencies": [
+    "zlib"
+  ]
+}

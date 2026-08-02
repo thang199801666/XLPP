@@ -1,6 +1,9 @@
-> **Header convention:** Starting with Milestone 06, XL++ uses `.h` for all public and internal headers. Use `#include <XLPP/XLPP.h>`.
-
 # XL++
+
+[![Windows CI](https://github.com/thang199801666/XLPP/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/thang199801666/XLPP/actions/workflows/windows-ci.yml)
+[![Benchmark](https://github.com/thang199801666/XLPP/actions/workflows/benchmark.yml/badge.svg)](https://github.com/thang199801666/XLPP/actions/workflows/benchmark.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)](https://en.cppreference.com/w/cpp/20)
 
 XL++ is a dependency-light C++20 `.xlsx` read/write library targeting an API breadth comparable to Python openpyxl. It uses the C++ standard library and zlib only.
 

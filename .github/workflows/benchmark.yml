@@ -1,0 +1,27 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Benchmark
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - run: vcpkg install --triplet x64-windows
+      - run: msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
+      - name: Run Benchmarks
+        run: |
+          $output = & .\x64\Release\XLPP.UnitTests.exe 2>&1
+          $benchmarks = $output | Select-String -Pattern 'BENCHMARK'
+          $benchmarks | ForEach-Object { $_.Line } | Out-File bench-results.txt
+          Write-Output "--- Benchmark Results ---"
+          Get-Content bench-results.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: bench-results.txt

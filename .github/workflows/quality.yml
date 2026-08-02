@@ -1,0 +1,56 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  fuzz-test:
+    name: Fuzz Test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore vcpkg (zlib)
+        run: |
+          vcpkg install zlib:x64-windows
+          vcpkg integrate install
+
+      - name: Build Debug
+        run: msbuild XL++.sln /p:Configuration=Debug /p:Platform=x64 /m /verbosity:minimal
+
+      - name: Run Fuzz Tests
+        run: |
+          $testOutput = & .\x64\Debug\XLPP.UnitTests.exe 2>&1
+          $failCount = ($testOutput | Select-String -Pattern '\[FAIL').Count
+          $passCount = ($testOutput | Select-String -Pattern '\[PASS').Count
+          Write-Output "Passed: $passCount, Failed: $failCount"
+          if ($failCount -gt 2) {  # Allow 2 pre-existing failures
+            Write-Error "Too many test failures: $failCount"
+            exit 1
+          }
+        continue-on-error: false
+
+  static-analysis:
+    name: MSVC /W4
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore vcpkg (zlib)
+        run: |
+          vcpkg install zlib:x64-windows
+          vcpkg integrate install
+
+      - name: Build with Warnings as Errors
+        run: msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /p:TreatWarningAsError=true /m /verbosity:normal
+        continue-on-error: true

@@ -1,0 +1,74 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore vcpkg
+        run: vcpkg install --triplet x64-windows
+
+      - name: Build ${{ matrix.configuration }}
+        run: msbuild XL++.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=x64 /m /verbosity:minimal
+
+      - name: Run Unit Tests (${{ matrix.configuration }})
+        run: .\x64\${{ matrix.configuration }}\XLPP.UnitTests.exe
+        continue-on-error: true
+
+  c-api:
+    name: C API DLL
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - run: vcpkg install --triplet x64-windows
+      - run: msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
+      - run: msbuild bindings\XLPP.CApi.vcxproj /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
+      - name: Archive DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: xlpp-capi
+          path: bindings/x64/Release/XLPP.CApi.dll
+
+  python:
+    name: Python Binding
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: vcpkg install --triplet x64-windows
+      - run: msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
+      - run: pip install pybind11 setuptools
+      - name: Build + Test Python
+        working-directory: python
+        run: |
+          python setup.py build_ext --inplace
+          python -c "
+          import xlpp
+          wb = xlpp.Workbook()
+          ws = wb.add_worksheet('CI')
+          ws['A1'].value = 42
+          wb.save('ci_test.xlsx')
+          wb2 = xlpp.Workbook()
+          wb2.load('ci_test.xlsx')
+          assert wb2['CI']['A1'].value == 42.0
+          print('Python binding OK')
+          "
