@@ -537,7 +537,7 @@ void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatal
     if (cell.empty()) return;
     xml << "<c r=\"" << cell.address() << "\"";
     if (cell.styleIndex()) xml << " s=\"" << *cell.styleIndex() << "\"";
-    else {
+    else if (!cell.style().isDefault()) {
         const auto styleId = styles.find(cell.style());
         if (styleId != 0) xml << " s=\"" << styleId << "\"";
     }
@@ -592,6 +592,14 @@ void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatal
     xml << "</c>";
 }
 
+void writeColAttrs(std::ostringstream& xml, const xlpp::ColumnDimension& dim) {
+    if (dim.width) xml << " width=\"" << *dim.width << "\" customWidth=\"1\"";
+    if (dim.hidden) xml << " hidden=\"1\"";
+    if (dim.bestFit) xml << " bestFit=\"1\"";
+    if (dim.outlineLevel) xml << " outlineLevel=\"" << dim.outlineLevel << "\"";
+    if (dim.collapsed) xml << " collapsed=\"1\"";
+}
+
 std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, const DxfCatalog& dxfs, bool date1904, bool strict,
                      const std::unordered_map<std::string, std::size_t>* sstIndex = nullptr) {
     std::ostringstream xml;
@@ -618,13 +626,30 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
         xml << "<sheetPr><tabColor rgb=\"" << xmlEscape(*sheet.sheetView().tabColor()) << "\"/></sheetPr>";
     if (!sheet.columnDimensions().empty()) {
         xml << "<cols>";
+        std::size_t rangeStart = 0, rangeEnd = 0;
+        const xlpp::ColumnDimension* lastDim = nullptr;
         for (const auto& [column, dimension] : sheet.columnDimensions()) {
-            xml << "<col min=\"" << column << "\" max=\"" << column << "\"";
-            if (dimension.width) xml << " width=\"" << *dimension.width << "\" customWidth=\"1\"";
-            if (dimension.hidden) xml << " hidden=\"1\"";
-            if (dimension.bestFit) xml << " bestFit=\"1\"";
-            if (dimension.outlineLevel) xml << " outlineLevel=\"" << dimension.outlineLevel << "\"";
-            if (dimension.collapsed) xml << " collapsed=\"1\"";
+            if (rangeStart == 0) {
+                rangeStart = rangeEnd = column;
+                lastDim = &dimension;
+            } else if (lastDim &&
+                       lastDim->width == dimension.width &&
+                       lastDim->hidden == dimension.hidden &&
+                       lastDim->bestFit == dimension.bestFit &&
+                       lastDim->outlineLevel == dimension.outlineLevel &&
+                       lastDim->collapsed == dimension.collapsed) {
+                rangeEnd = column;
+            } else {
+                xml << "<col min=\"" << rangeStart << "\" max=\"" << rangeEnd << "\"";
+                writeColAttrs(xml, *lastDim);
+                xml << "/>";
+                rangeStart = rangeEnd = column;
+                lastDim = &dimension;
+            }
+        }
+        if (rangeStart > 0) {
+            xml << "<col min=\"" << rangeStart << "\" max=\"" << rangeEnd << "\"";
+            writeColAttrs(xml, *lastDim);
             xml << "/>";
         }
         xml << "</cols>";
@@ -1266,7 +1291,8 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
         if (!sheet.images().empty()) ++drawingCount;
         if (sheet.chartCount() > 0) ++drawingCount;
         for (const auto& entry : sheet.cells()) {
-            styleCatalog.id(entry.second.style());
+            if (!entry.second.style().isDefault())
+                styleCatalog.id(entry.second.style());
             if (const auto* sv = std::get_if<std::string>(&entry.second.value())) {
                 ++sstOccurrences;
                 const auto [it, inserted] = sstIndex.try_emplace(*sv, sstStrings.size());
