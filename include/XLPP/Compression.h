@@ -32,6 +32,7 @@ struct SaveOptions {
     CompressionStrategy compressionStrategy{CompressionStrategy::Default};
     std::size_t parallelWorkers{0};
     bool parallelSheets{true};
+    bool parallelRows{false};
     // Emit ISO 29500 strict OOXML namespaces (purl.oclc.org URIs) instead of
     // the transitional schemas.openxmlformats.org URIs.
     bool strictNamespace{false};

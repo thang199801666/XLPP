@@ -7,6 +7,7 @@
 #include <sstream>
 #include <set>
 #include <stdexcept>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 #include <iomanip>
@@ -601,7 +602,8 @@ void writeColAttrs(std::ostringstream& xml, const xlpp::ColumnDimension& dim) {
 }
 
 std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, const DxfCatalog& dxfs, bool date1904, bool strict,
-                     const std::unordered_map<std::string, std::size_t>* sstIndex = nullptr) {
+                     const std::unordered_map<std::string, std::size_t>* sstIndex = nullptr,
+                     std::size_t rowWorkers = 0) {
     std::ostringstream xml;
     xml.precision(17);
     xml << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"" << nsMain(strict) << "\" xmlns:r=\"" << nsRelsDoc(strict) << "\">";
@@ -656,28 +658,67 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
     }
     xml << "<sheetData>";
 
-    std::size_t activeRow = 0;
-    bool rowOpen = false;
-    for (const auto& [_, cell] : sheet.cells()) {
-        if (!cell.empty()) {
-        if (cell.row() != activeRow) {
-            if (rowOpen) xml << "</row>";
-            activeRow = cell.row();
-            rowOpen = true;
-            xml << "<row r=\"" << activeRow << "\"";
-            if (const auto* dimension = sheet.tryRowDimension(activeRow)) {
-                if (dimension->height) xml << " ht=\"" << *dimension->height << "\" customHeight=\"1\"";
-                if (dimension->hidden) xml << " hidden=\"1\"";
-                if (dimension->outlineLevel) xml << " outlineLevel=\"" << dimension->outlineLevel << "\"";
-                if (dimension->collapsed) xml << " collapsed=\"1\"";
+    // Collect non-empty cells (already row-major ordered by std::map key)
+    std::vector<const xlpp::Cell*> ordered;
+    ordered.reserve(sheet.cells().size());
+    for (const auto& [_, cell] : sheet.cells())
+        if (!cell.empty()) ordered.push_back(&cell);
+
+    if (ordered.empty()) {
+        xml << "</sheetData>";
+    } else {
+        // Build row boundaries: for each unique row, record [start, end) index into ordered
+        struct RowSpan { std::size_t row; std::size_t begin; std::size_t end; };
+        std::vector<RowSpan> rowSpans;
+        rowSpans.reserve(ordered.size());
+        for (std::size_t i = 0; i < ordered.size(); ) {
+            const std::size_t r = ordered[i]->row();
+            std::size_t j = i + 1;
+            while (j < ordered.size() && ordered[j]->row() == r) ++j;
+            rowSpans.push_back({r, i, j});
+            i = j;
+        }
+
+        auto writeRows = [&](std::size_t rowBegin, std::size_t rowEnd, std::ostringstream& out) {
+            for (std::size_t ri = rowBegin; ri < rowEnd; ++ri) {
+                const auto& span = rowSpans[ri];
+                out << "<row r=\"" << span.row << "\"";
+                if (const auto* dim = sheet.tryRowDimension(span.row)) {
+                    if (dim->height) out << " ht=\"" << *dim->height << "\" customHeight=\"1\"";
+                    if (dim->hidden) out << " hidden=\"1\"";
+                    if (dim->outlineLevel) out << " outlineLevel=\"" << dim->outlineLevel << "\"";
+                    if (dim->collapsed) out << " collapsed=\"1\"";
+                }
+                out << ">";
+                for (std::size_t ci = span.begin; ci < span.end; ++ci)
+                    writeCell(out, *ordered[ci], styles, date1904, sstIndex);
+                out << "</row>";
             }
-            xml << ">";
+        };
+
+        if (rowWorkers > 1 && rowSpans.size() > 1) {
+            const std::size_t threads = std::min(rowWorkers, rowSpans.size());
+            const std::size_t chunk = (rowSpans.size() + threads - 1) / threads;
+            std::vector<std::ostringstream> chunks(threads);
+            std::vector<std::thread> workers;
+            workers.reserve(threads);
+            for (std::size_t t = 0; t < threads; ++t) {
+                const std::size_t begin = t * chunk;
+                const std::size_t end = std::min(begin + chunk, rowSpans.size());
+                if (begin >= end) break;
+                workers.emplace_back([&, t, begin, end] {
+                    chunks[t].precision(17);
+                    writeRows(begin, end, chunks[t]);
+                });
+            }
+            for (auto& w : workers) w.join();
+            for (auto& c : chunks) xml << c.str();
+        } else {
+            writeRows(0, rowSpans.size(), xml);
         }
-        writeCell(xml, cell, styles, date1904, sstIndex);
-        }
+        xml << "</sheetData>";
     }
-    if (rowOpen) xml << "</row>";
-    xml << "</sheetData>";
+
     if (!sheet.mergedRanges().empty()) {
         xml << "<mergeCells count=\"" << sheet.mergedRanges().size() << "\">";
         for (const auto& range : sheet.mergedRanges()) xml << "<mergeCell ref=\"" << range << "\"/>";
@@ -1000,16 +1041,21 @@ std::string tableXml(const xlpp::Table& table, std::size_t id, bool strict) {
 std::vector<std::string> serializeSheets(const std::vector<xlpp::Worksheet>& sheets,
                                          const StyleCatalog& styles, const DxfCatalog& dxfs,
                                          bool date1904, bool strict, std::size_t workers,
+                                         bool parallelRows,
                                          const std::unordered_map<std::string, std::size_t>* sstIndex) {
     std::vector<std::string> result(sheets.size());
     if (workers > 1 && sheets.size() > 1) {
         xlpp::internal::ThreadPool pool(std::min(workers, sheets.size()));
         pool.parallelFor(0, sheets.size(), [&](std::size_t i) {
-            result[i] = sheetXml(sheets[i], styles, dxfs, date1904, strict, sstIndex);
+            result[i] = sheetXml(sheets[i], styles, dxfs, date1904, strict, sstIndex, 0);
         });
+    } else if (parallelRows && workers > 1 && sheets.size() == 1) {
+        // Single large sheet: parallelize across rows within the sheet
+        for (std::size_t i = 0; i < sheets.size(); ++i)
+            result[i] = sheetXml(sheets[i], styles, dxfs, date1904, strict, sstIndex, workers);
     } else {
         for (std::size_t i = 0; i < sheets.size(); ++i)
-            result[i] = sheetXml(sheets[i], styles, dxfs, date1904, strict, sstIndex);
+            result[i] = sheetXml(sheets[i], styles, dxfs, date1904, strict, sstIndex, 0);
     }
     return result;
 }
@@ -1303,7 +1349,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
             for (const auto& rule : formatting.rules()) if (rule.hasDifferentialStyle()) dxfCatalog.id(rule.differentialStyle());
     }
     for (const auto& named : namedStyles_) styleCatalog.id(named.style());
-    const auto sheetXmls = serializeSheets(sheets_, styleCatalog, dxfCatalog, date1904_, strict, options.parallelSheets ? options.parallelWorkers : 0, &sstIndex);
+    const auto sheetXmls = serializeSheets(sheets_, styleCatalog, dxfCatalog, date1904_, strict, options.parallelSheets ? options.parallelWorkers : 0, options.parallelRows, &sstIndex);
     internal::ZipArchive z;
     z.setCompressionLevel(zlibLevel(options.compressionLevel));
     z.setCompressionStrategy(zlibStrategy(options.compressionStrategy));
