@@ -36,3 +36,7 @@ bindings/python/*.pyd
 Thumbs.db
 .DS_Store
 *.xlsx
+
+# CMake build
+build/cmake/
+build/
