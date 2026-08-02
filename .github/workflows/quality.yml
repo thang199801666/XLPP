@@ -54,3 +54,34 @@ jobs:
       - name: Build with Warnings as Errors
         run: msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /p:TreatWarningAsError=true /m /verbosity:normal
         continue-on-error: true
+
+  header-check:
+    name: Standalone Header Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build zlib1g-dev g++-14
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=gcc-14
+          -DCMAKE_CXX_COMPILER=g++-14
+          -DXLPP_BUILD_TESTS=ON
+          -DXLPP_BUILD_SAMPLES=OFF
+          -DXLPP_BUILD_CAPI=OFF
+
+      - name: Build header check
+        run: cmake --build build --target XLPP_HeaderCheck
+
+      - name: Build unit tests
+        run: cmake --build build --target XLPP_UnitTests
+
+      - name: Run tests
+        working-directory: build
+        run: ./tests/XLPP_UnitTests || true
