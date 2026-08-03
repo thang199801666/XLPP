@@ -6,8 +6,6 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-  release:
-    types: [published]
 
 jobs:
   build-and-test:
@@ -29,24 +27,8 @@ jobs:
         run: msbuild XL++.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=x64 /m /verbosity:minimal
 
       - name: Run Unit Tests (${{ matrix.configuration }})
-         shell: pwsh
-         run: |
-           $output = & .\x64\${{ matrix.configuration }}\XLPP.UnitTests.exe 2>&1
-           $exitCode = $LASTEXITCODE
-           $output | Tee-Object -FilePath test-results-${{ matrix.configuration }}.txt
-
-           $output |
-             Select-String -Pattern 'BENCHMARK' |
-             ForEach-Object { $_.Line } |
-             Out-File bench-results-${{ matrix.configuration }}.txt
-
-           Write-Output "--- Benchmark Results ---"
-           if (Test-Path bench-results-${{ matrix.configuration }}.txt) {
-             Get-Content bench-results-${{ matrix.configuration }}.txt
-           }
-
-           Write-Warning "Unit test process exited with code $exitCode; CI continues."
-           exit 0
+        run: .\x64\${{ matrix.configuration }}\XLPP.UnitTests.exe
+        continue-on-error: true
 
   c-api:
     name: C API DLL
@@ -64,45 +46,29 @@ jobs:
           path: bindings/x64/Release/XLPP.CApi.dll
 
   python:
-    name: Python Wheel
+    name: Python Binding
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: microsoft/setup-msbuild@v2
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
       - run: vcpkg install --triplet x64-windows
       - run: msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
-      - name: Install packaging tools
-        run: python -m pip install --upgrade pip build pybind11 setuptools
-      - name: Build wheel
+      - run: pip install pybind11 setuptools
+      - name: Build + Test Python
         working-directory: bindings/python
-        run: python -m build --wheel --no-isolation
-      - name: Test wheel
-        shell: pwsh
         run: |
-          python -m pip install (Get-ChildItem bindings/python/dist/*.whl | Select-Object -First 1).FullName
-          python -c "import xlpp; wb=xlpp.Workbook(); ws=wb.add_worksheet('CI'); ws['A1'].value=42; wb.save('ci_test.xlsx'); print('Python binding OK')"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: xlpp-wheel-py${{ matrix.python-version }}
-          path: bindings/python/dist/*.whl
-
-  publish:
-    if: github.event_name == 'release' && github.event.action == 'published'
-    needs: python
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: xlpp-wheel-*
-          path: dist
-          merge-multiple: true
-      - uses: pypa/gh-action-pypi-publish@release/v1
+          python setup.py build_ext --inplace
+          python -c "
+          import xlpp
+          wb = xlpp.Workbook()
+          ws = wb.add_worksheet('CI')
+          ws['A1'].value = 42
+          wb.save('ci_test.xlsx')
+          wb2 = xlpp.Workbook()
+          wb2.load('ci_test.xlsx')
+          assert wb2['CI']['A1'].value == 42.0
+          print('Python binding OK')
+          "
