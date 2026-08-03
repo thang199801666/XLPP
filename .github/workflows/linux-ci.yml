@@ -29,15 +29,79 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
 
       - name: Configure CMake
-        run: cmake -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DCMAKE_C_COMPILER=gcc-14
-          -DCMAKE_CXX_COMPILER=g++-14
-          -DXLPP_USE_BUNDLED_ZLIB=OFF
+        run: |
+          grep -n '#include <stdint.h>' include/XLPP/Cell/CellReference.h
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_C_COMPILER=gcc-14 \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DXLPP_USE_BUNDLED_ZLIB=OFF
+
+      - name: Verify public headers
+        run: |
+          printf '#include <XLPP/Cell/CellReference.h>\nint main() { return static_cast<int>(xlpp::makeCellKey(1, 1)); }\n' > /tmp/header-check.cpp
+          g++-14 -std=c++20 -Iinclude -fsyntax-only /tmp/header-check.cpp
 
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }}
 
       - name: Test
         working-directory: build
-        run: ./tests/XLPP_UnitTests || true
+        run: ctest --output-on-failure -C ${{ matrix.build_type }}
+
+  python-wheel:
+    name: Python wheel (Ubuntu)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-14 zlib1g-dev
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+          python -m pip install --upgrade pip build pybind11 setuptools
+
+      - name: Build native libraries
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-14 \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DXLPP_BUILD_TESTS=OFF \
+            -DXLPP_BUILD_SAMPLES=OFF \
+            -DXLPP_BUILD_CAPI=OFF \
+            -DXLPP_USE_BUNDLED_ZLIB=ON
+          cmake --build build
+          mkdir -p x64/Release
+          cp build/src/libxlpp_static.a x64/Release/
+          zlib_archive=$(find build -type f -name 'libzlibstatic.a' -print -quit)
+          test -n "$zlib_archive"
+          cp "$zlib_archive" x64/Release/
+          test -f x64/Release/libxlpp_static.a
+          test -f x64/Release/libzlibstatic.a
+
+      - name: Build wheel
+        working-directory: bindings/python
+        run: python -m build --wheel --no-isolation
+
+      - name: Test wheel
+        run: |
+          python -m venv --copies wheel-test
+          wheel-test/bin/python -m pip install --upgrade pip
+          wheel-test/bin/python -m pip install bindings/python/dist/*.whl
+          wheel-test/bin/python -c "import xlpp; wb=xlpp.Workbook(); ws=wb.add_worksheet('CI'); ws['A1'].value=42; print('Python binding OK')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xlpp-linux-wheel-py${{ matrix.python-version }}
+          path: bindings/python/dist/*.whl

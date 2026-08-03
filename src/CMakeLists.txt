@@ -21,6 +21,8 @@ add_library(xlpp_static STATIC
     ${XLPP_PUBLIC_HEADERS}
 )
 
+set_target_properties(xlpp_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(XLPP::xlpp ALIAS xlpp_static)
 
 target_include_directories(xlpp_static

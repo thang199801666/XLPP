@@ -1,5 +1,4 @@
 import os
-import sys
 from setuptools import setup
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 
@@ -8,11 +7,19 @@ xlpp_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 debug = os.environ.get("XLPP_DEBUG", "0") == "1"
 config = "Debug" if debug else "Release"
 
-extra_compile_args = ["/std:c++20", "/EHsc", "/bigobj", "/DXLPP_STATIC"]
-if debug:
-    extra_compile_args.append("/MDd")
+is_msvc = os.environ.get("CXX", "").lower().endswith(("cl", "cl.exe")) or os.name == "nt"
+if is_msvc:
+    extra_compile_args = ["/std:c++20", "/EHsc", "/bigobj", "/DXLPP_STATIC"]
+    extra_link_args = []
 else:
-    extra_compile_args.append("/MD")
+    extra_compile_args = ["-std=c++20", "-fPIC", "-DXLPP_STATIC"]
+    extra_link_args = []
+
+library_dir = os.path.join(xlpp_root, "x64", config)
+if is_msvc:
+    libraries = ["XLPP", "zlib"]
+else:
+    libraries = ["xlpp_static", "zlibstatic"]
 
 ext_modules = [
     Pybind11Extension(
@@ -23,10 +30,11 @@ ext_modules = [
             os.path.join(xlpp_root, "third_party", "zlib"),
         ],
         library_dirs=[
-            os.path.join(xlpp_root, "x64", config),
+            library_dir,
         ],
-        libraries=["XLPP", "zlib"],
+        libraries=libraries,
         extra_compile_args=extra_compile_args,
+        extra_link_args=extra_link_args,
         language="c++",
     ),
 ]
@@ -37,6 +45,13 @@ setup(
     author="XL++ contributors",
     description="High-performance C++ Excel xlsx library for Python",
     long_description="XL++ is a high-performance C++20 library for reading and writing .xlsx files, with a Python binding API modeled after openpyxl.",
+    long_description_content_type="text/plain",
+    url="https://github.com/thang199801666/XLPP",
+    project_urls={
+        "Source": "https://github.com/thang199801666/XLPP",
+        "Issues": "https://github.com/thang199801666/XLPP/issues",
+    },
+    license="MIT",
     ext_modules=ext_modules,
     cmdclass={"build_ext": build_ext},
     python_requires=">=3.8",
