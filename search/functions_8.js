@@ -1,0 +1,27 @@
+var searchData=
+[
+  ['iconset_0',['iconSet',['../classxlpp_1_1ConditionalRule.html#a5bfbd190bf87a52010c528dab507583f',1,'xlpp::ConditionalRule']]],
+  ['id_1',['id',['../classxlpp_1_1TableColumn.html#ae0ef7206021b9c0e65537d7808d2a913',1,'xlpp::TableColumn']]],
+  ['image_2',['image',['../classxlpp_1_1Image.html#a5ac7d1fea7f35b7d9e2c99e2c06a714c',1,'xlpp::Image::Image()=default'],['../classxlpp_1_1Image.html#a24d71daf0c5bc0b898b8eb60c07b4844',1,'xlpp::Image::Image(std::string anchor, std::vector&lt; unsigned char &gt; bytes, std::string extension)']]],
+  ['images_3',['images',['../classxlpp_1_1Worksheet.html#a24e122419f82ae435a46664d842aa1df',1,'xlpp::Worksheet::images() noexcept'],['../classxlpp_1_1Worksheet.html#a087f90f1e41406b692ceba36ded7f204',1,'xlpp::Worksheet::images() const noexcept']]],
+  ['includeblank_4',['includeBlank',['../classxlpp_1_1FilterColumn.html#af4acebe148587702e475ee4bb95c04e8',1,'xlpp::FilterColumn']]],
+  ['indent_5',['indent',['../classxlpp_1_1Alignment.html#a5628c34bf00f9156331b609d435fd94e',1,'xlpp::Alignment']]],
+  ['index_6',['index',['../classxlpp_1_1Workbook.html#ae77312c47413646949c11536aa11ea15',1,'xlpp::Workbook']]],
+  ['insertcolumns_7',['insertcolumns',['../classxlpp_1_1WorksheetProtection.html#a18b84366ac8fd6a220cc4839bea1d71c',1,'xlpp::WorksheetProtection::insertColumns()'],['../classxlpp_1_1Worksheet.html#ac8d4f981e711426b10acedf277c26d6e',1,'xlpp::Worksheet::insertColumns()']]],
+  ['insertrows_8',['insertrows',['../classxlpp_1_1WorksheetProtection.html#a8a70c5d58a5a9e82411eff8b65f9dc93',1,'xlpp::WorksheetProtection::insertRows()'],['../classxlpp_1_1Worksheet.html#ac13079fc01f50ec75795f7ac2cc52c61',1,'xlpp::Worksheet::insertRows()']]],
+  ['isboolean_9',['isBoolean',['../classxlpp_1_1Cell.html#aa34bbd6c9baa0e99419c6baa554396d9',1,'xlpp::Cell']]],
+  ['isdate_10',['isDate',['../classxlpp_1_1Cell.html#a73bde4b4a9b49c28381ebdefd302e537',1,'xlpp::Cell']]],
+  ['isdateformatcode_11',['isDateFormatCode',['../namespacexlpp.html#a3d87080f77cdb831e7371055aaf1f252',1,'xlpp']]],
+  ['isdefault_12',['isDefault',['../classxlpp_1_1Style.html#a8b6ac480e39849e0d63e7e614154c42d',1,'xlpp::Style']]],
+  ['iserror_13',['isError',['../classxlpp_1_1Cell.html#a235cc7bf6f6eb2316d295dd96c72d0e8',1,'xlpp::Cell']]],
+  ['ismerged_14',['isMerged',['../classxlpp_1_1Worksheet.html#add4cef78883f90230cb49a9659002fa1',1,'xlpp::Worksheet']]],
+  ['isnumeric_15',['isNumeric',['../classxlpp_1_1Cell.html#afa9c42d80433e476f1f8c0eb92430a0b',1,'xlpp::Cell']]],
+  ['isstring_16',['isString',['../classxlpp_1_1Cell.html#ac72f265add87b01365263e2f3a75b06f',1,'xlpp::Cell']]],
+  ['italic_17',['italic',['../classxlpp_1_1RichTextRun.html#a6cfae383cbdfe63422ddc48a6a0bcfae',1,'xlpp::RichTextRun::italic()'],['../classxlpp_1_1Font.html#a9976e6b74f0981646a3226f45a98cf9d',1,'xlpp::Font::italic()']]],
+  ['items_18',['items',['../classxlpp_1_1CustomProperties.html#ab0fc6aa5eadad43bb7f9f7a52857f44f',1,'xlpp::CustomProperties::items() const noexcept'],['../classxlpp_1_1CustomProperties.html#a493716bec4cc19e8b7cd0409181c3145',1,'xlpp::CustomProperties::items() noexcept'],['../classxlpp_1_1DataValidationCollection.html#ab5a45a3a4e0af357591787547efd06dc',1,'xlpp::DataValidationCollection::items() const noexcept'],['../classxlpp_1_1DataValidationCollection.html#a90a547d8417ab90786d8bc06c56ccc0c',1,'xlpp::DataValidationCollection::items() noexcept']]],
+  ['iterate_19',['iterate',['../classxlpp_1_1CalcProperties.html#a487c547cef0bffe2943bb2a3807563f0',1,'xlpp::CalcProperties']]],
+  ['iteratecount_20',['iterateCount',['../classxlpp_1_1CalcProperties.html#a6cde7481aa61282314997894973d4027',1,'xlpp::CalcProperties']]],
+  ['iteratedelta_21',['iterateDelta',['../classxlpp_1_1CalcProperties.html#ab71570ab338dd9cb711e9bdc8c59c581',1,'xlpp::CalcProperties']]],
+  ['itercols_22',['iterCols',['../classxlpp_1_1Worksheet.html#a9facb7c435102c93368d2352b3ecab5b',1,'xlpp::Worksheet']]],
+  ['iterrows_23',['iterRows',['../classxlpp_1_1Worksheet.html#a5d747934077ed4e8a6dda9adbae6c058',1,'xlpp::Worksheet']]]
+];

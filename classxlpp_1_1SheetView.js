@@ -1,0 +1,28 @@
+var classxlpp_1_1SheetView =
+[
+    [ "clearTabColor", "classxlpp_1_1SheetView.html#ac38cdcadbd5312a04574ad253ad53254", null ],
+    [ "pane", "classxlpp_1_1SheetView.html#ae836298456692cd5a240d7fe6b7ad0e2", null ],
+    [ "rightToLeft", "classxlpp_1_1SheetView.html#a5cf7d3e1b4e9a9d231aa837a0248e2c1", null ],
+    [ "setPane", "classxlpp_1_1SheetView.html#ab4d315c1695306e408e8abfe15ee94e2", null ],
+    [ "setRightToLeft", "classxlpp_1_1SheetView.html#adc7863076b17c2c79b4b1dbbed48e062", null ],
+    [ "setShowGridLines", "classxlpp_1_1SheetView.html#aac46c5f1be2a5e4e2a3ee19cc6393453", null ],
+    [ "setShowOutlineSymbols", "classxlpp_1_1SheetView.html#acb2b686d472b401d92a534f202a02a02", null ],
+    [ "setTabColor", "classxlpp_1_1SheetView.html#a58acd2d4371bb2bce5dfca28a66c7556", null ],
+    [ "setTabSelected", "classxlpp_1_1SheetView.html#ad893fee75ad63096503e970c75f6bce7", null ],
+    [ "setTopLeftCell", "classxlpp_1_1SheetView.html#aab3aa091a91919c76de186ca824cc734", null ],
+    [ "setWorkbookViewId", "classxlpp_1_1SheetView.html#a98073cf852f5eb9695ba6d23acf4db7f", null ],
+    [ "setXSplit", "classxlpp_1_1SheetView.html#ad9d9d88366b076f61c2045b3cf414ac0", null ],
+    [ "setYSplit", "classxlpp_1_1SheetView.html#a6f2acdbbd9cc4c41d737f3d12cd2117b", null ],
+    [ "setZoomScale", "classxlpp_1_1SheetView.html#ae29bfecb524d188e8dab18d5ead01ba7", null ],
+    [ "setZoomScaleNormal", "classxlpp_1_1SheetView.html#a22db921b36ef007b93a8fee58935fcc3", null ],
+    [ "showGridLines", "classxlpp_1_1SheetView.html#a1a25ab03143d0120b0a3bd0af7190530", null ],
+    [ "showOutlineSymbols", "classxlpp_1_1SheetView.html#a2e38816e13cc0a1ee0cf52ee0a1996a1", null ],
+    [ "tabColor", "classxlpp_1_1SheetView.html#a3eabeda993f4aae0ccce8d8c4e11fd73", null ],
+    [ "tabSelected", "classxlpp_1_1SheetView.html#a23f7698782244a61165ee5c498ceeca0", null ],
+    [ "topLeftCell", "classxlpp_1_1SheetView.html#a1c93a04b9895f35437254ed0a04269a2", null ],
+    [ "workbookViewId", "classxlpp_1_1SheetView.html#ae4449e868012d296f092a4f869e552fa", null ],
+    [ "xSplit", "classxlpp_1_1SheetView.html#ae3342b679b55df2f9e9274f085ab5fa6", null ],
+    [ "ySplit", "classxlpp_1_1SheetView.html#a422a6b315bcbeb6ae0afe83af798e26c", null ],
+    [ "zoomScale", "classxlpp_1_1SheetView.html#a1c0968ec0a27a83bc18bc2d4b2d5a618", null ],
+    [ "zoomScaleNormal", "classxlpp_1_1SheetView.html#a91b21136b8c74824c9b32772df93ce18", null ]
+];

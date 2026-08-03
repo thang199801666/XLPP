@@ -1,0 +1,25 @@
+var searchData=
+[
+  ['databar_0',['dataBar',['../classxlpp_1_1ConditionalRule.html#a6eb4a7d847f7a390f051e48a004eda2f',1,'xlpp::ConditionalRule']]],
+  ['datafields_1',['datafields',['../classxlpp_1_1PivotTable.html#a8e7be5ffbf562c87369e42dc84ebbbd4',1,'xlpp::PivotTable::dataFields() const noexcept'],['../classxlpp_1_1PivotTable.html#a3da9fead836be2a9169f8894f016d407',1,'xlpp::PivotTable::dataFields() noexcept']]],
+  ['datavalidation_2',['DataValidation',['../classxlpp_1_1DataValidation.html#a0095e51c965364a379005a70a2247808',1,'xlpp::DataValidation']]],
+  ['datavalidations_3',['datavalidations',['../classxlpp_1_1Worksheet.html#a11b6f78251e1ac52f92e401b9a2159b5',1,'xlpp::Worksheet::dataValidations() noexcept'],['../classxlpp_1_1Worksheet.html#adc719b1c21121e368c41aa6e80d816e7',1,'xlpp::Worksheet::dataValidations() const noexcept']]],
+  ['date_4',['date',['../classxlpp_1_1Cell.html#a1c7694ef6a282c5b9eb27ced72822629',1,'xlpp::Cell']]],
+  ['date1904_5',['date1904',['../classxlpp_1_1StreamingWorkbookWriter.html#a84eb8f5506151837e248ade330f7ffa3',1,'xlpp::StreamingWorkbookWriter::date1904()'],['../classxlpp_1_1Workbook.html#a48c7379e720284f60967cc2352eb95c4',1,'xlpp::Workbook::date1904()']]],
+  ['daysfromcivil_6',['daysFromCivil',['../namespacexlpp.html#a9b19fa5ff392c46223588d1c12772bb1',1,'xlpp']]],
+  ['definedname_7',['definedname',['../classxlpp_1_1Workbook.html#af6221467e460efb1f5d812a5a4d2244d',1,'xlpp::Workbook::definedName()'],['../classxlpp_1_1DefinedName.html#a759e2acc89654975c6c8afcadf1583b3',1,'xlpp::DefinedName::DefinedName()'],['../classxlpp_1_1Workbook.html#ab7c558bf1406350ef52767a6ed5f5219',1,'xlpp::Workbook::definedName()'],['../classxlpp_1_1DefinedName.html#a1a812bbe6aca1f92c161078091dedcca',1,'xlpp::DefinedName::DefinedName()']]],
+  ['definednames_8',['definednames',['../classxlpp_1_1Workbook.html#a899485bfacfb6b60039c511368489ba6',1,'xlpp::Workbook::definedNames() noexcept'],['../classxlpp_1_1Workbook.html#aeec9d195d83de712347f605ab1dfc422',1,'xlpp::Workbook::definedNames() const noexcept']]],
+  ['deletecolumns_9',['deletecolumns',['../classxlpp_1_1Worksheet.html#ac6c56cf3abcd87a7e5fba5db417dd4d8',1,'xlpp::Worksheet::deleteColumns()'],['../classxlpp_1_1WorksheetProtection.html#aef7cce2f21fa76600a158c71e584f62c',1,'xlpp::WorksheetProtection::deleteColumns() const noexcept']]],
+  ['deleterows_10',['deleterows',['../classxlpp_1_1WorksheetProtection.html#a081cde6c0c990bf1f8eaf6d47967f61a',1,'xlpp::WorksheetProtection::deleteRows()'],['../classxlpp_1_1Worksheet.html#afc7eaa3a96a9f7a1f6e4b8d15c640aab',1,'xlpp::Worksheet::deleteRows()']]],
+  ['description_11',['description',['../classxlpp_1_1DocumentProperties.html#aead09cf973595964f0d899df6fb1bbad',1,'xlpp::DocumentProperties']]],
+  ['diagnostics_12',['diagnostics',['../classxlpp_1_1Workbook.html#a4f20800c4fb705161141c2ad86e7ae1a',1,'xlpp::Workbook']]],
+  ['diagonal_13',['diagonal',['../classxlpp_1_1Border.html#acbd43099e3a7c084e3195d9125077a7f',1,'xlpp::Border::diagonal() noexcept'],['../classxlpp_1_1Border.html#a32a8cddc84d062ef607efeee00e205e7',1,'xlpp::Border::diagonal() const noexcept']]],
+  ['differentfirst_14',['differentFirst',['../classxlpp_1_1HeaderFooter.html#a61978f0c14cd4388e6aa3463024c2673',1,'xlpp::HeaderFooter']]],
+  ['differentialstyle_15',['differentialstyle',['../classxlpp_1_1ConditionalRule.html#ab2d09f7beeb9ea54997649f3e52e249b',1,'xlpp::ConditionalRule::differentialStyle() noexcept'],['../classxlpp_1_1ConditionalRule.html#aed641e053e9f74343586baf5bbaca15b',1,'xlpp::ConditionalRule::differentialStyle() const noexcept']]],
+  ['differentoddeven_16',['differentOddEven',['../classxlpp_1_1HeaderFooter.html#a9e4b23d6d65ebf5785a7ab26c3e55fff',1,'xlpp::HeaderFooter']]],
+  ['dimensions_17',['dimensions',['../classxlpp_1_1Worksheet.html#afce4e6893f53f903ca7643f3ebf45bd1',1,'xlpp::Worksheet']]],
+  ['dirty_18',['dirty',['../classxlpp_1_1Worksheet.html#aa20def80f3cb8d1a440a0127bded8b64',1,'xlpp::Worksheet']]],
+  ['display_19',['display',['../classxlpp_1_1Hyperlink.html#a59aa6485c70fc2086c4a618e9a3ad9aa',1,'xlpp::Hyperlink']]],
+  ['displayname_20',['displayName',['../classxlpp_1_1Table.html#a523a383b1db57965c0919dffc0fc31d5',1,'xlpp::Table']]],
+  ['draft_21',['draft',['../classxlpp_1_1PageSetup.html#ad2f0faa52a7a4919fbbad8637f17e38a',1,'xlpp::PageSetup']]]
+];

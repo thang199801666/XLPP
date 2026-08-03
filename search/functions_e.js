@@ -1,0 +1,27 @@
+var searchData=
+[
+  ['pagefields_0',['pagefields',['../classxlpp_1_1PivotTable.html#af405333665e53fbef06554aad1d734ba',1,'xlpp::PivotTable::pageFields() noexcept'],['../classxlpp_1_1PivotTable.html#a92d24fc478e4109f6c068ca5b3408348',1,'xlpp::PivotTable::pageFields() const noexcept']]],
+  ['pagemargins_1',['pagemargins',['../classxlpp_1_1Worksheet.html#ad90c5cc5988aabd4f5a2294f4dcd4a68',1,'xlpp::Worksheet::pageMargins() noexcept'],['../classxlpp_1_1Worksheet.html#a89239a8d9cc84103a3193bd51767b5b2',1,'xlpp::Worksheet::pageMargins() const noexcept']]],
+  ['pagesetup_2',['pagesetup',['../classxlpp_1_1Worksheet.html#ab38f8a442368621cd9a92bc2558c3ca5',1,'xlpp::Worksheet::pageSetup() noexcept'],['../classxlpp_1_1Worksheet.html#af3308ef79764243a4083f95f82e348ae',1,'xlpp::Worksheet::pageSetup() const noexcept']]],
+  ['pane_3',['pane',['../classxlpp_1_1SheetView.html#ae836298456692cd5a240d7fe6b7ad0e2',1,'xlpp::SheetView']]],
+  ['papersize_4',['paperSize',['../classxlpp_1_1PageSetup.html#afe0150392a118c1ca6f7a41132d986d2',1,'xlpp::PageSetup']]],
+  ['parse_5',['parse',['../structxlpp_1_1CellReference.html#acecce6ce8a6254b8d5eadb0687d3fae4',1,'xlpp::CellReference']]],
+  ['parseiso8601_6',['parseIso8601',['../namespacexlpp.html#a8fa7859f129f712336907280a1740c8d',1,'xlpp']]],
+  ['passwordhash_7',['passwordHash',['../classxlpp_1_1WorksheetProtection.html#a65f4e217d7b64c0d738e219610211537',1,'xlpp::WorksheetProtection']]],
+  ['patterntype_8',['patternType',['../classxlpp_1_1Fill.html#ad29718667c4c9f24542f140973482da0',1,'xlpp::Fill']]],
+  ['pivotfield_9',['pivotfield',['../classxlpp_1_1PivotField.html#ad7d955e838ed7ccdff8cfa32157770bf',1,'xlpp::PivotField::PivotField()=default'],['../classxlpp_1_1PivotField.html#ac520971c5f8f21e907e1a5aff238e959',1,'xlpp::PivotField::PivotField(std::string name)']]],
+  ['pivottable_10',['pivottable',['../classxlpp_1_1PivotTable.html#ae37fbc350e856dce072d12c47a025f0b',1,'xlpp::PivotTable::PivotTable()=default'],['../classxlpp_1_1PivotTable.html#a1485cac09a50a6f3f6d7794c25ef27ca',1,'xlpp::PivotTable::PivotTable(std::string name)']]],
+  ['pivottables_11',['pivottables',['../classxlpp_1_1Worksheet.html#aa33cc0b6b0b3cf931ed09d0536bce858',1,'xlpp::Worksheet::pivotTables() noexcept'],['../classxlpp_1_1Worksheet.html#aacf69a6363f84fcdf2f5cbaa3bf5f8a0',1,'xlpp::Worksheet::pivotTables() const noexcept']]],
+  ['plaintext_12',['plainText',['../classxlpp_1_1RichText.html#aa879e7d6b80130064bd7c21a3bdd55eb',1,'xlpp::RichText']]],
+  ['pow26_13',['pow26',['../namespacexlpp_1_1detail.html#af0828dc1e39ac54a5f540663e238de9e',1,'xlpp::detail']]],
+  ['preservedparts_14',['preservedparts',['../classxlpp_1_1Workbook.html#a9c4b6c962e4585e25053f8a44ef345e3',1,'xlpp::Workbook::preservedParts() noexcept'],['../classxlpp_1_1Workbook.html#a48473f550eb589a692de72d8029d939f',1,'xlpp::Workbook::preservedParts() const noexcept']]],
+  ['printarea_15',['printArea',['../classxlpp_1_1Worksheet.html#aa943f318c66e8b28029ddadbc3690316',1,'xlpp::Worksheet']]],
+  ['printoptions_16',['printoptions',['../classxlpp_1_1Worksheet.html#a7132d557c1792c5ba85eaa0f46f1fd16',1,'xlpp::Worksheet::printOptions() noexcept'],['../classxlpp_1_1Worksheet.html#adedee7ebeb2895f6a9508e8e09b76ac7',1,'xlpp::Worksheet::printOptions() const noexcept']]],
+  ['printtitlescols_17',['printTitlesCols',['../classxlpp_1_1Worksheet.html#aa7b737d71338b5944be8bef0471ede82',1,'xlpp::Worksheet']]],
+  ['printtitlesrows_18',['printTitlesRows',['../classxlpp_1_1Worksheet.html#a07d1bfa9cb6dde4736afd1ca2d9d03f4',1,'xlpp::Worksheet']]],
+  ['priority_19',['priority',['../classxlpp_1_1ConditionalRule.html#a5c5da36cc6a463f18a494c7d7be2e96a',1,'xlpp::ConditionalRule']]],
+  ['prompt_20',['prompt',['../classxlpp_1_1DataValidation.html#a364e8c75db3e7038a041c5c550eca18b',1,'xlpp::DataValidation']]],
+  ['prompttitle_21',['promptTitle',['../classxlpp_1_1DataValidation.html#aa885d1bf0940e7a2436120cba739361a',1,'xlpp::DataValidation']]],
+  ['properties_22',['properties',['../classxlpp_1_1Workbook.html#a63d39eb48365ae765c7ee169e205ab97',1,'xlpp::Workbook::properties() noexcept'],['../classxlpp_1_1Workbook.html#a68e7cf30216d7c508398070f2320e0e6',1,'xlpp::Workbook::properties() const noexcept']]],
+  ['protection_23',['protection',['../classxlpp_1_1Workbook.html#a8ae1bd09c0589a40e11f1b8b3bfcd1f3',1,'xlpp::Workbook::protection() noexcept'],['../classxlpp_1_1Workbook.html#a0395ed12b07799ebfba638ed72329e49',1,'xlpp::Workbook::protection() const noexcept'],['../classxlpp_1_1Worksheet.html#a5b7189ba6fb33b33d4da53353cdee0be',1,'xlpp::Worksheet::protection() noexcept'],['../classxlpp_1_1Worksheet.html#a272d852fb5f5a126cad0ddd44e764d6b',1,'xlpp::Worksheet::protection() const noexcept']]]
+];

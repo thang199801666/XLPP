@@ -1,0 +1,25 @@
+var searchData=
+[
+  ['tabcolor_0',['tabColor',['../classxlpp_1_1SheetView.html#a3eabeda993f4aae0ccce8d8c4e11fd73',1,'xlpp::SheetView']]],
+  ['table_1',['table',['../classxlpp_1_1Worksheet.html#a5e889373c7289bf62e1e4590ad7620cb',1,'xlpp::Worksheet::table(const std::string &amp;name) noexcept'],['../classxlpp_1_1Worksheet.html#ab5122d7f03f141aacf5521b5d60a27eb',1,'xlpp::Worksheet::table(const std::string &amp;name) const noexcept'],['../classxlpp_1_1Table.html#acd821aca2d5dba065d67b4c2910a5110',1,'xlpp::Table::Table()=default'],['../classxlpp_1_1Table.html#ac98fe44ba5d6f46526104df5e675f883',1,'xlpp::Table::Table(std::string name, std::string reference)']]],
+  ['tablecolumn_2',['tablecolumn',['../classxlpp_1_1TableColumn.html#a1a85e000bbcb02c3355c676799b8a959',1,'xlpp::TableColumn::TableColumn()=default'],['../classxlpp_1_1TableColumn.html#acc6704371081d7133d80838debbcc878',1,'xlpp::TableColumn::TableColumn(std::size_t id, std::string name)']]],
+  ['tables_3',['tables',['../classxlpp_1_1Worksheet.html#a30a78924d05a71ea20cef0aa3c3475b1',1,'xlpp::Worksheet::tables() noexcept'],['../classxlpp_1_1Worksheet.html#ac5fe0c35c0b70548e29e702949d77a45',1,'xlpp::Worksheet::tables() const noexcept']]],
+  ['tabselected_4',['tabSelected',['../classxlpp_1_1SheetView.html#a23f7698782244a61165ee5c498ceeca0',1,'xlpp::SheetView']]],
+  ['target_5',['target',['../classxlpp_1_1Hyperlink.html#ad20253a42b6ba199fe943d2f66ed9323',1,'xlpp::Hyperlink']]],
+  ['text_6',['text',['../classxlpp_1_1Comment.html#a05250623f8919524f77a5606c94ecf84',1,'xlpp::Comment::text()'],['../classxlpp_1_1RichTextRun.html#ab78998c6abf087b9460beebeeef4ef12',1,'xlpp::RichTextRun::text()']]],
+  ['textrotation_7',['textRotation',['../classxlpp_1_1Alignment.html#a0e457c8e4d901ec65c8279d539845143',1,'xlpp::Alignment']]],
+  ['title_8',['title',['../classxlpp_1_1ChartSeries.html#a2a23d4573a4ae965c90c82ed4c0170d4',1,'xlpp::ChartSeries::title()'],['../classxlpp_1_1Chart.html#a808b02d59ecd49ab27a3593d43a2a4e3',1,'xlpp::Chart::title()'],['../classxlpp_1_1DocumentProperties.html#ad62cd2a7ce764587c1194646660e3273',1,'xlpp::DocumentProperties::title()']]],
+  ['toexcelserial_9',['toExcelSerial',['../namespacexlpp.html#a266a215666668988bf15ae38ff3c20a4',1,'xlpp']]],
+  ['toiso8601_10',['toIso8601',['../namespacexlpp.html#ae82134ef1660a2489e0dbc6cc41334e5',1,'xlpp']]],
+  ['toiso8601date_11',['toIso8601Date',['../namespacexlpp.html#ab1013888cb73056e450910fc2e411e0b',1,'xlpp']]],
+  ['tooltip_12',['tooltip',['../classxlpp_1_1Hyperlink.html#ab5a2b7b1fc1cb25f5e8b9e7bc2af7ab3',1,'xlpp::Hyperlink']]],
+  ['top_13',['top',['../classxlpp_1_1Border.html#abcfada69786eefba2cc9044ee0f74038',1,'xlpp::Border::top()'],['../classxlpp_1_1PageMargins.html#ad8f25ab7d994f1ffba617eb847f6d663',1,'xlpp::PageMargins::top()'],['../classxlpp_1_1Border.html#a5adad7cdaa04b526a12a7e5bad620e9b',1,'xlpp::Border::top()']]],
+  ['topleftcell_14',['topLeftCell',['../classxlpp_1_1SheetView.html#a1c93a04b9895f35437254ed0a04269a2',1,'xlpp::SheetView']]],
+  ['tostring_15',['toString',['../namespacexlpp.html#ae4174b6356e6f7779c945a629c83fccd',1,'xlpp']]],
+  ['trycell_16',['trycell',['../classxlpp_1_1Row.html#a571b25d5d4c2b812c20268a8e3f0b633',1,'xlpp::Row::tryCell()'],['../classxlpp_1_1Worksheet.html#a565de04791f77eafb2651de6f1b51425',1,'xlpp::Worksheet::tryCell(const std::string &amp;address) const noexcept'],['../classxlpp_1_1Worksheet.html#ae508dbff7a649327a7c463510744bc21',1,'xlpp::Worksheet::tryCell(std::size_t row, std::size_t column) const noexcept']]],
+  ['trycolumn_17',['tryColumn',['../classxlpp_1_1AutoFilter.html#adf6bae867c55ad96dfc90577c353c0fe',1,'xlpp::AutoFilter']]],
+  ['trycolumndimension_18',['tryColumnDimension',['../classxlpp_1_1Worksheet.html#add83831e5c774d8012b080cb92753f8d',1,'xlpp::Worksheet']]],
+  ['tryrowdimension_19',['tryRowDimension',['../classxlpp_1_1Worksheet.html#ac669cd7685920deade58fc13e1f65a3d',1,'xlpp::Worksheet']]],
+  ['type_20',['type',['../classxlpp_1_1FormulaMetadata.html#a5ca2e3aa13ed3ce4c23539e5b14a6ddc',1,'xlpp::FormulaMetadata::type()'],['../classxlpp_1_1Chart.html#a427fe3a086569af108facbe42d37ef5b',1,'xlpp::Chart::type()'],['../classxlpp_1_1CustomProperty.html#a72e2c668520245e228db3bb44da1208d',1,'xlpp::CustomProperty::type()'],['../classxlpp_1_1ConditionalRule.html#a33639e16f3c7759e11409f881efa38dc',1,'xlpp::ConditionalRule::type()'],['../classxlpp_1_1DataValidation.html#abce470cb937b40c00eacee82c3a74513',1,'xlpp::DataValidation::type()']]],
+  ['typename_21',['typeName',['../classxlpp_1_1Chart.html#a2319a4447d42854202795d95385578db',1,'xlpp::Chart']]]
+];
