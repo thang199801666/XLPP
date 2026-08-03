@@ -4,9 +4,12 @@
 [![Linux CI](https://github.com/thang199801666/XLPP/actions/workflows/linux-ci.yml/badge.svg)](https://github.com/thang199801666/XLPP/actions/workflows/linux-ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)](https://en.cppreference.com/w/cpp/20)
+[![API Documentation](https://img.shields.io/badge/API-Doxygen-blue)](https://thang199801666.github.io/XLPP/)
 
 **High-performance C++20 Excel `.xlsx` read/write library.**  
 One dependency (zlib). SIMD-accelerated parsing. Multi-threaded save. Python & C# bindings.
+
+API reference: [Doxygen documentation](https://thang199801666.github.io/XLPP/)
 
 ```cpp
 #include <XLPP/XLPP.h>
