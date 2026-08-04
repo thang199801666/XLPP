@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)](https://en.cppreference.com/w/cpp/20)
 [![API Documentation](https://img.shields.io/badge/API-Doxygen-blue)](https://thang199801666.github.io/XLPP/)
+[![PyPI version](https://img.shields.io/pypi/v/xlpp.svg)](https://pypi.org/project/xlpp/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/xlpp.svg)](https://pypi.org/project/xlpp/)
 
 **High-performance C++20 Excel `.xlsx` read/write library.**  
 One dependency (zlib). SIMD-accelerated parsing. Multi-threaded save. Python & C# bindings.
@@ -121,6 +123,14 @@ print(wb2['Sales']['A1'].value)  # "Item"
 ```
 
 ```bash
+pip install xlpp
+```
+
+Pre-built wheels are published to [PyPI](https://pypi.org/project/xlpp/) for
+Windows, macOS (Apple Silicon) and Linux (`manylinux`) on every `v*` tag. To
+build from source instead:
+
+```bash
 pip install pybind11 setuptools
 cd bindings/python && pip install .
 ```
@@ -168,7 +178,7 @@ XLPP/
 │   ├── python/            # pybind11
 │   ├── c/                 # C API DLL
 │   └── csharp/            # P/Invoke wrapper
-├── tests/                 # 55+ unit test suites
+├── tests/                 # 75+ unit test suites
 ├── docs/                  # Documentation
 ├── BUILDING.md            # Build instructions
 └── ROADMAP.md             # Development roadmap

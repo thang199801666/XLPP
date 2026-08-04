@@ -451,9 +451,14 @@ void testCopyWorksheet(TestContext& test) {
                     "cell data is deep-copied");
 
     wb.addWorksheet("Another");
-    copy = wb.copyWorksheet(wb[0], "Clone");
+    auto& clone = wb.copyWorksheet(wb[0], "Clone");
     test.checkEqual(wb.sheetCount(), std::size_t{4}, "copyWorksheet from index access");
-    test.checkEqual(copy.name(), std::string("Clone"), "clone name");
+    test.checkEqual(clone.name(), std::string("Clone"), "clone name");
+    test.checkEqual(std::get<std::string>(clone.cell("A1").value()), std::string("original"),
+                    "clone cell data is deep-copied");
+    clone.cell("A1").setValue(std::string("changed"));
+    test.checkEqual(std::get<std::string>(wb[0].cell("A1").value()), std::string("original"),
+                    "copying from wb[0] does not alias the source");
 }
 
 void testMergedCells(TestContext& test) {
@@ -2436,10 +2441,602 @@ void testMutationFuzz(TestContext& test) {
     std::filesystem::remove(path);
 }
 
+void testCellReferenceMatrix(TestContext& test) {
+    const std::vector<std::pair<std::size_t, std::string>> columns{
+        {1, "A"}, {2, "B"}, {26, "Z"}, {27, "AA"}, {52, "AZ"}, {53, "BA"},
+        {78, "BZ"}, {79, "CA"}, {702, "ZZ"}, {703, "AAA"}, {16384, "XFD"}};
+    for (const auto& [index, name] : columns) {
+        test.checkEqual(xlpp::CellReference::columnName(index), name, "columnName for " + name);
+        test.checkEqual(xlpp::CellReference::columnIndex(name), index, "columnIndex for " + name);
+        test.checkEqual(xlpp::CellReference::columnIndex(xlpp::CellReference::columnName(index)), index,
+                        "columnName/columnIndex inverse for " + name);
+    }
+
+    test.checkEqual(xlpp::CellReference::parse("$A$1").row, std::size_t{1}, "Dollar-prefixed row");
+    test.checkEqual(xlpp::CellReference::parse("$A$1").column, std::size_t{1}, "Dollar-prefixed column");
+    test.checkEqual(xlpp::CellReference::parse("xfd1048576").row, std::size_t{1048576}, "Maximum row parses");
+    test.checkEqual(xlpp::CellReference::parse("xfd1048576").column, std::size_t{16384}, "Maximum column parses");
+    test.checkEqual(xlpp::CellReference{3, 2}.address(), std::string("B3"), "Address builds from coords");
+    test.checkEqual(xlpp::CellReference::parse("b3").address(), std::string("B3"), "Lowercase input normalizes");
+
+    test.checkEqual(xlpp::makeCellKey(1, 1), std::uint64_t{1} << 20 | 1, "Row 1 col 1 key");
+    test.checkEqual(xlpp::makeCellKey(2, 1) > xlpp::makeCellKey(1, 16384), true,
+                    "Row-major ordering keeps next row after max column");
+    test.checkEqual(xlpp::makeCellKey(1048576, 16384), (std::uint64_t{1048576} << 20) | 16384,
+                    "Max coordinate key");
+
+    bool threw = false;
+    try { (void)xlpp::CellReference::columnName(0); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "columnName(0) throws");
+    threw = false;
+    try { (void)xlpp::CellReference::columnIndex(""); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "columnIndex(empty) throws");
+    threw = false;
+    try { (void)xlpp::CellReference::columnIndex("A1"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "columnIndex rejects digits");
+    threw = false;
+    try { (void)xlpp::CellReference::parse(""); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "parse(empty) throws");
+    threw = false;
+    try { (void)xlpp::CellReference::parse("1A"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "parse rejects digits before letters");
+    threw = false;
+    try { (void)xlpp::CellReference::parse("A0"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "parse rejects row zero");
+    threw = false;
+    try { (void)xlpp::CellReference::parse("A1:Z9"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "parse rejects range strings");
+    threw = false;
+    try { (void)xlpp::CellReference::parse("A"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "parse rejects missing row");
+}
+
+void testCellErrorMatrix(TestContext& test) {
+    const std::vector<std::pair<xlpp::CellError, std::string>> errors{
+        {xlpp::CellError::Null, "#NULL!"},
+        {xlpp::CellError::DivisionByZero, "#DIV/0!"},
+        {xlpp::CellError::Value, "#VALUE!"},
+        {xlpp::CellError::Reference, "#REF!"},
+        {xlpp::CellError::Name, "#NAME?"},
+        {xlpp::CellError::Number, "#NUM!"},
+        {xlpp::CellError::NotAvailable, "#N/A"},
+        {xlpp::CellError::GettingData, "#GETTING_DATA"},
+    };
+    for (const auto& [error, text] : errors) {
+        test.checkEqual(xlpp::toString(error), text, "toString maps error to " + text);
+        test.checkTrue(xlpp::cellErrorFromString(text) == error, "cellErrorFromString parses " + text);
+    }
+    test.checkTrue(xlpp::cellErrorFromString("#BOGUS!") == xlpp::CellError::Value,
+                   "Unknown error text falls back to #VALUE!");
+    test.checkTrue(xlpp::cellErrorFromString("") == xlpp::CellError::Value,
+                   "Empty error text falls back to #VALUE!");
+}
+
+void testXlfnHelper(TestContext& test) {
+    test.checkEqual(xlpp::xlfn("SORT"), std::string("_xlfn.SORT"), "New function gets prefix");
+    test.checkEqual(xlpp::xlfn("FILTER(A1:A5,\"x\")"), std::string("_xlfn.FILTER(A1:A5,\"x\")"),
+                    "Prefixed argument form");
+    test.checkEqual(xlpp::xlfn("_xlfn.XLOOKUP"), std::string("_xlfn.XLOOKUP"),
+                    "Already-prefixed input unchanged");
+    test.checkEqual(xlpp::xlfn("_xlfn.UNIQUE"), std::string("_xlfn.UNIQUE"),
+                    "Case-preserving on prefix");
+    test.checkEqual(xlpp::xlfn(""), std::string(""), "Empty input stays empty");
+    test.checkEqual(xlpp::xlfn("SEQUENCE(10)"), std::string("_xlfn.SEQUENCE(10)"),
+                    "Function with args gets prefix");
+}
+
+void testFormulaMetadataDefaults(TestContext& test) {
+    xlpp::Cell cell("A1");
+    test.checkTrue(cell.formulaMetadata().empty(), "Fresh metadata is empty");
+    test.checkTrue(!cell.hasFormula(), "No formula initially");
+
+    cell.setSharedFormula("B1+C1", 9, "A1:A5");
+    test.checkTrue(cell.hasFormula(), "Shared formula present");
+    test.checkEqual(static_cast<unsigned>(cell.formulaMetadata().type()),
+                    static_cast<unsigned>(xlpp::FormulaType::Shared), "Shared type set");
+    test.checkEqual(*cell.formulaMetadata().sharedIndex(), 9u, "Shared index stored");
+    test.checkEqual(cell.formulaMetadata().reference(), std::string("A1:A5"), "Shared reference stored");
+    cell.formulaMetadata().setCalculateOnLoad(true);
+    test.checkTrue(cell.formulaMetadata().calculateOnLoad(), "Calculate-on-load flag");
+    test.checkTrue(!cell.formulaMetadata().empty(), "Populated metadata is non-empty");
+
+    cell.clearFormula();
+    test.checkTrue(!cell.hasFormula(), "clearFormula removes formula");
+    test.checkTrue(cell.formulaMetadata().empty(), "clearFormula resets metadata");
+
+    cell.setDynamicArrayFormula("_xlfn.SORT(A1:A5)", "C1");
+    test.checkEqual(static_cast<unsigned>(cell.formulaMetadata().type()),
+                    static_cast<unsigned>(xlpp::FormulaType::DynamicArray), "Dynamic array type");
+    test.checkTrue(cell.formulaMetadata().alwaysCalculateArray(), "Dynamic array sets aca");
+    test.checkEqual(cell.formulaMetadata().reference(), std::string("C1"), "Dynamic array reference");
+    test.checkEqual(cell.formula(), std::string("_xlfn.SORT(A1:A5)"), "Dynamic array formula text");
+}
+
+void testNumberFormatDetection(TestContext& test) {
+    test.checkTrue(xlpp::isDateFormatCode("yyyy-mm-dd", 0), "Literal date format detected");
+    test.checkTrue(xlpp::isDateFormatCode("m/d/yy", 14), "Built-in id 14 is a date");
+    test.checkTrue(xlpp::isDateFormatCode("", 27), "Built-in id 27 is a date");
+    test.checkTrue(xlpp::isDateFormatCode("", 36), "Built-in id 36 is a date");
+    test.checkTrue(xlpp::isDateFormatCode("", 45), "Built-in id 45 is a date");
+    test.checkTrue(xlpp::isDateFormatCode("", 50), "Built-in id 50 is a date");
+    test.checkTrue(xlpp::isDateFormatCode("", 58), "Built-in id 58 is a date");
+    test.checkTrue(xlpp::isDateFormatCode("", 81), "Built-in id 81 is a date");
+    test.checkTrue(!xlpp::isDateFormatCode("", 0), "Built-in id 0 is not a date");
+    test.checkTrue(!xlpp::isDateFormatCode("", 1), "Built-in id 1 is not a date");
+    test.checkTrue(!xlpp::isDateFormatCode("", 49), "Built-in id 49 is not a date");
+    test.checkTrue(!xlpp::isDateFormatCode("0.00%", 0), "Percent format is not a date");
+    test.checkTrue(!xlpp::isDateFormatCode("#,##0.00", 0), "Thousands format is not a date");
+    test.checkTrue(xlpp::isDateFormatCode("[h]:mm:ss", 0), "Elapsed time bracket format");
+    test.checkTrue(!xlpp::isDateFormatCode("\"yyyy\";0.00", 0), "Quoted letters are literals");
+    test.checkTrue(!xlpp::isDateFormatCode("\\m", 0), "Escaped letter is a literal");
+    test.checkTrue(xlpp::isDateFormatCode("[Red]yyyy", 0), "Color section then date letters");
+    test.checkTrue(!xlpp::isDateFormatCode("[Red]0.00", 0), "Color section numeric stays numeric");
+    test.checkTrue(!xlpp::isDateFormatCode("[$-F800]dddd, mmmm dd, yyyy", 0) == false,
+                   "Locale format with letters detected");
+}
+
+void testDateTimeBoundaries(TestContext& test) {
+    using xlpp::DateTime;
+    test.checkEqual(xlpp::fromExcelSerial(59.0), DateTime{1900, 2, 28}, "Serial 59 is 1900-02-28");
+    test.checkEqual(xlpp::fromExcelSerial(61.0), DateTime{1900, 3, 1}, "Serial 61 is 1900-03-01");
+    test.checkEqual(xlpp::fromExcelSerial(0.0), DateTime{1899, 12, 31}, "Serial 0 is the epoch");
+    test.checkEqual(xlpp::fromExcelSerial(-1.0), DateTime{1899, 12, 30}, "Negative serials go before epoch");
+
+    const DateTime leap2000{2000, 2, 29};
+    test.checkEqual(xlpp::fromExcelSerial(xlpp::toExcelSerial(leap2000)), leap2000, "2000 leap day round-trips");
+    const DateTime leap2024{2024, 2, 29};
+    test.checkEqual(xlpp::fromExcelSerial(xlpp::toExcelSerial(leap2024)), leap2024, "2024 leap day round-trips");
+    const DateTime notLeap{2100, 2, 28};
+    test.checkEqual(xlpp::fromExcelSerial(xlpp::toExcelSerial(notLeap)), notLeap, "Century non-leap year");
+
+    test.checkEqual(xlpp::fromExcelSerial(xlpp::toExcelSerial(DateTime{1899, 12, 30})),
+                    DateTime{1899, 12, 30}, "Pre-epoch date round-trips");
+    test.checkEqual(xlpp::fromExcelSerial(xlpp::toExcelSerial(DateTime{1899, 12, 31})),
+                    DateTime{1899, 12, 31}, "Epoch date round-trips");
+
+    test.checkNear(xlpp::toExcelSerial(DateTime{2000, 1, 1, 0, 0, 0.5}), 36526.0 + 0.5 / 86400.0, 1e-12,
+                   "Sub-second fraction preserved");
+    const DateTime subsecond{2024, 6, 1, 12, 0, 0.25};
+    const auto serial = xlpp::toExcelSerial(subsecond);
+    test.checkTrue(std::abs(xlpp::fromExcelSerial(serial).second - 0.25) < 1e-9,
+                   "Quarter-second survives serial round-trip");
+    test.checkEqual(xlpp::fromExcelSerial(2958465.0), DateTime{9999, 12, 31}, "Max Excel serial round-trips");
+    test.checkEqual(xlpp::fromExcelSerial(2958466.0), DateTime{10000, 1, 1}, "Serial past max rolls to next year");
+}
+
+void testStreamingWriterModes(TestContext& test) {
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto hashPath = dir / "xlpp_m21_stream_hash.xlsx";
+    {
+        xlpp::StreamingWorkbookWriter writer(hashPath, xlpp::SharedStringMode::Hash);
+        auto& ws = writer.addWorksheet("Data");
+        ws.append({std::string("repeat")});
+        ws.append({std::string("repeat")});
+        ws.append({std::string("other"), 42.0, true});
+        writer.close();
+    }
+    {
+        auto z = xlpp::internal::ZipArchive::open(hashPath);
+        test.checkTrue(z.contains("xl/sharedStrings.xml"), "Hash mode writes shared strings");
+        const auto sst = z.get("xl/sharedStrings.xml");
+        test.checkTrue(sst.find("uniqueCount=\"2\"") != std::string::npos, "Hash mode deduplicates strings");
+        test.checkTrue(sst.find("count=\"3\"") != std::string::npos, "Hash mode counts occurrences");
+    }
+    {
+        xlpp::StreamingWorkbookReader reader(hashPath);
+        const auto names = reader.worksheetNames();
+        test.checkEqual(names.size(), std::size_t{1}, "Streaming reader lists one sheet");
+        test.checkEqual(names[0], std::string("Data"), "Streaming reader sheet name");
+        std::size_t rowSeen = 0;
+        reader.forEachRow("Data", [&](std::size_t row, const xlpp::StreamingRow& cells) {
+            rowSeen = row;
+            return true;
+        });
+        test.checkEqual(rowSeen, std::size_t{3}, "Three rows streamed back");
+        xlpp::StreamingRow first;
+        auto it = reader.worksheet("Data").begin();
+        if (it != reader.worksheet("Data").end()) first = *it;
+        test.checkEqual(first.size(), std::size_t{1}, "First row has one cell");
+        test.checkTrue(std::get_if<std::string>(&first[0].value) != nullptr, "First cell is a string");
+        test.checkEqual(std::get<std::string>(first[0].value), std::string("repeat"), "String value streamed back");
+    }
+    std::filesystem::remove(hashPath);
+
+    const auto lruPath = dir / "xlpp_m21_stream_lru.xlsx";
+    {
+        xlpp::StreamingWorkbookWriter writer(lruPath, xlpp::SharedStringMode::BoundedLru, 4);
+        auto& ws = writer.addWorksheet("Cache");
+        for (int i = 0; i < 6; ++i) ws.append({std::string("k" + std::to_string(i % 3))});
+        writer.close();
+    }
+    {
+        xlpp::StreamingWorkbookReader reader(lruPath);
+        std::vector<std::string> values;
+        reader.forEachRow("Cache", [&](std::size_t, const xlpp::StreamingRow& cells) {
+            if (!cells.empty() && std::get_if<std::string>(&cells[0].value))
+                values.push_back(std::get<std::string>(cells[0].value));
+            return true;
+        });
+        test.checkEqual(values.size(), std::size_t{6}, "BoundedLru rows all present");
+        test.checkEqual(values[0], std::string("k0"), "BoundedLru first value");
+        test.checkEqual(values[5], std::string("k2"), "BoundedLru last value repeats correctly");
+    }
+    std::filesystem::remove(lruPath);
+}
+
+void testStreamingReaderFeatures(TestContext& test) {
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_m21_stream_features.xlsx";
+    {
+        xlpp::StreamingWorkbookWriter writer(path, xlpp::SharedStringMode::Hash);
+        writer.addWorksheet("Empty");
+        auto& ws = writer.addWorksheet("Rows");
+        for (int i = 1; i <= 10; ++i) ws.append({double(i), std::string("row" + std::to_string(i))});
+        writer.close();
+    }
+    {
+        xlpp::StreamingWorkbookReader reader(path);
+        const auto names = reader.worksheetNames();
+        test.checkEqual(names.size(), std::size_t{2}, "Both sheets listed");
+
+        std::size_t seen = 0;
+        reader.forEachRow("Empty", [&](std::size_t, const xlpp::StreamingRow&) { ++seen; return true; });
+        test.checkEqual(seen, std::size_t{0}, "Empty sheet yields no rows");
+
+        std::size_t full = 0;
+        reader.forEachRow("Rows", [&](std::size_t, const xlpp::StreamingRow&) { ++full; return true; });
+        test.checkEqual(full, std::size_t{10}, "All 10 rows streamed");
+
+        std::size_t early = 0;
+        reader.forEachRow("Rows", [&](std::size_t, const xlpp::StreamingRow&) {
+            return ++early < 3;
+        });
+        test.checkEqual(early, std::size_t{3}, "forEachRow early-stop callback honored");
+
+        auto worksheet = reader.worksheet("Rows");
+        auto begin = worksheet.begin();
+        auto end = worksheet.end();
+        test.checkTrue(begin != end, "Iterator range non-empty");
+        test.checkEqual(begin.rowNumber(), std::size_t{1}, "First iterator row number");
+        ++begin;
+        test.checkEqual(begin.rowNumber(), std::size_t{2}, "Second iterator row number");
+        const auto& row = *begin;
+        test.checkEqual(row.size(), std::size_t{2}, "Row has two cells");
+        test.checkNear(std::get<double>(row[0].value), 2.0, 1e-12, "Row number cell");
+    }
+    std::filesystem::remove(path);
+}
+
+void testCompressionLevelsAndParallel(TestContext& test) {
+    const auto dir = std::filesystem::temp_directory_path();
+    auto buildWorkbook = [&](xlpp::SaveOptions options, const std::filesystem::path& path) {
+        xlpp::Workbook wb;
+        auto& sheet = wb.addWorksheet("Data");
+        for (std::size_t r = 1; r <= 50; ++r)
+            sheet.append({std::string("value-" + std::to_string(r)), double(r), r % 2 == 0});
+        wb.save(path, options);
+    };
+    const auto storePath = dir / "xlpp_m21_store.xlsx";
+    const auto bestPath = dir / "xlpp_m21_best.xlsx";
+    const auto fastPath = dir / "xlpp_m21_fast.xlsx";
+    const auto parallelPath = dir / "xlpp_m21_parallel.xlsx";
+
+    xlpp::SaveOptions store; store.compressionLevel = xlpp::CompressionLevel::Store;
+    xlpp::SaveOptions fast; fast.compressionLevel = xlpp::CompressionLevel::Fastest;
+    xlpp::SaveOptions best; best.compressionLevel = xlpp::CompressionLevel::Best;
+    xlpp::SaveOptions parallel; parallel.parallelWorkers = 4; parallel.parallelSheets = true;
+
+    buildWorkbook(store, storePath);
+    buildWorkbook(fast, fastPath);
+    buildWorkbook(best, bestPath);
+    buildWorkbook(parallel, parallelPath);
+    buildWorkbook(parallel, fastPath); // same options re-save (differential cache path)
+
+    test.checkTrue(std::filesystem::file_size(storePath) > std::filesystem::file_size(bestPath),
+                   "Stored output larger than best-compressed");
+    test.checkTrue(std::filesystem::file_size(fastPath) > 0, "Fastest output non-empty");
+
+    auto loadAndVerify = [&](const std::filesystem::path& path, const std::string& label) {
+        xlpp::Workbook loaded;
+        loaded.load(path);
+        auto* sheet = loaded.worksheet("Data");
+        test.checkTrue(sheet != nullptr, label + " loads");
+        test.checkEqual(sheet->cell("A50").stringValueOr(""), std::string("value-50"), label + " last value");
+        test.checkNear(std::get<double>(sheet->cell("B50").value()), 50.0, 1e-12, label + " last number");
+    };
+    loadAndVerify(storePath, "Store level");
+    loadAndVerify(fastPath, "Fastest level");
+    loadAndVerify(bestPath, "Best level");
+    loadAndVerify(parallelPath, "Parallel output");
+
+    for (const auto& p : {storePath, bestPath, fastPath, parallelPath}) std::filesystem::remove(p);
+}
+
+void testChartAndPivotPackage(TestContext& test) {
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_m21_chart_pivot.xlsx";
+    xlpp::Workbook wb;
+    auto& sheet = wb.addWorksheet("Charts");
+    sheet.append({std::string("Q1"), 10.0});
+    sheet.append({std::string("Q2"), 20.0});
+
+    xlpp::Chart chart(xlpp::Chart::Type::Bar);
+    chart.setTitle("Sales");
+    chart.setXAxisTitle("Quarter");
+    chart.setYAxisTitle("Units");
+    chart.setShowLegend(true);
+    chart.setLegendPosition("b");
+    auto& series = chart.addSeries(xlpp::ChartSeries("Units"));
+    series.reference("Charts", "$B$2:$B$3");
+    series.categories("Charts", "$A$2:$A$3");
+    sheet.addChart(chart);
+
+    xlpp::PivotTable pivot("SalesPivot");
+    pivot.setLocation("D1");
+    pivot.cache().setCacheId(1);
+    pivot.cache().setSourceData("'Charts'!$A$1:$B$3");
+    pivot.addRowField("Quarter");
+    pivot.addColumnField("Units");
+    pivot.addDataField();
+    sheet.addPivotTable(std::move(pivot));
+
+    wb.save(path);
+    test.checkTrue(std::filesystem::exists(path), "Chart/pivot workbook saved");
+
+    auto z = xlpp::internal::ZipArchive::open(path);
+    test.checkTrue(z.contains("xl/charts/chart1.xml"), "Chart part written");
+    const auto chartXml = z.get("xl/charts/chart1.xml");
+    test.checkTrue(chartXml.find("barChart") != std::string::npos, "Bar chart type in part");
+    test.checkTrue(chartXml.find("Sales") != std::string::npos, "Chart title in part");
+    test.checkTrue(z.contains("xl/pivotTables/pivotTable1.xml"), "Pivot part written");
+    test.checkTrue(z.contains("xl/pivotCache/pivotCacheDefinition1.xml"), "Pivot cache written");
+    test.checkTrue(z.contains("xl/drawings/drawing1.xml"), "Drawing part written for chart");
+
+    {
+        xlpp::Workbook loaded;
+        loaded.load(path);
+        test.checkTrue(loaded.worksheet("Charts") != nullptr, "Chart workbook reloads");
+    }
+    std::filesystem::remove(path);
+}
+
+void testChartTypeNameMap(TestContext& test) {
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Bar), std::string("barChart"), "Bar standard");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Bar, xlpp::Chart::Grouping::Stacked), std::string("barStacked"), "Bar stacked");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Bar, xlpp::Chart::Grouping::PercentStacked), std::string("barPercentStacked"), "Bar percent stacked");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Line), std::string("lineChart"), "Line standard");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Line, xlpp::Chart::Grouping::Stacked), std::string("lineStacked"), "Line stacked");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Pie), std::string("pieChart"), "Pie");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Scatter), std::string("scatterChart"), "Scatter");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Doughnut), std::string("doughnutChart"), "Doughnut");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Radar), std::string("radarChart"), "Radar");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Area), std::string("areaChart"), "Area standard");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Area, xlpp::Chart::Grouping::Stacked), std::string("areaStacked"), "Area stacked");
+    test.checkEqual(xlpp::Chart::typeName(xlpp::Chart::Type::Bubble), std::string("bubbleChart"), "Bubble");
+}
+
+void testInternalHyperlinkAndMemoryStream(TestContext& test) {
+    std::ostringstream memory;
+    {
+        xlpp::Workbook wb;
+        auto& sheet = wb.addWorksheet("Link");
+        sheet.cell("A1").setValue("Jump");
+        xlpp::Hyperlink internal("Sheet2!B5");
+        internal.setExternal(false);
+        internal.setDisplay("Go to B5");
+        sheet.cell("A1").setHyperlink(std::move(internal));
+        wb.addWorksheet("Sheet2");
+        wb.save(memory);
+        test.checkTrue(memory.str().size() > 0, "Workbook saves to memory stream");
+    }
+    {
+        std::istringstream input(memory.str());
+        xlpp::Workbook loaded;
+        loaded.load(input);
+        test.checkTrue(loaded.sheetCount() == 2, "Memory stream loads two sheets");
+        const auto* sheet = loaded.worksheet("Link");
+        test.checkTrue(sheet->tryCell("A1")->hasHyperlink(), "Internal hyperlink preserved");
+        const auto& link = *sheet->tryCell("A1")->hyperlinkValue();
+        test.checkEqual(link.target(), std::string("Sheet2!B5"), "Internal hyperlink target");
+        test.checkTrue(!link.external(), "Internal hyperlink marked non-external");
+    }
+}
+
+void testWorkbookEdgeCases(TestContext& test) {
+    bool threw = false;
+    xlpp::Workbook wb;
+    try { (void)wb.addWorksheet(""); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "addWorksheet(empty) throws");
+    threw = false;
+    wb.addWorksheet("Dup");
+    try { (void)wb.addWorksheet("Dup"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "addWorksheet(duplicate) throws");
+    threw = false;
+    xlpp::Workbook wb2;
+    wb2.addWorksheet("S");
+    try { (void)wb2.copyWorksheet(wb2[0], ""); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "copyWorksheet(empty name) throws");
+    threw = false;
+    try { (void)wb2.copyWorksheet(wb2[0], "S"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "copyWorksheet(duplicate name) throws");
+
+    threw = false;
+    try { xlpp::DefinedName("", "value"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "DefinedName(empty name) throws");
+    threw = false;
+    try { xlpp::DefinedName("name", ""); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "DefinedName(empty value) throws");
+
+    threw = false;
+    try { xlpp::Table("", "A1:B2"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "Table(empty name) throws");
+    threw = false;
+    try { xlpp::Table("T", ""); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "Table(empty reference) throws");
+
+    threw = false;
+    xlpp::Workbook empty;
+    try { empty.save(std::filesystem::temp_directory_path() / "xlpp_no_sheets.xlsx"); }
+    catch (const std::runtime_error&) { threw = true; }
+    test.checkTrue(threw, "save() with no worksheets throws");
+
+    threw = false;
+    try { xlpp::Cell("0"); } catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "Cell with row 0 throws");
+    threw = false;
+    try { xlpp::Worksheet sheet("S"); sheet.cell("A1").offset(-1, 0); }
+    catch (const std::invalid_argument&) { threw = true; }
+    test.checkTrue(threw, "Cell::offset below row 1 throws");
+
+    xlpp::Workbook wb3;
+    auto& s = wb3.addWorksheet("Clean");
+    s.cell("A1").setValue(42.0);
+    s.cell("A1").font().setBold(true);
+    s.cell("A1").setNumberFormat("0.00");
+    s.cell("A1").setFormula("=1+1");
+    s.cell("A1").clear();
+    test.checkTrue(!s.cell("A1").hasValue(), "clear() removes value");
+    test.checkTrue(!s.cell("A1").hasFormula(), "clear() removes formula");
+    test.checkTrue(s.cell("A1").font().bold(), "clear() keeps font style");
+    test.checkEqual(s.cell("A1").numberFormat(), std::string("0.00"), "clear() keeps number format");
+}
+
+void testCustomPropertiesAndCalcRoundTrip(TestContext& test) {
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_m21_custom_calc.xlsx";
+    {
+        xlpp::Workbook wb;
+        auto& sheet = wb.addWorksheet("Props");
+        sheet.cell("A1").setValue("x");
+        wb.customProperties().add(xlpp::CustomProperty(std::string("Name"), std::string("XL++")));
+        wb.customProperties().add(xlpp::CustomProperty(std::string("Count"), 7));
+        wb.customProperties().add(xlpp::CustomProperty(std::string("Ratio"), 0.5));
+        wb.customProperties().add(xlpp::CustomProperty(std::string("Enabled"), true));
+        wb.calcProperties().setCalcMode("manual");
+        wb.calcProperties().setFullCalcOnLoad(true);
+        wb.calcProperties().setCalcId(191029);
+        wb.calcProperties().setIterate(true);
+        wb.calcProperties().setIterateCount(100);
+        wb.calcProperties().setIterateDelta(0.001);
+        wb.protection().setLockRevision(true);
+        wb.protection().setLockWindows(true);
+        wb.properties().setSubject("Calc round-trip");
+        wb.properties().setKeywords("a,b,c");
+        wb.save(path);
+    }
+    {
+        xlpp::Workbook loaded;
+        loaded.load(path);
+        test.checkEqual(loaded.customProperties().items().size(), std::size_t{4}, "Custom property count");
+        test.checkEqual(loaded.customProperties().items()[0].name(), std::string("Name"), "String property name");
+        test.checkEqual(loaded.customProperties().items()[0].value(), std::string("XL++"), "String property value");
+        test.checkEqual(loaded.customProperties().items()[1].name(), std::string("Count"), "Int property name");
+        test.checkEqual(loaded.customProperties().items()[1].value(), std::string("7"), "Int property value");
+        test.checkEqual(loaded.customProperties().items()[2].name(), std::string("Ratio"), "Double property name");
+        test.checkEqual(loaded.customProperties().items()[2].value(), std::string("0.500000"), "Double property value");
+        test.checkEqual(loaded.customProperties().items()[3].name(), std::string("Enabled"), "Bool property name");
+        test.checkEqual(loaded.customProperties().items()[3].value(), std::string("true"), "Bool property value");
+        test.checkEqual(loaded.calcProperties().calcMode(), std::string("manual"), "Calc mode round-trip");
+        test.checkTrue(loaded.calcProperties().fullCalcOnLoad(), "Full calc-on-load round-trip");
+        test.checkTrue(loaded.calcProperties().iterate(), "Iterate round-trip");
+        test.checkEqual(loaded.calcProperties().iterateCount(), 100, "Iterate count round-trip");
+        test.checkNear(loaded.calcProperties().iterateDelta(), 0.001, 1e-12, "Iterate delta round-trip");
+        test.checkTrue(loaded.protection().lockRevision(), "Lock revision round-trip");
+        test.checkTrue(loaded.protection().lockWindows(), "Lock windows round-trip");
+        test.checkEqual(loaded.properties().subject(), std::string("Calc round-trip"), "Subject round-trip");
+        test.checkEqual(loaded.properties().keywords(), std::string("a,b,c"), "Keywords round-trip");
+    }
+    std::filesystem::remove(path);
+}
+
+void testDifferentialSaveCache(TestContext& test) {
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto first = dir / "xlpp_m21_diff_first.xlsx";
+    const auto second = dir / "xlpp_m21_diff_second.xlsx";
+    xlpp::Workbook wb;
+    auto& sheet = wb.addWorksheet("Data");
+    sheet.cell("A1").setValue("alpha");
+    wb.save(first);
+    std::string firstBytes;
+    { std::ifstream in(first, std::ios::binary); firstBytes.assign(std::istreambuf_iterator<char>(in), {}); }
+
+    wb.save(second);
+    std::string secondBytes;
+    { std::ifstream in(second, std::ios::binary); secondBytes.assign(std::istreambuf_iterator<char>(in), {}); }
+    test.checkEqual(firstBytes, secondBytes, "Unchanged re-save is byte-identical (cache reuse)");
+
+    sheet.cell("B1").setValue("beta");
+    wb.save(second);
+    std::string changedBytes;
+    { std::ifstream in(second, std::ios::binary); changedBytes.assign(std::istreambuf_iterator<char>(in), {}); }
+    test.checkTrue(changedBytes != firstBytes, "Dirty sheet change alters output");
+
+    xlpp::Workbook loaded;
+    loaded.load(second);
+    test.checkEqual(loaded.worksheet("Data")->cell("B1").stringValueOr(""), std::string("beta"),
+                    "Changed cell round-trips");
+    std::filesystem::remove(first);
+    std::filesystem::remove(second);
+}
+
+void testStrictAfterTransitionalSave(TestContext& test) {
+    // Regression: a transitional save followed by a strict save with the same
+    // workbook must not reuse cached transitional sheet XML.
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto transitional = dir / "xlpp_m21_strict_transitional.xlsx";
+    const auto strictPath = dir / "xlpp_m21_strict_after.xlsx";
+    xlpp::Workbook wb;
+    wb.addWorksheet("Sheet1").cell("A1").setValue("value");
+    wb.save(transitional);
+
+    xlpp::SaveOptions opt;
+    opt.strictNamespace = true;
+    wb.save(strictPath, opt);
+
+    auto z = xlpp::internal::ZipArchive::open(strictPath);
+    test.checkTrue(z.get("xl/workbook.xml").find("http://purl.oclc.org/ooxml/spreadsheetml/main") != std::string::npos,
+                   "Strict workbook namespace after transitional save");
+    test.checkTrue(z.get("xl/worksheets/sheet1.xml").find("http://purl.oclc.org/ooxml/spreadsheetml/main") != std::string::npos,
+                   "Strict worksheet namespace after transitional save");
+    test.checkTrue(z.get("xl/worksheets/sheet1.xml").find("http://schemas.openxmlformats.org/spreadsheetml/2006/main") == std::string::npos,
+                   "No transitional namespace leaks into strict worksheet");
+
+    xlpp::Workbook loaded;
+    loaded.load(strictPath);
+    test.checkTrue(loaded.strictNamespaces(), "Strict package loads as strict");
+    test.checkEqual(loaded.worksheet("Sheet1")->cell("A1").stringValueOr(""), std::string("value"),
+                    "Value round-trips through strict save");
+
+    std::filesystem::remove(transitional);
+    std::filesystem::remove(strictPath);
+}
+
+void testCopyWorksheetAliasing(TestContext& test) {
+    // Regression: copyWorksheet(source) where source aliases an element of the
+    // internal worksheet vector must not invalidate the source mid-copy.
+    xlpp::Workbook wb;
+    auto& src = wb.addWorksheet("Source");
+    src.cell("A1").setValue(std::string("payload"));
+    src.cell("B2").setValue(3.25);
+    src.mergeCells("A2:B2");
+    src.rowDimension(1).height = 22.0;
+
+    auto& copy = wb.copyWorksheet(src, "Copy");
+    test.checkEqual(copy.name(), std::string("Copy"), "Copy named correctly");
+    test.checkEqual(std::get<std::string>(copy.cell("A1").value()), std::string("payload"), "Copy keeps string");
+    test.checkNear(std::get<double>(copy.cell("B2").value()), 3.25, 1e-12, "Copy keeps number");
+    test.checkEqual(copy.mergedRanges().size(), std::size_t{1}, "Copy keeps merges");
+    test.checkNear(copy.tryRowDimension(1)->height.value_or(0.0), 22.0, 1e-12, "Copy keeps dimensions");
+
+    for (std::size_t i = 0; i < 40; ++i) wb.addWorksheet("Fill" + std::to_string(i));
+    auto& late = wb.copyWorksheet(wb[0], "LateClone");
+    test.checkEqual(std::get<std::string>(late.cell("A1").value()), std::string("payload"),
+                    "Copy after many reallocations keeps source data");
+    test.checkEqual(wb.sheetCount(), std::size_t{43}, "Workbook grew as expected");
+}
+
 
 }
 
 int main() {
+    std::cout << std::unitbuf;
     const std::vector<std::pair<std::string, TestFunction>> tests{
         {"Cell references", testCellReferences},
         {"Range and dimensions", testRangeAndDimensions},
@@ -2486,9 +3083,9 @@ int main() {
         {"Cell style index", testCellStyleIndex},
         {"Stream load and save", testStreamLoadSave},
         {"Built-in date format round-trip", testNumFmtIdDateRoundTrip},
-        //{"Cell edge cases and cleanup", testEdgeCasesAndCleanup}, // TODO: investigate hang
-        //{"Worksheet rows() iteration", testWorksheetRows}, // TODO: fix crash
-        //{"iterRows and iterCols", testIterRowsCols}, // TODO: fix crash
+        {"Cell edge cases and cleanup", testEdgeCasesAndCleanup},
+        {"Worksheet rows() iteration", testWorksheetRows},
+        {"iterRows and iterCols", testIterRowsCols},
         {"Cell::offset()", testCellOffset},
         {"Workbook navigation", testWorkbookNav},
         {"Workbook copyWorksheet", testCopyWorksheet},
@@ -2500,6 +3097,23 @@ int main() {
         {"Lenient load recovery", testLenientLoad},
         {"Malformed input hardening", testMalformedInputHardening},
         {"Mutation fuzz", testMutationFuzz},
+        {"Cell reference matrix", testCellReferenceMatrix},
+        {"Cell error matrix", testCellErrorMatrix},
+        {"xlfn() helper", testXlfnHelper},
+        {"Formula metadata defaults", testFormulaMetadataDefaults},
+        {"Number format detection", testNumberFormatDetection},
+        {"Date/time boundaries", testDateTimeBoundaries},
+        {"Streaming writer shared-string modes", testStreamingWriterModes},
+        {"Streaming reader features", testStreamingReaderFeatures},
+        {"Compression levels and parallel output", testCompressionLevelsAndParallel},
+        {"Chart and pivot package", testChartAndPivotPackage},
+        {"Chart type names", testChartTypeNameMap},
+        {"Internal hyperlink and memory stream", testInternalHyperlinkAndMemoryStream},
+        {"Workbook edge cases", testWorkbookEdgeCases},
+        {"Custom properties and calc round-trip", testCustomPropertiesAndCalcRoundTrip},
+        {"Differential save cache", testDifferentialSaveCache},
+        {"Strict after transitional save", testStrictAfterTransitionalSave},
+        {"copyWorksheet aliasing", testCopyWorksheetAliasing},
     };
 
     std::cout << "============================================================\n";

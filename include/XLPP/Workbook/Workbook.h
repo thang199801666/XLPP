@@ -113,6 +113,10 @@ private:
     bool date1904_{false};
     bool strictNamespaces_{false};
     // Differential-save cache: serialized sheet XML reused when a sheet is clean.
+    // Keyed by the serialization-affecting options so a later save with different
+    // strict/date1904 settings re-serializes instead of reusing stale XML.
     mutable std::vector<std::string> cachedSheetXml_;
+    mutable bool cachedSheetXmlStrict_{false};
+    mutable bool cachedSheetXmlDate1904_{false};
 };
 }

@@ -1,0 +1,117 @@
+name: Publish to PyPI
+
+# Publishes xlpp wheels + sdist to PyPI.
+#   - Tags v*          -> publish to PyPI (requires a Trusted Publisher
+#                         configured for this repo in PyPI's settings).
+#   - workflow_dispatch-> publish to TestPyPI.
+#
+# Native libraries are built in `before-all` and dropped into x64/Release,
+# matching the layout setup.py expects (XLPP.lib/zlib.lib on Windows,
+# libxlpp_static.a/libzlibstatic.a on Linux/macOS).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            before-all: |
+              cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
+                -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF \
+                -DXLPP_BUILD_CAPI=OFF -DXLPP_USE_BUNDLED_ZLIB=ON && \
+              cmake --build build-linux && \
+              mkdir -p x64/Release && \
+              cp build-linux/src/libxlpp_static.a x64/Release/ && \
+              cp "$(find build-linux -name 'libzlibstatic.a' | head -n1)" x64/Release/
+          - os: windows-latest
+            before-all: |
+              vcpkg install --triplet x64-windows && \
+              msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
+          - os: macos-14
+            before-all: |
+              cmake -S . -B build-macos -DCMAKE_BUILD_TYPE=Release \
+                -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF \
+                -DXLPP_BUILD_CAPI=OFF -DXLPP_USE_BUNDLED_ZLIB=ON && \
+              cmake --build build-macos && \
+              mkdir -p x64/Release && \
+              cp build-macos/src/libxlpp_static.a x64/Release/ && \
+              cp "$(find build-macos -name 'libzlibstatic.a' | head -n1)" x64/Release/
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build native libraries + wheels
+        uses: pypa/cibuildwheel@v2.23.2
+        with:
+          package-dir: bindings/python
+        env:
+          CIBW_BEFORE_ALL: ${{ matrix.before-all }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build sdist
+        working-directory: bindings/python
+        run: |
+          python -m pip install --upgrade pip build setuptools wheel pybind11
+          python -m build --sdist --outdir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: bindings/python/dist/*.tar.gz
+
+  publish:
+    name: Publish
+    needs: [wheels, sdist]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: ${{ github.event_name == 'push' && 'pypi' || 'testpypi' }}
+      url: ${{ github.event_name == 'push' && 'https://pypi.org/p/xlpp' || 'https://test.pypi.org/project/xlpp' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten downloaded artifacts
+        run: |
+          mkdir -p dist-flat
+          find dist -name '*.whl' -o -name '*.tar.gz' | while read -r f; do cp "$f" dist-flat/; done
+          ls -la dist-flat
+
+      - name: Publish to TestPyPI
+        if: github.event_name == 'workflow_dispatch'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-flat
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish to PyPI
+        if: github.event_name == 'push'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-flat

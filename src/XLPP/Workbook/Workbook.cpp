@@ -1094,19 +1094,23 @@ std::string tableXml(const xlpp::Table& table, std::size_t id, bool strict) {
 
 // Serialize every worksheet to XML, using a ThreadPool when workers > 1.
 // Output is indexed by worksheet order and is identical to the sequential result.
+// The cache is keyed by strict/date1904 so a change in either forces re-serialization.
 std::vector<std::string> serializeSheets(const std::vector<xlpp::Worksheet>& sheets,
                                          const StyleCatalog& styles, const DxfCatalog& dxfs,
                                          bool date1904, bool strict, std::size_t workers,
                                          bool parallelRows,
                                          const std::unordered_map<std::string, std::size_t>* sstIndex,
-                                         std::vector<std::string>* cache) {
+                                         std::vector<std::string>* cache,
+                                         bool& cacheStrict, bool& cacheDate1904) {
     std::vector<std::string> result(sheets.size());
     // Determine which sheets are dirty and need re-serialization
     std::vector<char> needsSerialize(sheets.size());
     bool anyDirty = false;
     if (cache) {
+        const bool cacheValid = cacheStrict == strict && cacheDate1904 == date1904;
+        if (!cacheValid) cache->clear();
         for (std::size_t i = 0; i < sheets.size(); ++i) {
-            needsSerialize[i] = sheets[i].dirty() || i >= cache->size();
+            needsSerialize[i] = sheets[i].dirty() || i >= cache->size() || !cacheValid;
             if (needsSerialize[i]) anyDirty = true;
         }
         if (!anyDirty) {
@@ -1144,6 +1148,8 @@ std::vector<std::string> serializeSheets(const std::vector<xlpp::Worksheet>& she
         if (cache->size() < sheets.size()) cache->resize(sheets.size());
         for (std::size_t i = 0; i < sheets.size(); ++i)
             (*cache)[i] = result[i];
+        cacheStrict = strict;
+        cacheDate1904 = date1904;
     }
     return result;
 }
@@ -1347,8 +1353,8 @@ for (auto& validationTag : internal::tags(xml, "dataValidation")) {
     const auto slash = target.find_last_of('/');
     const auto fileName = slash == std::string::npos ? target : target.substr(slash + 1);
     const auto relPath = "xl/worksheets/_rels/" + fileName + ".rels";
+    std::unordered_map<std::string,std::string> tableTargets;
     if (z.contains(relPath)) {
-        std::unordered_map<std::string,std::string> tableTargets;
         for (const auto& rel : internal::tags(z.get(relPath), "Relationship"))
             tableTargets[internal::attribute(rel,"Id")] = internal::attribute(rel,"Target");
         for (const auto& rel : internal::tags(z.get(relPath), "Relationship")) {
@@ -1374,12 +1380,6 @@ for (auto& validationTag : internal::tags(xml, "dataValidation")) {
                 ws.cell(ref).setComment(Comment(text, author));
             }
         }
-        for (const auto& linkNode : internal::tags(xml, "hyperlink")) {
-            const auto ref=internal::attribute(linkNode,"ref"); if(ref.empty()) continue;
-            Hyperlink link; const auto hyperlinkRelationshipId=internal::attribute(linkNode,"r:id");
-            if(!hyperlinkRelationshipId.empty()){link.setTarget(tableTargets[hyperlinkRelationshipId]);link.setExternal(true);} else {link.setTarget(internal::attribute(linkNode,"location"));link.setExternal(false);}
-            link.setDisplay(internal::attribute(linkNode,"display")); link.setTooltip(internal::attribute(linkNode,"tooltip")); ws.cell(ref).setHyperlink(std::move(link));
-        }
         for (const auto& part : internal::tags(xml, "tablePart")) {
             auto tableTarget = tableTargets[internal::attribute(part,"r:id")];
             if (tableTarget.rfind("../",0)==0) tableTarget = "xl/" + tableTarget.substr(3);
@@ -1397,6 +1397,15 @@ for (auto& validationTag : internal::tags(xml, "dataValidation")) {
             const auto styleNodes = internal::tags(tableText,"tableStyleInfo");
             if(!styleNodes.empty()) { const auto& style=styleNodes.front(); table.styleInfo().setName(internal::attribute(style,"name")); table.styleInfo().setShowFirstColumn(internal::attribute(style,"showFirstColumn")=="1"); table.styleInfo().setShowLastColumn(internal::attribute(style,"showLastColumn")=="1"); table.styleInfo().setShowRowStripes(internal::attribute(style,"showRowStripes")!="0"); table.styleInfo().setShowColumnStripes(internal::attribute(style,"showColumnStripes")=="1"); }
         }
+    }
+    // Hyperlinks are parsed unconditionally: external links carry an r:id into
+    // the sheet relationships, while internal links use the location attribute
+    // and need no relationships part at all.
+    for (const auto& linkNode : internal::tags(xml, "hyperlink")) {
+        const auto ref=internal::attribute(linkNode,"ref"); if(ref.empty()) continue;
+        Hyperlink link; const auto hyperlinkRelationshipId=internal::attribute(linkNode,"r:id");
+        if(!hyperlinkRelationshipId.empty()){link.setTarget(tableTargets[hyperlinkRelationshipId]);link.setExternal(true);} else {link.setTarget(internal::attribute(linkNode,"location"));link.setExternal(false);}
+        link.setDisplay(internal::attribute(linkNode,"display")); link.setTooltip(internal::attribute(linkNode,"tooltip")); ws.cell(ref).setHyperlink(std::move(link));
     }
 }
 
@@ -1465,7 +1474,7 @@ Worksheet& Workbook::operator[](std::size_t index){return sheets_.at(index);}
 const Worksheet& Workbook::operator[](std::size_t index) const{return sheets_.at(index);}
 std::size_t Workbook::index(const Worksheet& sheet) const{const auto it=std::find_if(sheets_.begin(),sheets_.end(),[&](auto&s){return &s==&sheet;});if(it==sheets_.end())throw std::out_of_range("Worksheet not in this workbook");return static_cast<std::size_t>(std::distance(sheets_.begin(),it));}
 std::vector<std::string> Workbook::sheetNames() const{std::vector<std::string> names;names.reserve(sheets_.size());for(const auto& sheet:sheets_)names.push_back(sheet.name());return names;}
-Worksheet& Workbook::copyWorksheet(const Worksheet& source, std::string newName){if(newName.empty())throw std::invalid_argument("Worksheet name cannot be empty");if(worksheet(newName))throw std::invalid_argument("Duplicate worksheet name");sheets_.push_back(source);sheets_.back().rename(newName);return sheets_.back();}
+Worksheet& Workbook::copyWorksheet(const Worksheet& source, std::string newName){if(newName.empty())throw std::invalid_argument("Worksheet name cannot be empty");if(worksheet(newName))throw std::invalid_argument("Duplicate worksheet name");Worksheet copy = source;copy.rename(std::move(newName));sheets_.push_back(std::move(copy));return sheets_.back();}
 void Workbook::save(const std::filesystem::path& p) const { save(p, SaveOptions{}); }
 void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) const {
     if (sheets_.empty()) throw std::runtime_error("Workbook needs at least one worksheet");
@@ -1496,7 +1505,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
             for (const auto& rule : formatting.rules()) if (rule.hasDifferentialStyle()) dxfCatalog.id(rule.differentialStyle());
     }
     for (const auto& named : namedStyles_) styleCatalog.id(named.style());
-    const auto sheetXmls = serializeSheets(sheets_, styleCatalog, dxfCatalog, date1904_, strict, options.parallelSheets ? options.parallelWorkers : 0, options.parallelRows, &sstIndex, &cachedSheetXml_);
+    const auto sheetXmls = serializeSheets(sheets_, styleCatalog, dxfCatalog, date1904_, strict, options.parallelSheets ? options.parallelWorkers : 0, options.parallelRows, &sstIndex, &cachedSheetXml_, cachedSheetXmlStrict_, cachedSheetXmlDate1904_);
     for (auto& sheet : sheets_) sheet.clearDirty();
     internal::ZipArchive z;
     z.setCompressionLevel(zlibLevel(options.compressionLevel));
@@ -1522,15 +1531,17 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
     wb << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"" << nsMain(strict) << "\" xmlns:r=\"" << nsRelsDoc(strict) << "\">";
     {
         const auto& cp = calcProps_;
-        wb << "<workbookPr date1904=\"" << (date1904_ ? 1 : 0) << "\"";
-        if (cp.calcOnSave()) wb << " calcOnSave=\"1\"";
-        if (cp.fullCalcOnLoad()) wb << " fullCalcOnLoad=\"1\"";
-        wb << "/>";
-        if (cp.calcMode() != "auto" || cp.calcId() != 191029 || !cp.fullPrecision() || cp.iterate())
+        wb << "<workbookPr date1904=\"" << (date1904_ ? 1 : 0) << "\"/>";
+        if (cp.calcMode() != "auto" || cp.calcId() != 191029 || !cp.fullPrecision() || cp.iterate()
+            || cp.fullCalcOnLoad() || cp.calcOnSave()) {
             wb << "<calcPr calcId=\"" << cp.calcId() << "\" calcMode=\"" << xmlEscape(cp.calcMode()) << "\""
                << " fullPrecision=\"" << (cp.fullPrecision() ? 1 : 0) << "\""
                << " iterate=\"" << (cp.iterate() ? 1 : 0) << "\""
-               << " iterateCount=\"" << cp.iterateCount() << "\" iterateDelta=\"" << cp.iterateDelta() << "\"/>";
+               << " iterateCount=\"" << cp.iterateCount() << "\" iterateDelta=\"" << cp.iterateDelta() << "\"";
+            if (cp.fullCalcOnLoad()) wb << " fullCalcOnLoad=\"1\"";
+            if (cp.calcOnSave()) wb << " calcOnSave=\"1\"";
+            wb << "/>";
+        }
     }
     const auto& wp = protection_;
     if (wp.lockStructure() || wp.lockWindows() || wp.lockRevision() || !wp.workbookPasswordHash().empty()) {
@@ -1624,7 +1635,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
     z.save(p);
 }
 void Workbook::load(const std::filesystem::path& p) { load(p, LoadOptions{}); }
-void Workbook::load(const std::filesystem::path& p, const LoadOptions& options) { clear(); diagnostics_ = LoadDiagnostics{}; internal::ZipOpenLimits limits; limits.maxEntries = options.maxEntries; limits.maxEntryBytes = options.maxEntryBytes; limits.maxTotalBytes = options.maxTotalBytes; limits.maxFileBytes = options.maxFileBytes; limits.cancel = options.cancel; limits.progress = options.progress; auto z = internal::ZipArchive::open(p, limits); if(z.contains("docProps/core.xml")){auto cp=z.get("docProps/core.xml");properties_.setTitle(internal::tagText(cp,"dc:title"));properties_.setSubject(internal::tagText(cp,"dc:subject"));properties_.setCreator(internal::tagText(cp,"dc:creator"));properties_.setDescription(internal::tagText(cp,"dc:description"));properties_.setKeywords(internal::tagText(cp,"cp:keywords"));properties_.setCategory(internal::tagText(cp,"cp:category"));properties_.setLastModifiedBy(internal::tagText(cp,"cp:lastModifiedBy"));}if(z.contains("docProps/custom.xml")){auto cust=z.get("docProps/custom.xml");for(const auto& p:internal::tags(cust,"property")){const auto n=internal::attribute(p,"name");const auto vt=internal::attribute(p,internal::attribute(p,"vt:lpwstr")=="vt:lpwstr"?"vt:lpwstr":"");if(!n.empty())customProps_.add(CustomProperty(std::string(n),internal::tagText(p,"vt:lpwstr")));}}StyleCatalog styleCatalog;std::vector<Style> dxfStyles;if(z.contains("xl/styles.xml")){const auto stylesText=z.get("xl/styles.xml");styleCatalog=parseStyleCatalog(stylesText);dxfStyles=parseDifferentialStyles(stylesText);for(const auto& node:internal::tags(stylesText,"cellStyle")){const auto name=internal::attribute(node,"name");if(name.empty()||name=="Normal")continue;const auto xf=internal::attribute(node,"xfId");if(xf.empty())continue;const auto id=static_cast<std::size_t>(std::stoul(xf));if(id<styleCatalog.items.size())namedStyles_.emplace_back(name,styleCatalog.items[id]);}}std::vector<std::string> shared;if(z.contains("xl/sharedStrings.xml")){const auto sstXml = z.get("xl/sharedStrings.xml"); for(auto&si:internal::tags(sstXml,"si")){const auto rElements = internal::tags(si, "r"); if(!rElements.empty()){std::string richText; for(const auto& r : rElements) richText += internal::tagText(r, "t"); shared.push_back(std::move(richText));} else shared.push_back(internal::tagText(si,"t"));}}auto wb=z.get("xl/workbook.xml");strictNamespaces_ = wb.find("http://purl.oclc.org/ooxml/spreadsheetml/main") != std::string::npos;
+void Workbook::load(const std::filesystem::path& p, const LoadOptions& options) { clear(); diagnostics_ = LoadDiagnostics{}; internal::ZipOpenLimits limits; limits.maxEntries = options.maxEntries; limits.maxEntryBytes = options.maxEntryBytes; limits.maxTotalBytes = options.maxTotalBytes; limits.maxFileBytes = options.maxFileBytes; limits.cancel = options.cancel; limits.progress = options.progress; auto z = internal::ZipArchive::open(p, limits); if(z.contains("docProps/core.xml")){auto cp=z.get("docProps/core.xml");properties_.setTitle(internal::tagText(cp,"dc:title"));properties_.setSubject(internal::tagText(cp,"dc:subject"));properties_.setCreator(internal::tagText(cp,"dc:creator"));properties_.setDescription(internal::tagText(cp,"dc:description"));properties_.setKeywords(internal::tagText(cp,"cp:keywords"));properties_.setCategory(internal::tagText(cp,"cp:category"));properties_.setLastModifiedBy(internal::tagText(cp,"cp:lastModifiedBy"));}if(z.contains("docProps/custom.xml")){auto cust=z.get("docProps/custom.xml");for(const auto& p:internal::tags(cust,"property")){const auto n=internal::attribute(p,"name");if(n.empty())continue;const auto vtText=internal::tagText(p,"vt:lpwstr");if(!vtText.empty()){customProps_.add(CustomProperty(std::string(n),vtText));continue;}if(const auto i4Text=internal::tagText(p,"vt:i4");!i4Text.empty()){customProps_.add(CustomProperty(std::string(n),std::stoi(i4Text)));continue;}if(const auto r8Text=internal::tagText(p,"vt:r8");!r8Text.empty()){customProps_.add(CustomProperty(std::string(n),std::stod(r8Text)));continue;}if(const auto boolText=internal::tagText(p,"vt:bool");!boolText.empty()){customProps_.add(CustomProperty(std::string(n),boolText=="true"));continue;}customProps_.add(CustomProperty(std::string(n),vtText));}}StyleCatalog styleCatalog;std::vector<Style> dxfStyles;if(z.contains("xl/styles.xml")){const auto stylesText=z.get("xl/styles.xml");styleCatalog=parseStyleCatalog(stylesText);dxfStyles=parseDifferentialStyles(stylesText);for(const auto& node:internal::tags(stylesText,"cellStyle")){const auto name=internal::attribute(node,"name");if(name.empty()||name=="Normal")continue;const auto xf=internal::attribute(node,"xfId");if(xf.empty())continue;const auto id=static_cast<std::size_t>(std::stoul(xf));if(id<styleCatalog.items.size())namedStyles_.emplace_back(name,styleCatalog.items[id]);}}std::vector<std::string> shared;if(z.contains("xl/sharedStrings.xml")){const auto sstXml = z.get("xl/sharedStrings.xml"); for(auto&si:internal::tags(sstXml,"si")){const auto rElements = internal::tags(si, "r"); if(!rElements.empty()){std::string richText; for(const auto& r : rElements) richText += internal::tagText(r, "t"); shared.push_back(std::move(richText));} else shared.push_back(internal::tagText(si,"t"));}}auto wb=z.get("xl/workbook.xml");strictNamespaces_ = wb.find("http://purl.oclc.org/ooxml/spreadsheetml/main") != std::string::npos;
 for(const auto& protectionNode:internal::tags(wb,"workbookProtection")){
     protection_.setLockStructure(internal::attribute(protectionNode,"lockStructure")=="1");
     protection_.setLockWindows(internal::attribute(protectionNode,"lockWindows")=="1");

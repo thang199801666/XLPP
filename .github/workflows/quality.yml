@@ -31,8 +31,8 @@ jobs:
           $failCount = ($testOutput | Select-String -Pattern '\[FAIL').Count
           $passCount = ($testOutput | Select-String -Pattern '\[PASS').Count
           Write-Output "Passed: $passCount, Failed: $failCount"
-          if ($failCount -gt 2) {  # Allow 2 pre-existing failures
-            Write-Error "Too many test failures: $failCount"
+          if ($failCount -gt 0) {
+            Write-Error "Test failures detected: $failCount"
             exit 1
           }
         continue-on-error: false

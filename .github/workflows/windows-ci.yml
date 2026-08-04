@@ -28,7 +28,6 @@ jobs:
 
       - name: Run Unit Tests (${{ matrix.configuration }})
         run: .\x64\${{ matrix.configuration }}\XLPP.UnitTests.exe
-        continue-on-error: true
 
   c-api:
     name: C API DLL

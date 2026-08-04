@@ -39,17 +39,21 @@ ext_modules = [
     ),
 ]
 
+with open(os.path.join(xlpp_root, "README.md"), encoding="utf-8") as readme_file:
+    long_description = readme_file.read()
+
 setup(
     name="xlpp",
     version="1.0.0",
     author="XL++ contributors",
     description="High-performance C++ Excel xlsx library for Python",
-    long_description="XL++ is a high-performance C++20 library for reading and writing .xlsx files, with a Python binding API modeled after openpyxl.",
-    long_description_content_type="text/plain",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     url="https://github.com/thang199801666/XLPP",
     project_urls={
         "Source": "https://github.com/thang199801666/XLPP",
         "Issues": "https://github.com/thang199801666/XLPP/issues",
+        "Documentation": "https://thang199801666.github.io/XLPP/",
     },
     license="MIT",
     ext_modules=ext_modules,
@@ -57,7 +61,10 @@ setup(
     python_requires=">=3.8",
     classifiers=[
         "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+        "Programming Language :: C++",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
@@ -66,5 +73,6 @@ setup(
         "Programming Language :: Python :: 3.12",
         "Programming Language :: Python :: 3.13",
         "Programming Language :: Python :: 3.14",
+        "Topic :: Office/Business :: Financial :: Spreadsheet",
     ],
 )

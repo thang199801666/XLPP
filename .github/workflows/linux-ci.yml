@@ -9,11 +9,24 @@ on:
 
 jobs:
   build-and-test:
-    name: Build & Test (Ubuntu)
+    name: ${{ matrix.compiler }} / ${{ matrix.build_type }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        build_type: [Debug, Release]
+        include:
+          - compiler: gcc
+            cc: gcc-14
+            cxx: g++-14
+            build_type: Debug
+          - compiler: gcc
+            cc: gcc-14
+            cxx: g++-14
+            build_type: Release
+          - compiler: clang
+            cc: clang-18
+            cxx: clang++-18
+            build_type: Release
     steps:
       - uses: actions/checkout@v4
 
@@ -22,25 +35,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build zlib1g-dev
 
-      - name: Install GCC 14 (C++20)
+      - name: Install GCC 14
+        if: matrix.compiler == 'gcc'
         run: |
           sudo apt-get install -y g++-14
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
 
+      - name: Install Clang 18
+        if: matrix.compiler == 'clang'
+        run: |
+          sudo apt-get install -y clang-18 libc++-18-dev libc++abi-18-dev
+
       - name: Configure CMake
         run: |
-          grep -n '#include <stdint.h>' include/XLPP/Cell/CellReference.h
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-            -DCMAKE_C_COMPILER=gcc-14 \
-            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
             -DXLPP_USE_BUNDLED_ZLIB=OFF
 
       - name: Verify public headers
         run: |
           printf '#include <XLPP/Cell/CellReference.h>\nint main() { return static_cast<int>(xlpp::makeCellKey(1, 1)); }\n' > /tmp/header-check.cpp
-          g++-14 -std=c++20 -Iinclude -fsyntax-only /tmp/header-check.cpp
+          ${{ matrix.cxx }} -std=c++20 -Iinclude -fsyntax-only /tmp/header-check.cpp
 
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }}
@@ -48,6 +66,88 @@ jobs:
       - name: Test
         working-directory: build
         run: ctest --output-on-failure -C ${{ matrix.build_type }}
+
+  sanitizers:
+    name: ASan + UBSan (Debug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build zlib1g-dev g++-14
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+
+      - name: Configure with sanitizers
+        run: |
+          cmake -S . -B build-asan -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=gcc-14 \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DXLPP_USE_BUNDLED_ZLIB=OFF \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build-asan
+
+      - name: Test
+        working-directory: build-asan
+        run: |
+          export ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
+          export UBSAN_OPTIONS=halt_on_error=1
+          ctest --output-on-failure
+
+  install-package:
+    name: Install & consumer smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build zlib1g-dev g++-14
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+
+      - name: Build and install
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-14 \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DXLPP_USE_BUNDLED_ZLIB=OFF \
+            -DXLPP_BUILD_TESTS=OFF \
+            -DXLPP_BUILD_SAMPLES=OFF \
+            -DXLPP_BUILD_CAPI=OFF \
+            -DCMAKE_INSTALL_PREFIX=/tmp/xlpp-install
+          cmake --build build
+          cmake --install build
+
+      - name: Consumer compiles against installed package
+        run: |
+          cat > /tmp/consumer.cpp <<'EOF'
+          #include <XLPP/XLPP.h>
+          #include <iostream>
+          int main() {
+              xlpp::Workbook wb;
+              auto& ws = wb.addWorksheet("Sheet1");
+              ws.cell("A1").setValue(42.0);
+              ws.cell("B1").setValue("Hello");
+              wb.save("/tmp/consumer.xlsx");
+              xlpp::Workbook loaded;
+              loaded.load("/tmp/consumer.xlsx");
+              std::cout << loaded["Sheet1"].cell("A1").numericValueOr(-1) << std::endl;
+              return 0;
+          }
+          EOF
+          g++-14 -std=c++20 -I/tmp/xlpp-install/include /tmp/consumer.cpp \
+            /tmp/xlpp-install/lib/libxlpp_static.a -lz -o /tmp/consumer
+          /tmp/consumer
 
   python-wheel:
     name: Python wheel (Ubuntu)
