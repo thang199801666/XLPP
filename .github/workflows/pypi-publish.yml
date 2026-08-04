@@ -116,9 +116,13 @@ jobs:
         with:
           packages-dir: dist-flat
           repository-url: https://test.pypi.org/legacy/
+          # Allow re-runs of the same tag to add new wheels without failing on
+          # files that were already uploaded in a previous run.
+          skip-existing: true
 
       - name: Publish to PyPI
         if: github.event_name == 'push'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist-flat
+          skip-existing: true
