@@ -4,6 +4,7 @@
 [![Linux CI](https://github.com/thang199801666/XLPP/actions/workflows/linux-ci.yml/badge.svg)](https://github.com/thang199801666/XLPP/actions/workflows/linux-ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)](https://en.cppreference.com/w/cpp/20)
+[![API Reference](https://img.shields.io/badge/API-Reference-blue)](API_REFERENCE.md)
 [![API Documentation](https://img.shields.io/badge/API-Doxygen-blue)](https://thang199801666.github.io/XLPP/)
 [![PyPI version](https://img.shields.io/pypi/v/xlpp.svg)](https://pypi.org/project/xlpp/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/xlpp.svg)](https://pypi.org/project/xlpp/)
@@ -73,13 +74,13 @@ benchmark run.
 
 | Library | Write | Read |
 |---------|------:|-----:|
-| XLPP (Python) | **1011.9 ms** | **468.4 ms** |
-| openpyxl (Python) | 2106.9 ms | 1682.2 ms |
-| XlsxWriter (Python) | 1825.8 ms | n/a |
-| XLPP (C++) | **548.1 ms** | n/a |
-| libxlsxwriter (C++) | 271.3 ms | n/a |
-| XLPP (C#) | **1000.9 ms** | n/a |
-| ClosedXML (C#) | 2590.3 ms | n/a |
+| XLPP (Python) | **754.7 ms** | **363.8 ms** |
+| openpyxl (Python) | 1462.1 ms | 1207.6 ms |
+| XlsxWriter (Python) | 1055.4 ms | n/a |
+| XLPP (C++) | **442.0 ms** | n/a |
+| libxlsxwriter (C++) | 203.3 ms | n/a |
+| XLPP (C#) | **640.2 ms** | n/a |
+| ClosedXML (C#) | 1833.2 ms | n/a |
 
 #### 10K rows × 15 cols (with Lookup table)
 
