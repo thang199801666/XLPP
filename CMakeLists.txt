@@ -17,6 +17,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# === Position independent code ===
+# Required so the static libraries (XLPP + bundled zlib) can be linked into
+# shared objects such as the Python extension module.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # === Platform detection ===
 if(WIN32)
     add_definitions(-D_UNICODE -DUNICODE)
