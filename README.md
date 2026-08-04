@@ -108,6 +108,22 @@ The C++ XLPP/libxlsxwriter write comparison is included in the GitHub Actions
 artifact; libxlsxwriter is write-only. Timings vary by runner and are
 indicative rather than a performance guarantee.
 
+### Large-file streaming read
+
+This benchmark measures reading rows without materializing the complete
+workbook in memory. Throughput is reported as processed cells per second; the
+GitHub Actions artifact contains the raw timings and file sizes.
+
+| File | Cells | XLPP (C++) | openpyxl (Python) | ClosedXML (C#) |
+|------|------:|-----------:|------------------:|---------------:|
+| 100K rows × 10 cols | 1M | pending CI | pending CI | pending CI |
+| 500K rows × 10 cols | 5M | pending CI | pending CI | pending CI |
+| 1M rows × 10 cols | 10M | pending CI | pending CI | pending CI |
+
+The existing non-streaming XLPP reference is approximately **940K cells/sec**
+at 1M cells. It is not used as a streaming result and is shown only as a
+baseline until the large-file streaming job publishes measurements.
+
 ## Quick Start
 
 ### C++

@@ -15,6 +15,22 @@ All benchmarks run on Windows 11, AMD Ryzen 5 5500U, MSVC 19.51, Release build.
 
 **Throughput**: 450K cells/sec write, 940K cells/sec read at 1M cells.
 
+### Large-file streaming read
+
+The streaming reader yields one row at a time and avoids constructing a full
+in-memory workbook. The cross-library job uses the same generated worksheet
+for every implementation and reports cells per second.
+
+| File | Cells | XLPP streaming | openpyxl `read_only` | ClosedXML streaming |
+|------|------:|---------------:|---------------------:|--------------------:|
+| 100K rows × 10 cols | 1M | pending CI | pending CI | pending CI |
+| 500K rows × 10 cols | 5M | pending CI | pending CI | pending CI |
+| 1M rows × 10 cols | 10M | pending CI | pending CI | pending CI |
+
+These values remain pending until the GitHub Actions large-file job runs. The
+existing 940K cells/sec figure above is a normal workbook-load baseline, not a
+streaming measurement.
+
 ### Python Binding (vs openpyxl vs xlsxwriter)
 
 | Rows × Cols | XLPP write | openpyxl write | xlsxwriter write | XLPP read | openpyxl read |
