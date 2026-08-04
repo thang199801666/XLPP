@@ -7,7 +7,13 @@
 #include <intrin.h>
 #endif
 
+// SSE2 intrinsics only exist on x86-64 targets; the header errors out on
+// ARM64 (Apple Silicon) and is meaningless elsewhere. SIMD code paths are
+// additionally gated on _M_AMD64 (MSVC) so non-MSVC x86-64 builds fall back
+// to the scalar implementations below.
+#if defined(_M_AMD64) || defined(__x86_64__)
 #include <emmintrin.h> // SSE2 baseline (guaranteed on x64)
+#endif
 
 namespace xlpp::internal::simd {
 

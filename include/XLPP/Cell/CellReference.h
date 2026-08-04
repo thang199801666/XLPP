@@ -1,7 +1,7 @@
 #pragma once
 #include <cctype>
 #include <cstddef>
-#include <stdint.h>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <string>
