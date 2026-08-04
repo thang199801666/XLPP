@@ -99,7 +99,10 @@ jobs:
         run: |
           export ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
           export UBSAN_OPTIONS=halt_on_error=1
-          ctest --output-on-failure
+          # PackageConsumerTests links the ASan-instrumented library into a
+          # plain consumer, which fails at link time; it runs in the normal
+          # build-and-test and install-package jobs instead.
+          ctest --output-on-failure -E PackageConsumerTests
 
   install-package:
     name: Install & consumer smoke test
@@ -130,24 +133,20 @@ jobs:
 
       - name: Consumer compiles against installed package
         run: |
-          cat > /tmp/consumer.cpp <<'EOF'
-          #include <XLPP/XLPP.h>
-          #include <iostream>
-          int main() {
-              xlpp::Workbook wb;
-              auto& ws = wb.addWorksheet("Sheet1");
-              ws.cell("A1").setValue(42.0);
-              ws.cell("B1").setValue("Hello");
-              wb.save("/tmp/consumer.xlsx");
-              xlpp::Workbook loaded;
-              loaded.load("/tmp/consumer.xlsx");
-              std::cout << loaded["Sheet1"].cell("A1").numericValueOr(-1) << std::endl;
-              return 0;
-          }
-          EOF
-          g++-14 -std=c++20 -I/tmp/xlpp-install/include /tmp/consumer.cpp \
-            /tmp/xlpp-install/lib/libxlpp_static.a -lz -o /tmp/consumer
-          /tmp/consumer
+          cmake -S tests/package/consumer -B /tmp/xlpp-consumer-build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=/tmp/xlpp-install
+          cmake --build /tmp/xlpp-consumer-build --target run_consumer
+          test -f /tmp/xlpp-consumer-build/consumer_app
+
+      - name: Consumer via add_subdirectory
+        run: |
+          cmake -S tests/package/consumer_subdir -B /tmp/xlpp-subdir-build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DXLPP_SOURCE_DIR=${PWD}
+          cmake --build /tmp/xlpp-subdir-build --target run_subdir_app
 
   python-wheel:
     name: Python wheel (Ubuntu)

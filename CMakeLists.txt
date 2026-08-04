@@ -5,6 +5,9 @@ project(XLPP
     LANGUAGES CXX C
 )
 
+# Must be included before any target uses $<INSTALL_INTERFACE:...>.
+include(GNUInstallDirs)
+
 # === Options ===
 option(XLPP_BUILD_TESTS "Build unit tests" ON)
 option(XLPP_BUILD_SAMPLES "Build sample programs" ON)
@@ -34,6 +37,7 @@ endif()
 if(XLPP_USE_BUNDLED_ZLIB)
     set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(ZLIB_INSTALL OFF CACHE BOOL "" FORCE)
     set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
     add_subdirectory(third_party/zlib)
     set(ZLIB_TARGET zlibstatic)
@@ -65,7 +69,11 @@ if(XLPP_BUILD_CAPI)
 endif()
 
 # === Install ===
-include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+# Export xlpp_static as XLPP::XLPP (the roadmap target naming).
+set_target_properties(xlpp_static PROPERTIES EXPORT_NAME XLPP)
+
 install(TARGETS xlpp_static
     EXPORT xlpp-targets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -79,13 +87,34 @@ install(EXPORT xlpp-targets
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/xlpp
 )
 
+if(XLPP_USE_BUNDLED_ZLIB)
+    # The installed XLPP::XLPP target references zlib symbols, so the bundled
+    # static archive must be installed and exported too (as XLPP::zlib).
+    set_target_properties(zlibstatic PROPERTIES EXPORT_NAME zlib)
+    install(TARGETS zlibstatic
+        EXPORT xlpp-zlib-targets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+    install(EXPORT xlpp-zlib-targets
+        FILE xlpp-zlib-targets.cmake
+        NAMESPACE XLPP::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/xlpp
+    )
+endif()
+
 # === Package ===
-include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/xlpp-config-version.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xlpp-config.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/xlpp-config.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/xlpp
 )
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/xlpp-config.cmake
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/xlpp-config.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/xlpp-config-version.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/xlpp
 )

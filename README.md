@@ -92,7 +92,7 @@ wb.save("report.xlsx");
 // Load
 Workbook loaded;
 loaded.load("report.xlsx");
-std::cout << loaded["Data"].cell("A1").stringValueOr("")
+std::cout << loaded.worksheet("Data")->cell("A1").stringValueOr("")
           << std::endl;  // "Name"
 ```
 

@@ -1,0 +1,67 @@
+# CTest driver: installs XL++ to a temporary prefix, then builds two consumers:
+#   1. find_package(XLPP CONFIG REQUIRED) against the installed package
+#   2. add_subdirectory() of the source tree
+# Any failure aborts the test.
+
+set(XLPP_SOURCE_DIR "@CMAKE_SOURCE_DIR@")
+set(XLPP_BINARY_DIR "@CMAKE_BINARY_DIR@")
+set(CMAKE_COMMAND_ "@CMAKE_COMMAND@")
+set(GENERATOR "@CMAKE_GENERATOR@")
+set(CONSUMER_SOURCE "@CMAKE_CURRENT_SOURCE_DIR@/package/consumer")
+set(SUBDIR_CONSUMER_SOURCE "@CMAKE_CURRENT_SOURCE_DIR@/package/consumer_subdir")
+set(OUT_ROOT "@CMAKE_CURRENT_BINARY_DIR@/package_test_out")
+
+set(prefix "${OUT_ROOT}/prefix")
+set(find_build "${OUT_ROOT}/find_build")
+set(subdir_build "${OUT_ROOT}/subdir_build")
+
+file(REMOVE_RECURSE "${OUT_ROOT}")
+file(MAKE_DIRECTORY "${OUT_ROOT}")
+
+# --- Install to a temp prefix ---
+execute_process(
+    COMMAND "${CMAKE_COMMAND_}" --install "${XLPP_BINARY_DIR}" --prefix "${prefix}"
+    RESULT_VARIABLE result
+)
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "cmake --install failed: ${result}")
+endif()
+
+# --- Consumer 1: find_package(XLPP) ---
+execute_process(
+    COMMAND "${CMAKE_COMMAND_}" -S "${CONSUMER_SOURCE}" -B "${find_build}"
+        -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_PREFIX_PATH=${prefix}
+    RESULT_VARIABLE result
+)
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "find_package consumer configure failed: ${result}")
+endif()
+execute_process(
+    COMMAND "${CMAKE_COMMAND_}" --build "${find_build}" --target run_consumer --config Release
+    RESULT_VARIABLE result
+)
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "find_package consumer build/run failed: ${result}")
+endif()
+
+# --- Consumer 2: add_subdirectory ---
+execute_process(
+    COMMAND "${CMAKE_COMMAND_}" -S "${SUBDIR_CONSUMER_SOURCE}" -B "${subdir_build}"
+        -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=Release
+        -DXLPP_SOURCE_DIR=${XLPP_SOURCE_DIR}
+    RESULT_VARIABLE result
+)
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "add_subdirectory consumer configure failed: ${result}")
+endif()
+execute_process(
+    COMMAND "${CMAKE_COMMAND_}" --build "${subdir_build}" --target run_subdir_app --config Release
+    RESULT_VARIABLE result
+)
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "add_subdirectory consumer build/run failed: ${result}")
+endif()
+
+file(REMOVE_RECURSE "${OUT_ROOT}")
+message(STATUS "Package consumer tests PASSED (find_package + add_subdirectory)")

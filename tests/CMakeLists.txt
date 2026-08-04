@@ -38,3 +38,14 @@ target_include_directories(XLPP_HeaderCheck PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/XLPP
 )
 target_compile_definitions(XLPP_HeaderCheck PRIVATE XLPP_STATIC)
+
+# --- Package consumer tests ---
+# Installs the project to a temp prefix, then builds and runs a consumer that
+# uses find_package(XLPP CONFIG) plus one that uses add_subdirectory().
+set(XLPP_PACKAGE_TEST_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/package_test.cmake)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/package/package_test.cmake.in
+    ${XLPP_PACKAGE_TEST_SCRIPT}
+    @ONLY
+)
+add_test(NAME PackageConsumerTests COMMAND ${CMAKE_COMMAND} -P ${XLPP_PACKAGE_TEST_SCRIPT})

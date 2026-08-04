@@ -1,4 +1,15 @@
 @PACKAGE_INIT@
 
+include(CMakeFindDependencyMacro)
+
+# XLPP::XLPP links against zlib. When the bundled copy was used it is
+# installed alongside us; otherwise resolve the system package.
+if(@XLPP_USE_BUNDLED_ZLIB@)
+    include("${CMAKE_CURRENT_LIST_DIR}/xlpp-zlib-targets.cmake")
+else()
+    find_dependency(ZLIB)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/xlpp-targets.cmake")
+
 check_required_components(xlpp)
