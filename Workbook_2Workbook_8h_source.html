@@ -220,10 +220,14 @@ $(document).ready(function(){initNavTree('Workbook_2Workbook_8h_source.html','')
 <div class="line"><a id="l00113" name="l00113"></a><span class="lineno">  113</span>    <span class="keywordtype">bool</span> date1904_{<span class="keyword">false</span>};</div>
 <div class="line"><a id="l00114" name="l00114"></a><span class="lineno">  114</span>    <span class="keywordtype">bool</span> strictNamespaces_{<span class="keyword">false</span>};</div>
 <div class="line"><a id="l00115" name="l00115"></a><span class="lineno">  115</span>    <span class="comment">// Differential-save cache: serialized sheet XML reused when a sheet is clean.</span></div>
-<div class="line"><a id="l00116" name="l00116"></a><span class="lineno">  116</span>    <span class="keyword">mutable</span> std::vector&lt;std::string&gt; cachedSheetXml_;</div>
-<div class="line"><a id="l00117" name="l00117"></a><span class="lineno">  117</span>};</div>
+<div class="line"><a id="l00116" name="l00116"></a><span class="lineno">  116</span>    <span class="comment">// Keyed by the serialization-affecting options so a later save with different</span></div>
+<div class="line"><a id="l00117" name="l00117"></a><span class="lineno">  117</span>    <span class="comment">// strict/date1904 settings re-serializes instead of reusing stale XML.</span></div>
+<div class="line"><a id="l00118" name="l00118"></a><span class="lineno">  118</span>    <span class="keyword">mutable</span> std::vector&lt;std::string&gt; cachedSheetXml_;</div>
+<div class="line"><a id="l00119" name="l00119"></a><span class="lineno">  119</span>    <span class="keyword">mutable</span> <span class="keywordtype">bool</span> cachedSheetXmlStrict_{<span class="keyword">false</span>};</div>
+<div class="line"><a id="l00120" name="l00120"></a><span class="lineno">  120</span>    <span class="keyword">mutable</span> <span class="keywordtype">bool</span> cachedSheetXmlDate1904_{<span class="keyword">false</span>};</div>
+<div class="line"><a id="l00121" name="l00121"></a><span class="lineno">  121</span>};</div>
 </div>
-<div class="line"><a id="l00118" name="l00118"></a><span class="lineno">  118</span>}</div>
+<div class="line"><a id="l00122" name="l00122"></a><span class="lineno">  122</span>}</div>
 <div class="ttc" id="aCalcProperties_8h_html"><div class="ttname"><a href="CalcProperties_8h.html">CalcProperties.h</a></div></div>
 <div class="ttc" id="aCompression_8h_html"><div class="ttname"><a href="Compression_8h.html">Compression.h</a></div></div>
 <div class="ttc" id="aCustomProperties_8h_html"><div class="ttname"><a href="CustomProperties_8h.html">CustomProperties.h</a></div></div>
