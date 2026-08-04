@@ -1,5 +1,6 @@
 // Comparable write benchmark for XLPP and libxlsxwriter.
 #include <XLPP/XLPP.h>
+#include <XLPP/Streaming.h>
 
 #include <chrono>
 #include <filesystem>
@@ -161,6 +162,35 @@ static void run_scenario(const char* scenario, int rows, int cols) {
     std::filesystem::remove(xlsxwriter_path);
 }
 
+static void run_streaming_read(int rows) {
+    const auto path = std::filesystem::temp_directory_path() /
+        ("xlpp-streaming-" + std::to_string(rows) + ".xlsx");
+    {
+        xlpp::StreamingWorkbookWriter writer(path, xlpp::SharedStringMode::Disabled);
+        auto& sheet = writer.addWorksheet("Data");
+        for (int row = 0; row < rows; ++row) {
+            std::vector<CellValue> values;
+            values.reserve(10);
+            for (int col = 0; col < 10; ++col)
+                values.emplace_back(col == 0 ? text(row, col) : std::to_string(row + col));
+            sheet.append(values);
+        }
+        writer.close();
+    }
+    const auto size = std::filesystem::file_size(path);
+    const auto start = Clock::now();
+    xlpp::StreamingWorkbookReader reader(path);
+    std::size_t cells = 0;
+    reader.forEachRow("Data", [&cells](std::size_t, const xlpp::StreamingRow& row) {
+        cells += row.size();
+        return true;
+    });
+    const auto read_ms = elapsed_ms(start, Clock::now());
+    std::cout << "BENCHMARK,c++,XLPP,streaming_" << rows << "_read," << std::fixed
+              << std::setprecision(2) << read_ms << "," << size << "\n";
+    std::filesystem::remove(path);
+}
+
 int main() {
     constexpr int rows = 10000;
     constexpr int cols = 15;
@@ -178,4 +208,7 @@ int main() {
     std::filesystem::remove(xlsxwriter_path);
     run_scenario("lookup", rows, cols);
     run_scenario("formula", rows, cols);
+    run_streaming_read(100000);
+    run_streaming_read(500000);
+    run_streaming_read(1000000);
 }

@@ -109,7 +109,16 @@ def run(scenario, library, writer, reader):
     path.unlink(missing_ok=True)
 
 
+def run_write_only(scenario, library, writer):
+    path = Path(tempfile.gettempdir()) / f"xlpp-{library}-{scenario}.xlsx"
+    start = time.perf_counter()
+    writer(path, scenario)
+    write_ms = (time.perf_counter() - start) * 1000
+    print(f"BENCHMARK,python,{library},{scenario}_write,{write_ms:.2f},{path.stat().st_size}")
+    path.unlink(missing_ok=True)
+
+
 for scenario in ("lookup", "formula"):
     run(scenario, "XLPP", write_xlpp, read_xlpp)
     run(scenario, "openpyxl", write_openpyxl, read_openpyxl)
-    print(f"BENCHMARK,python,XlsxWriter,{scenario}_write,unsupported,0")
+    run_write_only(scenario, "XlsxWriter", write_xlsxwriter)
