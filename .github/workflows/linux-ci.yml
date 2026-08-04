@@ -139,10 +139,11 @@ jobs:
 
       - name: Capture coverage
         run: |
-          lcov --capture --directory build-cov --output-file coverage.info \
+          lcov --capture --directory build-cov/src --output-file coverage.info \
+            --gcov-tool /usr/bin/gcov-14 \
             --rc lcov_branch_coverage=1 --ignore-errors mismatch,gcov
           lcov --remove coverage.info --output-file coverage-filtered.info \
-            '*/third_party/*' '*/tests/*' '/usr/*' \
+            '*/tests/*' \
             --rc lcov_branch_coverage=1 --ignore-errors mismatch
           genhtml coverage-filtered.info --output-directory coverage-html \
             --rc lcov_branch_coverage=1 --branch-coverage
