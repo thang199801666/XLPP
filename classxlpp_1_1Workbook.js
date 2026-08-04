@@ -43,6 +43,6 @@ var classxlpp_1_1Workbook =
     [ "strictNamespaces", "classxlpp_1_1Workbook.html#ae1d30f0a52bf0625b06f35ccca81ec3a", null ],
     [ "worksheet", "classxlpp_1_1Workbook.html#acd2c9fc74dc6e4b79df95e51746aa680", null ],
     [ "worksheet", "classxlpp_1_1Workbook.html#abef40fe9e6e2a0909234f27c0d1b831a", null ],
-    [ "worksheets", "classxlpp_1_1Workbook.html#a4d5333ade57e5f25b77a566f9539dc29", null ],
-    [ "worksheets", "classxlpp_1_1Workbook.html#aa23e07c85719a03bfb98f1945b970b76", null ]
+    [ "worksheets", "classxlpp_1_1Workbook.html#a86efb7c09c8b7ceda010dc21934343e7", null ],
+    [ "worksheets", "classxlpp_1_1Workbook.html#aa3eadf6d042fadc4eabee02ff3f246ab", null ]
 ];

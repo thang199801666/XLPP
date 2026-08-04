@@ -17,6 +17,6 @@ var searchData=
   ['worksheetnames_14',['worksheetNames',['../classxlpp_1_1StreamingWorkbookReader.html#a2a82fcd7b7abfa2e6b0e1bd563ff00c5',1,'xlpp::StreamingWorkbookReader']]],
   ['worksheetprotection_15',['WorksheetProtection',['../classxlpp_1_1WorksheetProtection.html',1,'xlpp']]],
   ['worksheetprotection_2eh_16',['WorksheetProtection.h',['../WorksheetProtection_8h.html',1,'']]],
-  ['worksheets_17',['worksheets',['../classxlpp_1_1Workbook.html#aa23e07c85719a03bfb98f1945b970b76',1,'xlpp::Workbook::worksheets() noexcept'],['../classxlpp_1_1Workbook.html#a4d5333ade57e5f25b77a566f9539dc29',1,'xlpp::Workbook::worksheets() const noexcept']]],
+  ['worksheets_17',['worksheets',['../classxlpp_1_1Workbook.html#aa3eadf6d042fadc4eabee02ff3f246ab',1,'xlpp::Workbook::worksheets() noexcept'],['../classxlpp_1_1Workbook.html#a86efb7c09c8b7ceda010dc21934343e7',1,'xlpp::Workbook::worksheets() const noexcept']]],
   ['wraptext_18',['wrapText',['../classxlpp_1_1Alignment.html#a2b98ae3ae7fb30fd9486d9ed3e77def1',1,'xlpp::Alignment']]]
 ];
