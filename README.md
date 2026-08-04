@@ -56,14 +56,22 @@ wb.save("output.xlsx");
 Cross-library benchmark sources and the raw GitHub Actions artifacts are
 available in [`benchmarks/README.md`](benchmarks/README.md).
 
-| Benchmark (10K rows × 15 cols) | XLPP | openpyxl | Speedup |
-|-------------------------------|------|----------|---------|
-| Write | **654 ms** | 1225 ms | **1.9×** |
-| Read | **399 ms** | 910 ms | **2.3×** |
-| XML scan (5K rows) | **10.5 ms** | ~200 ms | — |
-| SIMD speedup vs baseline | **6×** | — | — |
-| Multi-threaded save | ✅ | ❌ | — |
-| mmap zero-copy read | ✅ | ❌ | — |
+### Cross-library reference run
+
+Measured on the local Windows development machine. The GitHub Actions
+workflow publishes runner-specific results as the `benchmark-results` artifact.
+
+| Language | Library | Workload | Write | Read |
+|----------|---------|----------|------:|-----:|
+| Python | XLPP | 10K × 15 | **653.4 ms** | **309.0 ms** |
+| Python | openpyxl | 10K × 15 | 1081.5 ms | 1092.5 ms |
+| Python | XlsxWriter | 10K × 15 | 933.3 ms | n/a |
+| C# | XLPP | 10K × 10 | **280.7 ms** | n/a |
+| C# | ClosedXML | 10K × 10 | 930.2 ms | n/a |
+
+The C++ XLPP/libxlsxwriter write comparison is included in the GitHub Actions
+artifact; libxlsxwriter is write-only. Timings vary by runner and are
+indicative rather than a performance guarantee.
 
 ## Quick Start
 
