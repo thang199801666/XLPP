@@ -17,13 +17,10 @@ jobs:
         include:
           - os: windows-latest
             rid: win-x64
-            native: xlpp_capi.dll
           - os: ubuntu-latest
             rid: linux-x64
-            native: libxlpp_capi.so
           - os: macos-14
             rid: osx-arm64
-            native: libxlpp_capi.dylib
 
     steps:
       - uses: actions/checkout@v4
@@ -31,10 +28,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Set up MSBuild
-        if: runner.os == 'Windows'
-        uses: microsoft/setup-msbuild@v2
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -44,23 +37,31 @@ jobs:
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
 
-      - name: Build native C API library
+      - name: Configure (Windows, VS generator)
+        if: runner.os == 'Windows'
+        run: |
+          cmake -S . -B build-capi -G "Visual Studio 17 2022" -A x64 ^
+            -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF ^
+            -DXLPP_BUILD_CAPI=ON -DXLPP_USE_BUNDLED_ZLIB=ON
+
+      - name: Configure (Linux/macOS, Ninja)
+        if: runner.os != 'Windows'
         run: |
           cmake -S . -B build-capi -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF \
             -DXLPP_BUILD_CAPI=ON -DXLPP_USE_BUNDLED_ZLIB=ON
-          cmake --build build-capi
+
+      - name: Build native C API library
+        run: cmake --build build-capi --config Release -j 4
 
       - name: Stage native library for the runtimes folder
         shell: bash
         run: |
-          mkdir -p bindings/csharp/runtimes/${{ matrix.rid }}/native
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp build-capi/bin/${{ matrix.native }} bindings/csharp/runtimes/${{ matrix.rid }}/native/
-          else
-            cp build-capi/bin/${{ matrix.native }} bindings/csharp/runtimes/${{ matrix.rid }}/native/
-          fi
-          ls -la bindings/csharp/runtimes/${{ matrix.rid }}/native/
+          native=$(find build-capi -name 'xlpp_capi.dll' -o -name 'libxlpp_capi.so' -o -name 'libxlpp_capi.dylib' | head -n1)
+          test -n "$native"
+          mkdir -p "bindings/csharp/runtimes/${{ matrix.rid }}/native"
+          cp "$native" "bindings/csharp/runtimes/${{ matrix.rid }}/native/"
+          ls -la "bindings/csharp/runtimes/${{ matrix.rid }}/native/"
 
       - name: Run C# tests
         run: dotnet test bindings/csharp/tests/XlppNet.Tests/XlppNet.Tests.csproj -c Release
