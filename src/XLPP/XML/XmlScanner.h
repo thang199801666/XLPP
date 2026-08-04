@@ -115,10 +115,10 @@ inline bool parseDouble(std::string_view s, double& out) noexcept {
     char buffer[512];
     std::memcpy(buffer, s.data(), s.size());
     buffer[s.size()] = '\0';
-    std::errno = 0;
+    errno = 0;
     char* end = nullptr;
     const double value = std::strtod(buffer, &end);
-    if (end != buffer + s.size() || std::errno == ERANGE) return false;
+    if (end != buffer + s.size() || errno == ERANGE) return false;
     out = value;
     return true;
 #endif

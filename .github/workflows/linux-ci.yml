@@ -184,9 +184,9 @@ jobs:
           cmake --build build
           mkdir -p x64/Release
           cp build/src/libxlpp_static.a x64/Release/
-          zlib_archive=$(find build -type f -name 'libzlibstatic.a' -print -quit)
+          zlib_archive=$(find build -type f \( -name 'libz.a' -o -name 'libzlibstatic.a' \) -print -quit)
           test -n "$zlib_archive"
-          cp "$zlib_archive" x64/Release/
+          cp "$zlib_archive" x64/Release/libzlibstatic.a
           test -f x64/Release/libxlpp_static.a
           test -f x64/Release/libzlibstatic.a
 
