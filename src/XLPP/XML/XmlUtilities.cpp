@@ -35,6 +35,15 @@ std::string xmlUnescape(std::string_view s) {
     std::string out(s);
     const std::pair<const char*,const char*> r[]={{"&amp;","&"},{"&lt;","<"},{"&gt;",">"},{"&quot;","\""},{"&apos;","'"}};
     for(auto [a,b]:r){size_t p=0; while((p=out.find(a,p))!=std::string::npos){out.replace(p,std::char_traits<char>::length(a),b);p+=std::char_traits<char>::length(b);}}
+    // XML 1.0 §2.11 line-ending normalization: CRLF and bare CR are read as LF.
+    // xlsx producers (e.g. openpyxl) write \r\n in element text.
+    for (std::size_t i = 0; i < out.size();) {
+        if (out[i] == '\r') {
+            if (i + 1 < out.size() && out[i + 1] == '\n') out.erase(i, 1);
+            else out[i] = '\n';
+        }
+        ++i;
+    }
     return out;
 }
 

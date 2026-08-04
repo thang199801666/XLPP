@@ -310,7 +310,8 @@ std::string stylesXml(const StyleCatalog& catalog, const std::vector<xlpp::Named
     xml << "<fills count=\"" << catalog.items.size() + 1 << "\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill>";
     for (std::size_t i = 1; i < catalog.items.size(); ++i) {
         const auto& fill = catalog.items[i].fill();
-        xml << "<fill><patternFill patternType=\"" << xmlEscape(fill.patternType()) << "\">";
+        const std::string fillPattern = fill.patternType().empty() ? "none" : fill.patternType();
+        xml << "<fill><patternFill patternType=\"" << xmlEscape(fillPattern) << "\">";
         if (!fill.foregroundColor().empty()) xml << "<fgColor rgb=\"" << xmlEscape(fill.foregroundColor().argb()) << "\"/>";
         if (!fill.backgroundColor().empty()) xml << "<bgColor rgb=\"" << xmlEscape(fill.backgroundColor().argb()) << "\"/>";
         xml << "</patternFill></fill>";
@@ -376,7 +377,8 @@ std::string stylesXml(const StyleCatalog& catalog, const std::vector<xlpp::Named
         }
         const auto& fill = style.fill();
         if (!(fill == xlpp::Fill{})) {
-            xml << "<fill><patternFill patternType=\"" << xmlEscape(fill.patternType()) << "\">";
+            const std::string fillPattern = fill.patternType().empty() ? "none" : fill.patternType();
+            xml << "<fill><patternFill patternType=\"" << xmlEscape(fillPattern) << "\">";
             if (!fill.foregroundColor().empty()) xml << "<fgColor rgb=\"" << xmlEscape(fill.foregroundColor().argb()) << "\"/>";
             if (!fill.backgroundColor().empty()) xml << "<bgColor rgb=\"" << xmlEscape(fill.backgroundColor().argb()) << "\"/>";
             xml << "</patternFill></fill>";
@@ -413,6 +415,43 @@ xlpp::BorderSide parseBorderSide(const std::string& borderXml, const char* name)
         side.color() = parseColor(nodes.front());
     }
     return side;
+}
+
+// Formats for the built-in (ECMA-376 §18.8.30) numFmtIds 0-49 that files can
+// reference without declaring a <numFmt> element. Used as a fallback when a
+// cell's numFmtId is not present in the custom formats table.
+std::string builtinNumFmt(int id) {
+    switch (id) {
+    case 0: return "General";
+    case 1: return "0";
+    case 2: return "0.00";
+    case 3: return "#,##0";
+    case 4: return "#,##0.00";
+    case 9: return "0%";
+    case 10: return "0.00%";
+    case 11: return "0.00E+00";
+    case 12: return "# ?/?";
+    case 13: return "# ??/??";
+    case 14: return "mm-dd-yy";
+    case 15: return "d-mmm-yy";
+    case 16: return "d-mmm";
+    case 17: return "mmm-yy";
+    case 18: return "h:mm AM/PM";
+    case 19: return "h:mm:ss AM/PM";
+    case 20: return "h:mm";
+    case 21: return "h:mm:ss";
+    case 22: return "m/d/yy h:mm";
+    case 37: return "#,##0 ;(#,##0)";
+    case 38: return "#,##0 ;[Red](#,##0)";
+    case 39: return "#,##0.00;(#,##0.00)";
+    case 40: return "#,##0.00;[Red](#,##0.00)";
+    case 45: return "mm:ss";
+    case 46: return "[h]:mm:ss";
+    case 47: return "mmss.0";
+    case 48: return "##0.0E+0";
+    case 49: return "@";
+    default: return "General";
+    }
 }
 
 StyleCatalog parseStyleCatalog(const std::string& xml) {
@@ -478,7 +517,7 @@ StyleCatalog parseStyleCatalog(const std::string& xml) {
         if (!fontIdText.empty()) { const auto id = static_cast<std::size_t>(std::stoul(fontIdText)); if (id < fonts.size()) style.font() = fonts[id]; }
         if (!fillIdText.empty()) { const auto id = static_cast<std::size_t>(std::stoul(fillIdText)); if (id < fills.size()) style.fill() = fills[id]; }
         if (!borderIdText.empty()) { const auto id = static_cast<std::size_t>(std::stoul(borderIdText)); if (id < borders.size()) style.border() = borders[id]; }
-        if (!numFmtIdText.empty()) { const auto id = static_cast<int>(std::stoul(numFmtIdText)); style.setNumFmtId(id); const auto it = formats.find(id); if (it != formats.end()) style.setNumberFormat(it->second); }
+        if (!numFmtIdText.empty()) { const auto id = static_cast<int>(std::stoul(numFmtIdText)); style.setNumFmtId(id); const auto it = formats.find(id); style.setNumberFormat(it != formats.end() ? it->second : builtinNumFmt(id)); }
         const auto alignments = xlpp::internal::tags(node, "alignment");
         if (!alignments.empty()) {
             const auto& a = alignments.front();
@@ -1360,7 +1399,8 @@ for (auto& validationTag : internal::tags(xml, "dataValidation")) {
         for (const auto& rel : internal::tags(z.get(relPath), "Relationship")) {
             if (internal::attribute(rel, "Type").find("/comments") == std::string::npos) continue;
             auto commentsTarget = internal::attribute(rel, "Target");
-            if (commentsTarget.rfind("../", 0) == 0) commentsTarget = "xl/" + commentsTarget.substr(3);
+            if (commentsTarget.rfind("/", 0) == 0) commentsTarget = commentsTarget.substr(1);            // "/xl/..." absolute
+            else if (commentsTarget.rfind("../", 0) == 0) commentsTarget = "xl/" + commentsTarget.substr(3); // relative to worksheets/
             else commentsTarget = "xl/worksheets/" + commentsTarget;
             if (!z.contains(commentsTarget)) continue;
             const auto commentsText = z.get(commentsTarget);
@@ -1382,7 +1422,8 @@ for (auto& validationTag : internal::tags(xml, "dataValidation")) {
         }
         for (const auto& part : internal::tags(xml, "tablePart")) {
             auto tableTarget = tableTargets[internal::attribute(part,"r:id")];
-            if (tableTarget.rfind("../",0)==0) tableTarget = "xl/" + tableTarget.substr(3);
+            if (tableTarget.rfind("/",0)==0) tableTarget = tableTarget.substr(1);
+            else if (tableTarget.rfind("../",0)==0) tableTarget = "xl/" + tableTarget.substr(3);
             else tableTarget = "xl/worksheets/" + tableTarget;
             if (!z.contains(tableTarget)) continue;
             const auto tableText = z.get(tableTarget);
