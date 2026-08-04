@@ -7,6 +7,7 @@
 [![API Documentation](https://img.shields.io/badge/API-Doxygen-blue)](https://thang199801666.github.io/XLPP/)
 [![PyPI version](https://img.shields.io/pypi/v/xlpp.svg)](https://pypi.org/project/xlpp/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/xlpp.svg)](https://pypi.org/project/xlpp/)
+[![Benchmarks](https://github.com/thang199801666/XLPP/actions/workflows/benchmark.yml/badge.svg)](https://github.com/thang199801666/XLPP/actions/workflows/benchmark.yml)
 
 **High-performance C++20 Excel `.xlsx` read/write library.**  
 One dependency (zlib). SIMD-accelerated parsing. Multi-threaded save. Python & C# bindings.
@@ -51,6 +52,9 @@ wb.save("output.xlsx");
 | **Macro safe** | VBA & custom XML survive load→save |
 
 ## Performance
+
+Cross-library benchmark sources and the raw GitHub Actions artifacts are
+available in [`benchmarks/README.md`](benchmarks/README.md).
 
 | Benchmark (10K rows × 15 cols) | XLPP | openpyxl | Speedup |
 |-------------------------------|------|----------|---------|

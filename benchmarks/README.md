@@ -1,0 +1,20 @@
+# Cross-library benchmarks
+
+The benchmark uses the same deterministic 10,000 x 10 worksheet for every
+implementation. Timings include workbook construction, styling, and the final
+`.xlsx` write. Runs print machine-readable lines in this format:
+
+```text
+BENCHMARK,<language>,<library>,<operation>,<milliseconds>,<bytes>
+```
+
+Comparisons currently included:
+
+- C++: XLPP and libxlsxwriter. libxlsxwriter is a write-only library, so this
+  comparison reports write performance only.
+- C#: XLPP and ClosedXML.
+- Python: XLPP, openpyxl, and XlsxWriter. XlsxWriter is write-only; the Python
+  runner reports read timings for libraries that support reading.
+
+These are indicative CI measurements, not a substitute for a controlled local
+performance study. GitHub Actions uploads the raw output as an artifact.

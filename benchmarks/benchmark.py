@@ -160,6 +160,12 @@ def run_benchmarks():
             os.remove(fp3)
 
         os.remove(fp)
+        for library in ("XLPP", "openpyxl", "XlsxWriter"):
+            prefix = {"XLPP": "xlpp", "openpyxl": "opy", "XlsxWriter": "xwr"}[library]
+            if f"{prefix}_write_ms" in row:
+                print(f"BENCHMARK,python,{library},write,{row[prefix + '_write_ms']},{row[prefix + '_size']}")
+            if f"{prefix}_read_ms" in row:
+                print(f"BENCHMARK,python,{library},read,{row[prefix + '_read_ms']},0")
         results.append((label, row))
 
     # Summary table

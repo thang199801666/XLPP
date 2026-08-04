@@ -13,6 +13,7 @@ option(XLPP_BUILD_TESTS "Build unit tests" ON)
 option(XLPP_BUILD_SAMPLES "Build sample programs" ON)
 option(XLPP_BUILD_CAPI "Build C API DLL" ON)
 option(XLPP_BUILD_BINDINGS "Build language bindings" OFF)
+option(XLPP_BUILD_BENCHMARKS "Build external library benchmarks" OFF)
 option(XLPP_USE_BUNDLED_ZLIB "Use bundled zlib instead of system" ON)
 
 # === C++ Standard ===
@@ -66,6 +67,10 @@ endif()
 # === C API ===
 if(XLPP_BUILD_CAPI)
     add_subdirectory(bindings/c)
+endif()
+
+if(XLPP_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
 endif()
 
 # === Install ===
