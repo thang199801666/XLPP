@@ -39,8 +39,16 @@ ext_modules = [
     ),
 ]
 
-with open(os.path.join(xlpp_root, "README.md"), encoding="utf-8") as readme_file:
-    long_description = readme_file.read()
+try:
+    with open(os.path.join(xlpp_root, "README.md"), encoding="utf-8") as readme_file:
+        long_description = readme_file.read()
+except OSError:
+    # When built from an sdist the README lives outside the package; never let
+    # a missing readme break `pip install` from source.
+    long_description = (
+        "High-performance C++ Excel xlsx library for Python. "
+        "See https://github.com/thang199801666/XLPP for the full README."
+    )
 
 setup(
     name="xlpp",
