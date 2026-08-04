@@ -109,6 +109,14 @@ using (var workbook = new Workbook())
     Print("XLPP", "write", timer, xlppPath);
 }
 
+var xlppReadTimer = Stopwatch.StartNew();
+using (var workbook = new Workbook())
+{
+    workbook.Load(xlppPath);
+    _ = workbook["Data"].MaxRow;
+}
+PrintRead("XLPP", "read", xlppReadTimer);
+
 using (var workbook = new XLWorkbook())
 {
     var sheet = workbook.Worksheets.Add("Data");
@@ -121,6 +129,11 @@ using (var workbook = new XLWorkbook())
     workbook.SaveAs(closedPath);
     Print("ClosedXML", "write", timer, closedPath);
 }
+
+var closedReadTimer = Stopwatch.StartNew();
+using (var workbook = new XLWorkbook(closedPath))
+    _ = workbook.Worksheet("Data").LastRowUsed()?.RowNumber();
+PrintRead("ClosedXML", "read", closedReadTimer);
 
 File.Delete(xlppPath);
 File.Delete(closedPath);

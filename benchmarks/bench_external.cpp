@@ -204,6 +204,11 @@ int main() {
               << "," << std::filesystem::file_size(xlpp_path) << "\n";
     std::cout << "BENCHMARK,c++,libxlsxwriter,write," << std::fixed << std::setprecision(2)
               << xlsxwriter_ms << "," << std::filesystem::file_size(xlsxwriter_path) << "\n";
+    const auto read_start = Clock::now();
+    xlpp::Workbook loaded;
+    loaded.load(xlpp_path);
+    std::cout << "BENCHMARK,c++,XLPP,read," << std::fixed << std::setprecision(2)
+              << elapsed_ms(read_start, Clock::now()) << ",0\n";
     std::filesystem::remove(xlpp_path);
     std::filesystem::remove(xlsxwriter_path);
     run_scenario("lookup", rows, cols);
