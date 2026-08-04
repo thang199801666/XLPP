@@ -38,7 +38,10 @@ def zlib_sources():
     zlib_dir = os.path.join("third_party", "zlib")
     out = []
     for name in sorted(os.listdir(zlib_dir)):
-        if name.endswith(".c") and name not in ("example.c", "minigzip.c"):
+        # Exclude the stdio-based gz* layer: XLPP uses the raw inflate/deflate
+        # API and gz*.c does not compile as C++ on all toolchains.
+        if (name.endswith(".c") and name not in
+                ("example.c", "minigzip.c", "gzclose.c", "gzlib.c", "gzread.c", "gzwrite.c")):
             out.append(os.path.join(zlib_dir, name))
     return out
 
