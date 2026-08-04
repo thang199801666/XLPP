@@ -25,6 +25,14 @@ bindings/python/__pycache__/
 bindings/python/*.pyd
 *.pyc
 
+# Python packaging (repo-root setup.py is now self-contained)
+*.pyd
+*.so
+*.egg-info/
+dist/
+wheel-verify/
+dist-verify/
+
 # IDE
 .idea/
 .vscode/

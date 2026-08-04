@@ -1,0 +1,7 @@
+# Header files are used via include_dirs and are not auto-included in the
+# sdist, but the extension cannot compile without them.
+include LICENSE
+include README.md
+recursive-include include *.h
+recursive-include src *.h
+recursive-include third_party/zlib *.h

@@ -5,9 +5,9 @@ name: Publish to PyPI
 #                         configured for this repo in PyPI's settings).
 #   - workflow_dispatch-> publish to TestPyPI.
 #
-# Native libraries are built in `before-all` and dropped into x64/Release,
-# matching the layout setup.py expects (XLPP.lib/zlib.lib on Windows,
-# libxlpp_static.a/libzlibstatic.a on Linux/macOS).
+# The wheel build is fully self-contained: setup.py compiles the XL++ library,
+# the bundled zlib and the pybind11 binding directly, so no pre-built native
+# libraries are needed.
 
 on:
   push:
@@ -25,46 +25,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            # before-all runs in the repo root (and, for Linux, in the manylinux
-            # container). Single-line "&&" chains keep it compatible with sh and
-            # Windows cmd.exe.
-            before-all: >
-              cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
-              -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF
-              -DXLPP_BUILD_CAPI=OFF -DXLPP_USE_BUNDLED_ZLIB=ON &&
-              cmake --build build-linux &&
-              mkdir -p x64/Release &&
-              cp build-linux/src/libxlpp_static.a x64/Release/ &&
-              cp "$(find build-linux -name libz.a -o -name libzlibstatic.a | head -n1)" x64/Release/libzlibstatic.a
-          - os: windows-latest
-            before-all: >
-              vcpkg install --triplet x64-windows &&
-              msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
-          - os: macos-14
-            before-all: >
-              cmake -S . -B build-macos -DCMAKE_BUILD_TYPE=Release
-              -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF
-              -DXLPP_BUILD_CAPI=OFF -DXLPP_USE_BUNDLED_ZLIB=ON &&
-              cmake --build build-macos &&
-              mkdir -p x64/Release &&
-              cp build-macos/src/libxlpp_static.a x64/Release/ &&
-              cp "$(find build-macos -name libz.a -o -name libzlibstatic.a | head -n1)" x64/Release/libzlibstatic.a
+        os: [ubuntu-latest, windows-latest, macos-14]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up MSBuild
-        if: runner.os == 'Windows'
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Build native libraries + wheels
+      - name: Build wheels
         uses: pypa/cibuildwheel@v4.1.1
-        with:
-          package-dir: bindings/python
-        env:
-          CIBW_BEFORE_ALL: ${{ matrix.before-all }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -80,14 +47,13 @@ jobs:
         with:
           python-version: '3.12'
       - name: Build sdist
-        working-directory: bindings/python
         run: |
           python -m pip install --upgrade pip build setuptools wheel pybind11
           python -m build --sdist --outdir dist
       - uses: actions/upload-artifact@v4
         with:
           name: sdist
-          path: bindings/python/dist/*.tar.gz
+          path: dist/*.tar.gz
 
   publish:
     name: Publish

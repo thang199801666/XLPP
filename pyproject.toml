@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64", "wheel", "pybind11>=2.11"]
+build-backend = "setuptools.build_meta"
+
+[tool.cibuildwheel]
+# Self-contained build: the extension compiles all XL++ and zlib sources, so
+# no before-all step is required and no pre-built libraries are needed.
+# cibuildwheel 4.x dropped Python 3.8; the previously published 1.0.0 wheels
+# for cp38 remain available on PyPI.
+build = "cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
+# Smoke test: install the wheel, build a workbook in memory and round-trip it.
+test-command = "python -c \"import xlpp; wb=xlpp.Workbook(); ws=wb.add_worksheet('CI'); ws['A1'].value=42; wb.save('ci.xlsx'); wb2=xlpp.Workbook(); wb2.load('ci.xlsx'); assert wb2['CI']['A1'].value == 42.0; print('wheel OK')\""
+
+[tool.cibuildwheel.macos]
+archs = ["arm64"]
+# std::filesystem requires macOS 10.15+; cibuildwheel defaults to 10.9.
+environment = "MACOSX_DEPLOYMENT_TARGET=10.15"
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
