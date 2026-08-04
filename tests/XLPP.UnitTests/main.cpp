@@ -3032,6 +3032,67 @@ void testCopyWorksheetAliasing(TestContext& test) {
     test.checkEqual(wb.sheetCount(), std::size_t{43}, "Workbook grew as expected");
 }
 
+void testReferenceStabilityAcrossInserts(TestContext& test) {
+    // Regression: worksheet references must survive further worksheet
+    // insertion (stable storage, no vector reallocation).
+    xlpp::Workbook wb;
+    auto& first = wb.addWorksheet("First");
+    first.cell("A1").setValue(std::string("stable"));
+    auto& second = wb.addWorksheet("Second");
+
+    xlpp::Worksheet* firstPtr = &first;
+    xlpp::Worksheet* secondPtr = &second;
+
+    for (std::size_t i = 0; i < 100; ++i) wb.addWorksheet("Extra" + std::to_string(i));
+
+    test.checkEqual(firstPtr->name(), std::string("First"), "Reference survives 100 inserts");
+    test.checkEqual(std::get<std::string>(firstPtr->cell("A1").value()), std::string("stable"),
+                    "Reference still points to the same worksheet");
+    test.checkEqual(secondPtr->name(), std::string("Second"), "Second reference survives inserts");
+    test.checkEqual(&wb[0], firstPtr, "operator[] returns the same stable object");
+
+    auto& copy = wb.copyWorksheet(*firstPtr, "CopyOfFirst");
+    test.checkEqual(std::get<std::string>(copy.cell("A1").value()), std::string("stable"),
+                    "Copy after inserts keeps data");
+    test.checkEqual(firstPtr->name(), std::string("First"), "Source still valid after copyWorksheet");
+}
+
+void testReferenceLifetimeContract(TestContext& test) {
+    // Documented lifetime contract: references to a worksheet stay valid until
+    // that worksheet is removed (or the workbook is cleared/destroyed).
+    xlpp::Workbook wb;
+    auto& keep = wb.addWorksheet("Keep");
+    keep.cell("B2").setValue(9.5);
+    wb.addWorksheet("Victim");
+
+    // Removing an unrelated sheet must not invalidate `keep`.
+    wb.removeWorksheet("Victim");
+    test.checkNear(keep.cell("B2").numericValueOr(-1), 9.5, 1e-12, "Unrelated remove keeps reference valid");
+
+    // Copying also keeps the original reference valid.
+    wb.copyWorksheet(keep, "Clone");
+    test.checkEqual(keep.name(), std::string("Keep"), "Reference valid after copyWorksheet");
+
+    // Clearing invalidates all references (documented; only checked indirectly).
+    wb.clear();
+    test.checkEqual(wb.sheetCount(), std::size_t{0}, "Clear removes all worksheets");
+}
+
+void testWorkbookCopyMoveSemantics(TestContext& test) {
+    xlpp::Workbook wb;
+    auto& a = wb.addWorksheet("A");
+    a.cell("A1").setValue(std::string("x"));
+    wb.addWorksheet("B");
+
+    xlpp::Workbook copy = wb;
+    test.checkEqual(copy.sheetCount(), std::size_t{2}, "Workbook is copyable");
+    test.checkEqual(copy.worksheet("A")->cell("A1").stringValueOr(""), std::string("x"),
+                    "Copied workbook has deep data");
+    copy.worksheet("A")->cell("A1").setValue(std::string("changed"));
+    test.checkEqual(wb.worksheet("A")->cell("A1").stringValueOr(""), std::string("x"),
+                    "Copy is independent of original");
+}
+
 
 }
 
@@ -3114,6 +3175,9 @@ int main() {
         {"Differential save cache", testDifferentialSaveCache},
         {"Strict after transitional save", testStrictAfterTransitionalSave},
         {"copyWorksheet aliasing", testCopyWorksheetAliasing},
+        {"Reference stability across inserts", testReferenceStabilityAcrossInserts},
+        {"Reference lifetime contract", testReferenceLifetimeContract},
+        {"Workbook copy/move semantics", testWorkbookCopyMoveSemantics},
     };
 
     std::cout << "============================================================\n";

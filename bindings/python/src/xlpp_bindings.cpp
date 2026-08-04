@@ -293,6 +293,10 @@ PYBIND11_MODULE(xlpp, m) {
         .def_static("from_file", &Image::fromFile);
 
     // === Table ===
+    py::class_<TableColumn>(m, "TableColumn")
+        .def_property_readonly("id", &TableColumn::id)
+        .def_property("name", &TableColumn::name, &TableColumn::setName);
+
     py::class_<Table>(m, "Table")
         .def(py::init<>())
         .def(py::init<std::string, std::string>())
@@ -315,7 +319,20 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property_readonly("column", &Cell::column)
         .def_property("value",
             [](const Cell& c) { return cellvalue_to_py(c.value()); },
-            [](Cell& c, const py::object& v) { c.setValue(py_to_cellvalue(v)); })
+            [](Cell& c, const py::object& v) {
+                auto cv = py_to_cellvalue(v);
+                if (auto* dt = std::get_if<DateTime>(&cv)) {
+                    // Applying the date via setDate/setDateTime installs a
+                    // matching number format so the value survives save/load
+                    // as a real date instead of a bare serial number.
+                    if (dt->hour == 0 && dt->minute == 0 && dt->second == 0.0)
+                        c.setDate(*dt);
+                    else
+                        c.setDateTime(*dt);
+                } else {
+                    c.setValue(cv);
+                }
+            })
         .def("set_formula", [](Cell& c, const std::string& f) { c.setFormula(f); })
         .def("set_dynamic_array_formula", [](Cell& c, const std::string& f, const std::string& ref) {
             c.setDynamicArrayFormula(f, ref);
@@ -359,7 +376,11 @@ PYBIND11_MODULE(xlpp, m) {
                     return ws.cell(t[0].cast<std::size_t>(), t[1].cast<std::size_t>());
                 }
                 throw std::invalid_argument("key must be 'A1' or (row, col)");
-            }, py::return_value_policy::reference_internal)
+            }, py::arg("key"), py::return_value_policy::reference_internal)
+        .def("cell",
+            [](Worksheet& ws, std::size_t row, std::size_t col) -> Cell& {
+                return ws.cell(row, col);
+            }, py::arg("row"), py::arg("col"), py::return_value_policy::reference_internal)
         .def("__getitem__",
             [](Worksheet& ws, const std::string& key) -> Cell& { return ws.cell(key); },
             py::return_value_policy::reference_internal)
@@ -429,7 +450,8 @@ PYBIND11_MODULE(xlpp, m) {
                     }
                     result.append(header);
                 }
-                for (std::size_t r = include_header ? 2 : 1; r <= maxR; ++r) {
+                // Data always starts at row 2, symmetric with from_records(header=True).
+                for (std::size_t r = 2; r <= maxR; ++r) {
                     py::list row;
                     for (std::size_t c = 1; c <= maxC; ++c) {
                         const auto* cell = ws.tryCell(r, c);
@@ -473,9 +495,15 @@ PYBIND11_MODULE(xlpp, m) {
             return ws.addImage(path, anchor);
         }, py::return_value_policy::reference_internal)
         .def("__iter__", [](Worksheet& ws) {
+            // Materialize the rows into a Python-owned list: the underlying
+            // std::vector<Row> would otherwise dangle as soon as the lambda
+            // returns. The returned iterator owns the list; callers must keep
+            // the worksheet alive (same lifetime contract as C++).
             auto rows = ws.rows();
-            return py::make_iterator(rows.begin(), rows.end());
-        }, py::keep_alive<0, 1>())
+            py::list result;
+            for (auto& row : rows) result.append(py::cast(row));
+            return py::iter(result);
+        })
         .def("__repr__", [](const Worksheet& ws) { return "<Worksheet '" + ws.name() + "'>"; });
 
     // === Row ===
@@ -483,9 +511,15 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property_readonly("number", &Row::number)
         .def("cell", &Row::cell, py::return_value_policy::reference_internal)
         .def("__iter__", [](Row& r) {
+            // Materialize cell pointers; the underlying std::vector<Cell*>
+            // would otherwise dangle. Cell objects reference the worksheet's
+            // stable storage.
             auto cells = r.cells();
-            return py::make_iterator(cells.begin(), cells.end());
-        }, py::keep_alive<0, 1>())
+            py::list result;
+            for (auto* c : cells)
+                result.append(py::cast(c, py::return_value_policy::reference));
+            return py::iter(result);
+        })
         .def("values", &Row::values);
 
     // === Workbook ===
@@ -515,6 +549,10 @@ PYBIND11_MODULE(xlpp, m) {
         .def("index", &Workbook::index)
         .def("load",
             [](Workbook& wb, const std::string& path) { wb.load(std::filesystem::path(path)); })
+        .def("load",
+            [](Workbook& wb, const std::string& path, const LoadOptions& opts) {
+                wb.load(std::filesystem::path(path), opts);
+            }, py::arg("path"), py::arg("options"))
         .def("save",
             [](const Workbook& wb, const std::string& path, const SaveOptions* opts) {
                 if (opts) wb.save(std::filesystem::path(path), *opts);
@@ -529,8 +567,14 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("date_1904", &Workbook::date1904, &Workbook::setDate1904)
         .def("clear", &Workbook::clear)
         .def("__iter__", [](Workbook& wb) {
-            return py::make_iterator(wb.worksheets().begin(), wb.worksheets().end());
-        }, py::keep_alive<0, 1>())
+            // Yield references into the workbook's stable worksheet storage.
+            // The returned iterator owns the materialized list; callers must
+            // keep the workbook alive (same lifetime contract as C++).
+            py::list result;
+            for (auto& ws : wb.worksheets())
+                result.append(py::cast(&ws, py::return_value_policy::reference));
+            return py::iter(result);
+        })
         .def("__repr__", [](const Workbook& wb) {
             return "<Workbook sheets=" + std::to_string(wb.sheetCount()) + ">";
         });

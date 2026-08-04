@@ -1,10 +1,59 @@
 name: Build Python wheels
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
-  # Linux wheels are built and tested by linux-ci.yml.
 
 jobs:
+  binding-tests:
+    name: Python binding tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build native library (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install --triplet x64-windows
+          msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
+
+      - name: Build native library (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-14 zlib1g-dev
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF \
+            -DXLPP_BUILD_CAPI=OFF -DXLPP_USE_BUNDLED_ZLIB=ON
+          cmake --build build
+          mkdir -p x64/Release
+          cp build/src/libxlpp_static.a x64/Release/
+          zlib_archive=$(find build -type f \( -name 'libz.a' -o -name 'libzlibstatic.a' \) -print -quit)
+          test -n "$zlib_archive"
+          cp "$zlib_archive" x64/Release/libzlibstatic.a
+
+      - name: Build extension + run binding tests
+        working-directory: bindings/python
+        run: |
+          python -m pip install --upgrade pip pybind11 pytest numpy setuptools wheel
+          python setup.py build_ext --inplace
+          python -m pytest
+
   wheels:
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}

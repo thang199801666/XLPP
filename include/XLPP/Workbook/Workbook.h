@@ -7,6 +7,7 @@
 #include <XLPP/Workbook/CalcProperties.h>
 #include <XLPP/Workbook/CustomProperties.h>
 #include <XLPP/Compression.h>
+#include <deque>
 #include <filesystem>
 #include <functional>
 #include <istream>
@@ -49,6 +50,11 @@ struct LoadOptions {
 
 class Workbook {
 public:
+    // Stable worksheet storage: std::deque never invalidates references on
+    // insertion at either end, so `Worksheet&` / `Worksheet*` obtained from
+    // addWorksheet/copyWorksheet/operator[] remain valid across further
+    // worksheet insertion. Only removal of a sheet invalidates references to
+    // that sheet.
     Worksheet& addWorksheet(std::string name);
     Worksheet& copyWorksheet(const Worksheet& source, std::string newName);
     bool removeWorksheet(const std::string& name);
@@ -59,8 +65,8 @@ public:
     std::size_t index(const Worksheet& sheet) const;
     std::vector<std::string> sheetNames() const;
     std::size_t sheetCount() const noexcept { return sheets_.size(); }
-    std::vector<Worksheet>& worksheets() noexcept { return sheets_; }
-    const std::vector<Worksheet>& worksheets() const noexcept { return sheets_; }
+    std::deque<Worksheet>& worksheets() noexcept { return sheets_; }
+    const std::deque<Worksheet>& worksheets() const noexcept { return sheets_; }
     NamedStyle& addNamedStyle(NamedStyle style);
     NamedStyle* namedStyle(const std::string& name) noexcept;
     const NamedStyle* namedStyle(const std::string& name) const noexcept;
@@ -101,7 +107,7 @@ public:
     // Diagnostics from the most recent load.
     const LoadDiagnostics& diagnostics() const noexcept { return diagnostics_; }
 private:
-    std::vector<Worksheet> sheets_;
+    std::deque<Worksheet> sheets_;
     std::vector<NamedStyle> namedStyles_;
     std::vector<DefinedName> definedNames_;
     DocumentProperties properties_;

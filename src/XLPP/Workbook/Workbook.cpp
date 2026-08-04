@@ -1095,7 +1095,7 @@ std::string tableXml(const xlpp::Table& table, std::size_t id, bool strict) {
 // Serialize every worksheet to XML, using a ThreadPool when workers > 1.
 // Output is indexed by worksheet order and is identical to the sequential result.
 // The cache is keyed by strict/date1904 so a change in either forces re-serialization.
-std::vector<std::string> serializeSheets(const std::vector<xlpp::Worksheet>& sheets,
+std::vector<std::string> serializeSheets(const std::deque<xlpp::Worksheet>& sheets,
                                          const StyleCatalog& styles, const DxfCatalog& dxfs,
                                          bool date1904, bool strict, std::size_t workers,
                                          bool parallelRows,
