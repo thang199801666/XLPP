@@ -1,6 +1,5 @@
 // Comparable write benchmark for XLPP and libxlsxwriter.
 #include <XLPP/XLPP.h>
-#include <xlsxwriter.h>
 
 #include <chrono>
 #include <filesystem>
@@ -12,6 +11,22 @@
 
 using Clock = std::chrono::steady_clock;
 using xlpp::CellValue;
+
+// The vcpkg libxlsxwriter package omits its private queue/tree headers. These
+// are the public C ABI declarations needed by this write-only benchmark.
+extern "C" {
+struct lxw_workbook;
+struct lxw_worksheet;
+struct lxw_format;
+lxw_workbook* workbook_new(const char* filename);
+lxw_worksheet* workbook_add_worksheet(lxw_workbook*, const char* name);
+lxw_format* workbook_add_format(lxw_workbook*);
+void format_set_bold(lxw_format*);
+int worksheet_write_string(lxw_worksheet*, int row, int col, const char*, lxw_format*);
+int worksheet_write_number(lxw_worksheet*, int row, int col, double, lxw_format*);
+int worksheet_freeze_panes(lxw_worksheet*, int row, int col);
+int workbook_close(lxw_workbook*);
+}
 
 static double elapsed_ms(Clock::time_point start, Clock::time_point end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
@@ -65,7 +80,7 @@ static double write_xlsxwriter(const std::filesystem::path& path, int rows, int 
         }
     }
     worksheet_freeze_panes(sheet, 1, 0);
-    if (workbook_close(workbook) != LXW_ERROR_NO_ERROR)
+    if (workbook_close(workbook) != 0)
         throw std::runtime_error("libxlsxwriter could not close workbook");
     return elapsed_ms(start, Clock::now());
 }
