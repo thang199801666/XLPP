@@ -75,10 +75,10 @@ workflow publishes runner-specific results as the `benchmark-results` artifact.
 | XLPP (Python) | **653.4 ms** | **309.0 ms** |
 | openpyxl (Python) | 1081.5 ms | 1092.5 ms |
 | XlsxWriter (Python) | 933.3 ms | n/a |
-| XLPP (C++) | pending CI | pending CI |
-| libxlsxwriter (C++) | pending CI | n/a |
-| XLPP (C#) | pending CI | pending CI |
-| ClosedXML (C#) | pending CI | pending CI |
+| XLPP (C++) | See CI artifact | See CI artifact |
+| libxlsxwriter (C++) | See CI artifact | n/a |
+| XLPP (C#) | See CI artifact | See CI artifact |
+| ClosedXML (C#) | See CI artifact | See CI artifact |
 
 #### 10K rows × 15 cols (with Lookup table)
 
@@ -106,7 +106,9 @@ workflow publishes runner-specific results as the `benchmark-results` artifact.
 
 The C++ XLPP/libxlsxwriter write comparison is included in the GitHub Actions
 artifact; libxlsxwriter is write-only. Timings vary by runner and are
-indicative rather than a performance guarantee.
+indicative rather than a performance guarantee. `pending CI` in the tables
+below means that scenario has not yet been added to the runner, not that the
+base benchmark workflow failed.
 
 ### Large-file streaming read
 

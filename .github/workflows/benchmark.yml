@@ -60,6 +60,9 @@ jobs:
             Tee-Object python-benchmark.log))
           $benchmarks = $output | Select-String -Pattern '^BENCHMARK,'
           $benchmarks | ForEach-Object { $_.Line } | Out-File bench-results.txt -Encoding utf8
+          $summary = @("## Benchmark Results", "", '```text') +
+            @($benchmarks | ForEach-Object { $_.Line }) + @('```')
+          $summary | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           Write-Output "--- Benchmark Results ---"
           Get-Content bench-results.txt
       - uses: actions/upload-artifact@v4
