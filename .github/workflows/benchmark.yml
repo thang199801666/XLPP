@@ -28,9 +28,8 @@ jobs:
       - name: Run native tests
         run: .\x64\Release\XLPP.UnitTests.exe
       - name: Build C++ binding and benchmarks
-        continue-on-error: true
         run: |
-          cmake -S . -B build-benchmark -G "Visual Studio 17 2022" -A x64 `
+          cmake -S . -B build-benchmark -G "Visual Studio 18 2026" -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_CAPI=OFF `
             -DXLPP_BUILD_BENCHMARKS=ON 2>&1 | Tee-Object cmake-configure.log
