@@ -60,6 +60,8 @@ jobs:
             Tee-Object csharp-benchmark.log))
           $output.AddRange([string[]](& python benchmarks/benchmark.py 2>&1 |
             Tee-Object python-benchmark.log))
+          $output.AddRange([string[]](& python benchmarks/benchmark_extended.py 2>&1 |
+            Tee-Object python-extended-benchmark.log))
           $benchmarks = $output | Select-String -Pattern '^BENCHMARK,'
           $benchmarks | ForEach-Object { $_.Line } | Out-File bench-results.txt -Encoding utf8
           $summary = @("## Benchmark Results", "", '```text') +
@@ -78,4 +80,5 @@ jobs:
             cpp-benchmark.log
             csharp-benchmark.log
             python-benchmark.log
+            python-extended-benchmark.log
           if-no-files-found: ignore

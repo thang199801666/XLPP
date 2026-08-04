@@ -24,6 +24,7 @@ lxw_format* workbook_add_format(lxw_workbook*);
 void format_set_bold(lxw_format*);
 int worksheet_write_string(lxw_worksheet*, int row, int col, const char*, lxw_format*);
 int worksheet_write_number(lxw_worksheet*, int row, int col, double, lxw_format*);
+int worksheet_write_formula(lxw_worksheet*, int row, int col, const char*, double, lxw_format*);
 int worksheet_freeze_panes(lxw_worksheet*, int row, int col);
 int workbook_close(lxw_workbook*);
 }
@@ -85,6 +86,81 @@ static double write_xlsxwriter(const std::filesystem::path& path, int rows, int 
     return elapsed_ms(start, Clock::now());
 }
 
+static double write_xlpp_scenario(const std::filesystem::path& path, const char* scenario,
+                                  int rows, int cols) {
+    xlpp::Workbook workbook;
+    auto& data = workbook.addWorksheet("Data");
+    auto& lookup = workbook.addWorksheet("Lookup");
+    auto start = Clock::now();
+    for (int row = 1; row <= 500; ++row) {
+        lookup.cell(static_cast<std::size_t>(row), 1).setValue("Item-" + std::to_string(row - 1));
+        lookup.cell(static_cast<std::size_t>(row), 2).setValue(row * 1.25);
+    }
+    for (int row = 1; row <= rows; ++row) {
+        for (int col = 1; col <= cols; ++col) {
+            auto& cell = data.cell(static_cast<std::size_t>(row), static_cast<std::size_t>(col));
+            if (std::string(scenario) == "formula" && col == cols)
+                cell.setFormula("=VLOOKUP(A" + std::to_string(row) +
+                                ",Lookup!$A$1:$B$500,2,FALSE)");
+            else if (col == 1 || col >= 4) cell.setValue(text(row - 1, col - 1));
+            else if (col == 2) cell.setValue(static_cast<double>(row));
+            else cell.setValue((row * 7919 % 10000000) / 100.0);
+        }
+    }
+    workbook.save(path);
+    return elapsed_ms(start, Clock::now());
+}
+
+static double write_xlsxwriter_scenario(const std::filesystem::path& path, const char* scenario,
+                                        int rows, int cols) {
+    auto start = Clock::now();
+    lxw_workbook* workbook = workbook_new(path.string().c_str());
+    lxw_worksheet* data = workbook_add_worksheet(workbook, "Data");
+    lxw_worksheet* lookup = workbook_add_worksheet(workbook, "Lookup");
+    for (int row = 0; row < 500; ++row) {
+        worksheet_write_string(lookup, row, 0, ("Item-" + std::to_string(row)).c_str(), nullptr);
+        worksheet_write_number(lookup, row, 1, (row + 1) * 1.25, nullptr);
+    }
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            if (std::string(scenario) == "formula" && col == cols - 1) {
+                const auto formula = "=VLOOKUP(A" + std::to_string(row + 1) +
+                    ",Lookup!$A$1:$B$500,2,FALSE)";
+                worksheet_write_formula(data, row, col, formula.c_str(), 0, nullptr);
+            } else if (col == 1 || col == 2) {
+                worksheet_write_number(data, row, col,
+                    col == 1 ? row + 1 : (row * 7919 % 10000000) / 100.0, nullptr);
+            } else {
+                const auto cell = text(row, col);
+                worksheet_write_string(data, row, col, cell.c_str(), nullptr);
+            }
+        }
+    }
+    if (workbook_close(workbook) != 0) throw std::runtime_error("scenario save failed");
+    return elapsed_ms(start, Clock::now());
+}
+
+static void run_scenario(const char* scenario, int rows, int cols) {
+    const auto directory = std::filesystem::temp_directory_path();
+    const auto xlpp_path = directory / (std::string("xlpp-") + scenario + ".xlsx");
+    const auto xlsxwriter_path = directory / (std::string("xlsxwriter-") + scenario + ".xlsx");
+    const auto xlpp_ms = write_xlpp_scenario(xlpp_path, scenario, rows, cols);
+    const auto xlsxwriter_ms = write_xlsxwriter_scenario(xlsxwriter_path, scenario, rows, cols);
+    xlpp::Workbook loaded;
+    const auto read_start = Clock::now();
+    loaded.load(xlpp_path);
+    const auto xlpp_read_ms = elapsed_ms(read_start, Clock::now());
+    std::cout << "BENCHMARK,c++,XLPP," << scenario << "_write," << std::fixed
+              << std::setprecision(2) << xlpp_ms << "," << std::filesystem::file_size(xlpp_path) << "\n";
+    std::cout << "BENCHMARK,c++,XLPP," << scenario << "_read," << std::fixed
+              << std::setprecision(2) << xlpp_read_ms << ",0\n";
+    std::cout << "BENCHMARK,c++,libxlsxwriter," << scenario << "_write," << std::fixed
+              << std::setprecision(2) << xlsxwriter_ms << ","
+              << std::filesystem::file_size(xlsxwriter_path) << "\n";
+    std::filesystem::remove(xlpp_path);
+    std::filesystem::remove(xlsxwriter_path);
+}
+
 int main() {
     constexpr int rows = 10000;
     constexpr int cols = 15;
@@ -100,4 +176,6 @@ int main() {
               << xlsxwriter_ms << "," << std::filesystem::file_size(xlsxwriter_path) << "\n";
     std::filesystem::remove(xlpp_path);
     std::filesystem::remove(xlsxwriter_path);
+    run_scenario("lookup", rows, cols);
+    run_scenario("formula", rows, cols);
 }

@@ -20,6 +20,79 @@ static void Print(string library, string operation, Stopwatch timer, string path
     Console.WriteLine($"BENCHMARK,csharp,{library},{operation},{timer.Elapsed.TotalMilliseconds:F2},{new FileInfo(path).Length}");
 }
 
+static void PrintRead(string library, string operation, Stopwatch timer)
+{
+    timer.Stop();
+    Console.WriteLine($"BENCHMARK,csharp,{library},{operation},{timer.Elapsed.TotalMilliseconds:F2},0");
+}
+
+static void RunXlppScenario(string scenario, string path)
+{
+    using (var workbook = new Workbook())
+    {
+        var data = workbook.AddWorksheet("Data");
+        var lookup = workbook.AddWorksheet("Lookup");
+        var timer = Stopwatch.StartNew();
+        for (var row = 1; row <= 500; row++)
+        {
+            lookup.Cell((ulong)row, 1).Value = $"Item-{row - 1}";
+            lookup.Cell((ulong)row, 2).Value = row * 1.25;
+        }
+        for (var row = 0; row < rows; row++)
+        {
+            for (var column = 0; column < columns; column++)
+            {
+                if (scenario == "formula" && column == columns - 1)
+                    data.Cell((ulong)(row + 1), (ulong)(column + 1)).Formula =
+                        $"=VLOOKUP(A{row + 1},Lookup!$A$1:$B$500,2,FALSE)";
+                else
+                    data.Cell((ulong)(row + 1), (ulong)(column + 1)).Value = Value(row, column);
+            }
+        }
+        workbook.Save(path);
+        Print("XLPP", $"{scenario}_write", timer, path);
+    }
+    var readTimer = Stopwatch.StartNew();
+    using (var workbook = new Workbook())
+    {
+        workbook.Load(path);
+        _ = workbook["Data"].Cell((ulong)rows, (ulong)columns).Formula;
+    }
+    PrintRead("XLPP", $"{scenario}_read", readTimer);
+}
+
+static void RunClosedXmlScenario(string scenario, string path)
+{
+    var timer = Stopwatch.StartNew();
+    using (var workbook = new XLWorkbook())
+    {
+        var data = workbook.Worksheets.Add("Data");
+        var lookup = workbook.Worksheets.Add("Lookup");
+        for (var row = 1; row <= 500; row++)
+        {
+            lookup.Cell(row, 1).Value = $"Item-{row - 1}";
+            lookup.Cell(row, 2).Value = row * 1.25;
+        }
+        for (var row = 0; row < rows; row++)
+        {
+            for (var column = 0; column < columns; column++)
+            {
+                var cell = data.Cell(row + 1, column + 1);
+                if (scenario == "formula" && column == columns - 1)
+                    cell.FormulaA1 = $"VLOOKUP(A{row + 1},Lookup!$A$1:$B$500,2,FALSE)";
+                else
+                    cell.Value = Value(row, column);
+            }
+        }
+        workbook.SaveAs(path);
+    }
+    Print("ClosedXML", $"{scenario}_write", timer, path);
+    var readTimer = Stopwatch.StartNew();
+    using (var workbook = new XLWorkbook(path))
+        _ = workbook.Worksheet("Data").Cell(rows, columns).FormulaA1;
+    PrintRead("ClosedXML", $"{scenario}_read", readTimer);
+}
+
 var xlppPath = Path.Combine(temp, "xlpp-csharp-benchmark.xlsx");
 var closedPath = Path.Combine(temp, "closedxml-benchmark.xlsx");
 
@@ -51,3 +124,13 @@ using (var workbook = new XLWorkbook())
 
 File.Delete(xlppPath);
 File.Delete(closedPath);
+
+foreach (var scenario in new[] { "lookup", "formula" })
+{
+    var scenarioXlppPath = Path.Combine(temp, $"xlpp-csharp-{scenario}.xlsx");
+    var scenarioClosedPath = Path.Combine(temp, $"closedxml-{scenario}.xlsx");
+    RunXlppScenario(scenario, scenarioXlppPath);
+    RunClosedXmlScenario(scenario, scenarioClosedPath);
+    File.Delete(scenarioXlppPath);
+    File.Delete(scenarioClosedPath);
+}
