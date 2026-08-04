@@ -1,6 +1,9 @@
 #pragma once
+#include <cerrno>
 #include <charconv>
 #include <cstddef>
+#include <cstring>
+#include <cstdlib>
 #include <system_error>
 #include <string_view>
 #include "SimdScan.h"
@@ -98,12 +101,27 @@ inline std::string_view xmlText(std::string_view element, std::string_view name)
 
 inline bool containsEntity(std::string_view s) noexcept { return s.find('&') != xmlscan_detail::npos; }
 
-// Locale-independent, allocation-free numeric parsing (std::from_chars). Each
-// parser requires the whole view to be consumed on success.
+// Locale-independent, allocation-free numeric parsing. The integer overloads
+// use std::from_chars everywhere; floating-point parsing uses it too except on
+// Apple platforms, where libc++ (even on macOS 14 SDKs) does not ship the
+// double overload. There we fall back to strtod against the classic C locale.
 inline bool parseDouble(std::string_view s, double& out) noexcept {
     if (s.empty()) return false;
+#if !defined(_LIBCPP_VERSION) || !defined(__APPLE__)
     const auto result = std::from_chars(s.data(), s.data() + s.size(), out);
     return result.ec == std::errc{} && result.ptr == s.data() + s.size();
+#else
+    if (s.size() > 512) return false;
+    char buffer[512];
+    std::memcpy(buffer, s.data(), s.size());
+    buffer[s.size()] = '\0';
+    std::errno = 0;
+    char* end = nullptr;
+    const double value = std::strtod(buffer, &end);
+    if (end != buffer + s.size() || std::errno == ERANGE) return false;
+    out = value;
+    return true;
+#endif
 }
 inline bool parseSize(std::string_view s, std::size_t& out) noexcept {
     if (s.empty()) return false;

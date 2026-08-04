@@ -37,7 +37,7 @@ jobs:
               cmake --build build-linux &&
               mkdir -p x64/Release &&
               cp build-linux/src/libxlpp_static.a x64/Release/ &&
-              cp "$(find build-linux -name 'libzlibstatic.a' | head -n1)" x64/Release/
+              cp "$(find build-linux -name libzlibstatic.a | head -n1)" x64/Release/
           - os: windows-latest
             before-all: >
               vcpkg install --triplet x64-windows &&
@@ -50,7 +50,7 @@ jobs:
               cmake --build build-macos &&
               mkdir -p x64/Release &&
               cp build-macos/src/libxlpp_static.a x64/Release/ &&
-              cp "$(find build-macos -name 'libzlibstatic.a' | head -n1)" x64/Release/
+              cp "$(find build-macos -name libzlibstatic.a | head -n1)" x64/Release/
 
     steps:
       - uses: actions/checkout@v4
