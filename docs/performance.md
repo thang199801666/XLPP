@@ -23,13 +23,13 @@ for every implementation and reports cells per second.
 
 | File | Cells | XLPP streaming | openpyxl `read_only` | ClosedXML streaming |
 |------|------:|---------------:|---------------------:|--------------------:|
-| 100K rows × 10 cols | 1M | n/a | n/a | n/a |
-| 500K rows × 10 cols | 5M | n/a | n/a | n/a |
-| 1M rows × 10 cols | 10M | n/a | n/a | n/a |
+| 100K rows × 10 cols | 1M | **247.6 ms** | 11994.76 ms | n/a |
+| 500K rows × 10 cols | 5M | **1282.8 ms** | 62408.05 ms | n/a |
+| 1M rows × 10 cols | 10M | **2586.1 ms** | 118098.01 ms | n/a |
 
 The existing 940K cells/sec figure above is a normal workbook-load baseline,
-not a streaming measurement. The large-file streaming runner is not enabled
-yet, so these cells are intentionally `n/a`.
+not a streaming measurement. ClosedXML is `n/a` because it has no streaming
+reader API.
 
 ### Python Binding (vs openpyxl vs xlsxwriter)
 
