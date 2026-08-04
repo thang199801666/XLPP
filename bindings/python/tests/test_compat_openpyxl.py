@@ -423,3 +423,171 @@ def test_mixed_types_full_roundtrip(tmp_path):
     assert ws2["C3"].value is False
     assert ws2["A2"].font.bold is True
     assert ws2["B2"].number_format == "0.00"
+
+
+def test_number_formats(tmp_path):
+    path = tmp_path / "fmt.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = 0.5
+    ws["A1"].number_format = "0.00%"
+    ws["A2"] = 1234.5
+    ws["A2"].number_format = "$#,##0.00"
+    ws["A3"] = 12345.6789
+    ws["A3"].number_format = "0.00E+00"
+    ws["A4"] = 3.14159
+    ws["A4"].number_format = "0.0000"
+    ws["A5"] = 42
+    ws["A5"].number_format = "0"
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    assert s["A1"].number_format == "0.00%"
+    assert s["A2"].number_format == "$#,##0.00"
+    assert s["A3"].number_format == "0.00E+00"
+    assert s["A4"].number_format == "0.0000"
+    assert s["A5"].number_format == "0"
+    assert s["A1"].value == 0.5
+
+
+def test_formula_cached_value(tmp_path):
+    path = tmp_path / "cached.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = 2
+    ws["A2"] = 3
+    ws["A3"] = "=A1*A2"
+    ws["A4"] = "=SUM(A1:A2)"
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    assert s["A3"].has_formula()
+    assert s["A3"].formula == "A1*A2"
+    assert s["A4"].has_formula()
+    assert s["A4"].formula == "SUM(A1:A2)"
+
+
+def test_error_cells(tmp_path):
+    path = tmp_path / "errors.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "=1/0"
+    ws["A2"] = "=NOTHING"
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    assert s["A1"].has_formula()
+    assert s["A2"].has_formula()
+
+
+def test_date1904_from_openpyxl(tmp_path):
+    path = tmp_path / "d1904.xlsx"
+    wb = openpyxl.Workbook()
+    wb.epoch = openpyxl.utils.datetime.CALENDAR_MAC_1904
+    ws = wb.active
+    ws["A1"] = datetime(2024, 1, 15)
+    ws["A1"].number_format = "yyyy-mm-dd"
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    assert x.date_1904 is True
+    s = x["Sheet"]
+    assert s["A1"].is_date()
+    assert s["A1"].value == datetime(2024, 1, 15)
+
+
+def test_large_sheet(tmp_path):
+    path = tmp_path / "large.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for r in range(1, 501):
+        ws.cell(row=r, column=1).value = f"row{r}"
+        ws.cell(row=r, column=2).value = r
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    assert s["A1"].value == "row1"
+    assert s["B250"].value == 250.0
+    assert s["A500"].value == "row500"
+    assert s["B500"].value == 500.0
+    assert s.max_row == 500
+
+
+def test_freeze_and_filter_combined(tmp_path):
+    path = tmp_path / "combo.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["A", "B", "C"])
+    ws.append([1, 2, 3])
+    ws.freeze_panes = "B2"
+    ws.auto_filter.ref = "A1:C2"
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    assert s.frozen_pane == "B2"
+    assert s.auto_filter().reference == "A1:C2"
+    assert s["B2"].value == 2.0
+
+
+def test_builtin_number_format_id_3(tmp_path):
+    """openpyxl uses built-in numFmtId 3 for '#,##0' without declaring it."""
+    path = tmp_path / "id3.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = 1234
+    ws["A1"].number_format = "#,##0"
+    ws["A2"] = 1234.56
+    ws["A2"].number_format = "#,##0.00"
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    assert s["A1"].number_format == "#,##0"
+    assert s["A2"].number_format == "#,##0.00"
+
+
+def test_styled_empty_cell_preserved(tmp_path):
+    """A styled cell with no value must survive save/load (openpyxl writes it)."""
+    path = tmp_path / "styled_empty.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "x"
+    ws["B2"].fill = openpyxl.styles.PatternFill(patternType="solid", fgColor="FFFFFF00")
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    assert s["B2"].fill().pattern_type == "solid"
+
+    out = tmp_path / "styled_empty_out.xlsx"
+    x.save(str(out))
+
+    wb2 = openpyxl.load_workbook(str(out))
+    assert wb2["Sheet"]["B2"].fill.patternType == "solid"
+
+
+def test_styled_empty_cell_from_xlpp(tmp_path):
+    """xlpp-created styled-empty cells must be serialized."""
+    path = tmp_path / "styled_empty_xlpp.xlsx"
+    x = xlpp.Workbook()
+    s = x.add_worksheet("S")
+    s["A1"].value = "x"
+    s["B2"].fill().pattern_type = "solid"
+    s["B2"].fill().foreground().set_argb("FFFFFF00")
+    x.save(str(path))
+
+    wb = openpyxl.load_workbook(str(path))
+    assert wb["S"]["B2"].fill.patternType == "solid"

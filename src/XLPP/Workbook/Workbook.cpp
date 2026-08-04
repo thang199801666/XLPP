@@ -584,13 +584,16 @@ std::vector<xlpp::Style> parseDifferentialStyles(const std::string& xml) {
 
 void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatalog& styles, bool date1904,
                 const std::unordered_map<std::string, std::size_t>* sstIndex) {
-    if (cell.empty()) return;
+    // Preserve cells that carry a style even when they hold no value or
+    // formula (e.g. a highlighted empty range).
+    if (cell.empty() && cell.style().isDefault() && !cell.styleIndex()) return;
     xml << "<c r=\"" << cell.address() << "\"";
     if (cell.styleIndex()) xml << " s=\"" << *cell.styleIndex() << "\"";
     else if (!cell.style().isDefault()) {
         const auto styleId = styles.find(cell.style());
         if (styleId != 0) xml << " s=\"" << styleId << "\"";
     }
+    if (cell.empty()) { xml << "/>"; return; }
     if (const auto* stringValue = std::get_if<std::string>(&cell.value())) {
         if (sstIndex) {
             const auto it = sstIndex->find(*stringValue);
@@ -715,7 +718,7 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
     std::vector<const xlpp::Cell*> ordered;
     ordered.reserve(sheet.cells().size());
     for (const auto& [_, cell] : sheet.cells())
-        if (!cell.empty()) ordered.push_back(&cell);
+        if (!cell.empty() || !cell.style().isDefault() || cell.styleIndex()) ordered.push_back(&cell);
 
     if (ordered.empty()) {
         xml << "</sheetData>";
