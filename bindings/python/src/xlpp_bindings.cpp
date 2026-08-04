@@ -312,6 +312,106 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property_readonly("name", &DefinedName::name)
         .def_property_readonly("value", &DefinedName::value);
 
+    // === Conditional formatting ===
+    py::enum_<ConditionalRuleType>(m, "ConditionalRuleType")
+        .value("FORMULA", ConditionalRuleType::Formula)
+        .value("CELL_IS", ConditionalRuleType::CellIs)
+        .value("DATA_BAR", ConditionalRuleType::DataBar)
+        .value("COLOR_SCALE", ConditionalRuleType::ColorScale)
+        .value("ICON_SET", ConditionalRuleType::IconSet);
+
+    py::enum_<ConditionalOperator>(m, "ConditionalOperator")
+        .value("EQUAL", ConditionalOperator::Equal)
+        .value("NOT_EQUAL", ConditionalOperator::NotEqual)
+        .value("LESS_THAN", ConditionalOperator::LessThan)
+        .value("LESS_THAN_OR_EQUAL", ConditionalOperator::LessThanOrEqual)
+        .value("GREATER_THAN", ConditionalOperator::GreaterThan)
+        .value("GREATER_THAN_OR_EQUAL", ConditionalOperator::GreaterThanOrEqual)
+        .value("BETWEEN", ConditionalOperator::Between)
+        .value("NOT_BETWEEN", ConditionalOperator::NotBetween);
+
+    py::class_<ConditionalRule>(m, "ConditionalRule")
+        .def_static("formula", &ConditionalRule::formula, py::arg("expression"))
+        .def_static("cell_is", &ConditionalRule::cellIs, py::arg("op"), py::arg("value"))
+        .def_static("cell_is_between", &ConditionalRule::cellIsBetween,
+                    py::arg("lower"), py::arg("upper"), py::arg("negate") = false)
+        .def_static("data_bar", &ConditionalRule::dataBar, py::arg("color") = "FF638EC6")
+        .def_static("color_scale", &ConditionalRule::colorScale)
+        .def_static("icon_set", &ConditionalRule::iconSet, py::arg("icons") = "3Arrows")
+        .def_property_readonly("type", &ConditionalRule::type)
+        .def_property_readonly("op", &ConditionalRule::op)
+        .def_property_readonly("formulas", &ConditionalRule::formulas)
+        .def_property("priority", &ConditionalRule::priority, &ConditionalRule::setPriority)
+        .def_property("stop_if_true", &ConditionalRule::stopIfTrue, &ConditionalRule::setStopIfTrue)
+        .def("__repr__", [](const ConditionalRule& r) { return "<ConditionalRule>"; });
+
+    py::class_<ConditionalFormattingEntry>(m, "ConditionalFormattingEntry")
+        .def_property_readonly("reference", &ConditionalFormattingEntry::reference)
+        .def_property_readonly("rules", [](ConditionalFormattingEntry& e) -> py::list {
+            py::list out;
+            for (auto& r : e.rules()) out.append(py::cast(&r, py::return_value_policy::reference));
+            return out;
+        });
+
+    py::class_<ConditionalFormattingCollection>(m, "ConditionalFormattingCollection")
+        .def("add_rule", [](ConditionalFormattingCollection& c, const std::string& ref,
+                            ConditionalRule rule) -> ConditionalRule& {
+                return c.addRule(ref, std::move(rule));
+            }, py::arg("reference"), py::arg("rule"),
+            py::return_value_policy::reference_internal)
+        .def_property_readonly("entries", [](ConditionalFormattingCollection& c) -> py::list {
+            py::list out;
+            for (auto& e : c.entries()) out.append(py::cast(&e, py::return_value_policy::reference));
+            return out;
+        });
+
+    // === Data validation ===
+    py::enum_<DataValidationType>(m, "DataValidationType")
+        .value("NONE", DataValidationType::None)
+        .value("WHOLE", DataValidationType::Whole)
+        .value("DECIMAL", DataValidationType::Decimal)
+        .value("LIST", DataValidationType::List)
+        .value("DATE", DataValidationType::Date)
+        .value("TIME", DataValidationType::Time)
+        .value("TEXT_LENGTH", DataValidationType::TextLength)
+        .value("CUSTOM", DataValidationType::Custom);
+
+    py::enum_<DataValidationOperator>(m, "DataValidationOperator")
+        .value("BETWEEN", DataValidationOperator::Between)
+        .value("NOT_BETWEEN", DataValidationOperator::NotBetween)
+        .value("EQUAL", DataValidationOperator::Equal)
+        .value("NOT_EQUAL", DataValidationOperator::NotEqual)
+        .value("LESS_THAN", DataValidationOperator::LessThan)
+        .value("LESS_THAN_OR_EQUAL", DataValidationOperator::LessThanOrEqual)
+        .value("GREATER_THAN", DataValidationOperator::GreaterThan)
+        .value("GREATER_THAN_OR_EQUAL", DataValidationOperator::GreaterThanOrEqual);
+
+    py::class_<DataValidation>(m, "DataValidation")
+        .def(py::init<>())
+        .def(py::init<DataValidationType>(), py::arg("type"))
+        .def_property_readonly("type", &DataValidation::type)
+        .def_property_readonly("op", &DataValidation::op)
+        .def_property("formula1", &DataValidation::formula1, &DataValidation::setFormula1)
+        .def_property("formula2", &DataValidation::formula2, &DataValidation::setFormula2)
+        .def_property("reference", &DataValidation::reference, &DataValidation::setReference)
+        .def_property("allow_blank", &DataValidation::allowBlank, &DataValidation::setAllowBlank)
+        .def("__repr__", [](const DataValidation& v) { return "<DataValidation>"; });
+
+    py::class_<DataValidationCollection>(m, "DataValidationCollection")
+        .def("add", [](DataValidationCollection& c, DataValidationType type,
+                       const std::string& reference) -> DataValidation& {
+                return c.add(type, reference);
+            }, py::arg("type"), py::arg("reference"),
+            py::return_value_policy::reference_internal)
+        .def("add_validation", [](DataValidationCollection& c, DataValidation v) -> DataValidation& {
+                return c.add(std::move(v));
+            }, py::arg("validation"), py::return_value_policy::reference_internal)
+        .def_property_readonly("items", [](DataValidationCollection& c) -> py::list {
+            py::list out;
+            for (auto& v : c.items()) out.append(py::cast(&v, py::return_value_policy::reference));
+            return out;
+        });
+
     // === Cell ===
     py::class_<Cell>(m, "Cell")
         .def_property_readonly("address", &Cell::address)
@@ -483,6 +583,10 @@ PYBIND11_MODULE(xlpp, m) {
         .def("insert_columns", &Worksheet::insertColumns, py::arg("index"), py::arg("amount") = 1)
         .def("delete_columns", &Worksheet::deleteColumns, py::arg("index"), py::arg("amount") = 1)
         .def("auto_filter", py::overload_cast<>(&Worksheet::autoFilter),
+             py::return_value_policy::reference_internal)
+        .def("conditional_formatting", py::overload_cast<>(&Worksheet::conditionalFormatting),
+             py::return_value_policy::reference_internal)
+        .def("data_validations", py::overload_cast<>(&Worksheet::dataValidations),
              py::return_value_policy::reference_internal)
         .def("page_setup", py::overload_cast<>(&Worksheet::pageSetup),
              py::return_value_policy::reference_internal)

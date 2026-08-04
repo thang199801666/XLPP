@@ -591,3 +591,172 @@ def test_styled_empty_cell_from_xlpp(tmp_path):
 
     wb = openpyxl.load_workbook(str(path))
     assert wb["S"]["B2"].fill.patternType == "solid"
+
+
+def test_conditional_formatting_cell_is(tmp_path):
+    path = tmp_path / "cf_cellis.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = 5
+    ws.conditional_formatting.add(
+        "A1:A10",
+        openpyxl.formatting.rule.CellIsRule(operator="greaterThan", formula=["5"]))
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    entries = s.conditional_formatting().entries
+    assert len(entries) >= 1
+    entry = entries[0]
+    assert entry.reference == "A1:A10"
+    rules = entry.rules
+    assert len(rules) >= 1
+    assert rules[0].type == xlpp.ConditionalRuleType.CELL_IS
+    assert rules[0].op == xlpp.ConditionalOperator.GREATER_THAN
+    assert rules[0].formulas == ["5"]
+
+
+def test_conditional_formatting_between(tmp_path):
+    path = tmp_path / "cf_between.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.conditional_formatting.add(
+        "B2:B20",
+        openpyxl.formatting.rule.CellIsRule(operator="between", formula=["10", "20"]))
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    rules = s.conditional_formatting().entries[0].rules
+    assert rules[0].type == xlpp.ConditionalRuleType.CELL_IS
+    assert rules[0].op == xlpp.ConditionalOperator.BETWEEN
+    assert rules[0].formulas == ["10", "20"]
+
+
+def test_conditional_formatting_formula(tmp_path):
+    path = tmp_path / "cf_formula.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.conditional_formatting.add(
+        "C1:C10",
+        openpyxl.formatting.rule.FormulaRule(formula=["MOD(ROW(),2)=0"]))
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    rules = s.conditional_formatting().entries[0].rules
+    assert rules[0].type == xlpp.ConditionalRuleType.FORMULA
+    assert rules[0].formulas[0] in ("MOD(ROW(),2)=0", "MOD(ROW(),2)=0")
+
+
+def test_conditional_formatting_color_scale(tmp_path):
+    path = tmp_path / "cf_colorscale.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.conditional_formatting.add(
+        "A1:A10",
+        openpyxl.formatting.rule.ColorScaleRule(
+            start_type="min", start_color="FF0000",
+            end_type="max", end_color="00FF00"))
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    rules = s.conditional_formatting().entries[0].rules
+    assert rules[0].type == xlpp.ConditionalRuleType.COLOR_SCALE
+
+
+def test_conditional_formatting_data_bar(tmp_path):
+    path = tmp_path / "cf_databar.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.conditional_formatting.add(
+        "A1:A10",
+        openpyxl.formatting.rule.DataBarRule(start_type="min", end_type="max",
+                                              color="638EC6"))
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    rules = s.conditional_formatting().entries[0].rules
+    assert rules[0].type == xlpp.ConditionalRuleType.DATA_BAR
+
+
+def test_conditional_formatting_icon_set(tmp_path):
+    path = tmp_path / "cf_iconset.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.conditional_formatting.add(
+        "A1:A10",
+        openpyxl.formatting.rule.IconSetRule("3Arrows", "percent", [0, 33, 67]))
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    rules = s.conditional_formatting().entries[0].rules
+    assert rules[0].type == xlpp.ConditionalRuleType.ICON_SET
+
+
+def test_data_validation_list(tmp_path):
+    path = tmp_path / "dv_list.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    dv = openpyxl.worksheet.datavalidation.DataValidation(
+        type="list", formula1='"a,b,c"', allow_blank=True)
+    ws.add_data_validation(dv)
+    dv.add("A1:A5")
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    items = s.data_validations().items
+    assert len(items) >= 1
+    assert items[0].type == xlpp.DataValidationType.LIST
+    assert items[0].reference == "A1:A5"
+
+
+def test_data_validation_whole(tmp_path):
+    path = tmp_path / "dv_whole.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    dv = openpyxl.worksheet.datavalidation.DataValidation(
+        type="whole", operator="greaterThan", formula1="0")
+    ws.add_data_validation(dv)
+    dv.add("B1:B10")
+    wb.save(path)
+
+    x = xlpp.Workbook()
+    x.load(str(path))
+    s = x["Sheet"]
+    items = s.data_validations().items
+    assert len(items) >= 1
+    assert items[0].type == xlpp.DataValidationType.WHOLE
+    assert items[0].reference == "B1:B10"
+    assert items[0].formula1 == "0"
+
+
+def test_xlpp_cf_roundtrip_through_openpyxl(tmp_path):
+    """xlpp creates CF -> openpyxl reads the rule."""
+    path = tmp_path / "cf_xlpp.xlsx"
+    x = xlpp.Workbook()
+    s = x.add_worksheet("Data")
+    s["A1"].value = 1
+    s.conditional_formatting().add_rule(
+        "A1:A10",
+        xlpp.ConditionalRule.cell_is(xlpp.ConditionalOperator.GREATER_THAN, "5"))
+    x.save(str(path))
+
+    wb = openpyxl.load_workbook(str(path))
+    ws = wb["Data"]
+    ranges = list(ws.conditional_formatting)
+    assert len(ranges) >= 1
+    rule_list = ws.conditional_formatting[ranges[0]]
+    assert rule_list[0].type == "cellIs"
+    assert rule_list[0].operator == "greaterThan"
