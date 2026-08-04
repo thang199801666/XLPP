@@ -72,7 +72,7 @@ static double write_xlsxwriter(const std::filesystem::path& path, int rows, int 
 
 int main() {
     constexpr int rows = 10000;
-    constexpr int cols = 10;
+    constexpr int cols = 15;
     const auto directory = std::filesystem::temp_directory_path();
     const auto xlpp_path = directory / "xlpp_external_benchmark.xlsx";
     const auto xlsxwriter_path = directory / "xlsxwriter_benchmark.xlsx";

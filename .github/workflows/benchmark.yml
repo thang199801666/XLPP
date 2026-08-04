@@ -33,7 +33,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_CAPI=OFF `
             -DXLPP_BUILD_BENCHMARKS=ON
-          cmake --build build-benchmark --config Release --target xlpp_external_benchmark
+          cmake --build build-benchmark --config Release --target xlpp_external_benchmark --verbose
       - name: Build Python binding
         run: |
           python -m pip install pybind11 setuptools wheel
