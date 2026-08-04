@@ -43,17 +43,21 @@ jobs:
           python -m pip install pybind11 setuptools wheel
           python setup.py build_ext --inplace
       - name: Run benchmarks
+        continue-on-error: true
         run: |
           $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
           $output = New-Object System.Collections.Generic.List[string]
           if (Test-Path .\build-benchmark\Release\xlpp_external_benchmark.exe) {
-            $output.AddRange([string[]](& .\build-benchmark\Release\xlpp_external_benchmark.exe 2>&1))
+            $output.AddRange([string[]](& .\build-benchmark\Release\xlpp_external_benchmark.exe 2>&1 |
+              Tee-Object cpp-benchmark.log))
           } else {
             $output.Add("BENCHMARK,c++,XLPP,write,pending,0")
             $output.Add("BENCHMARK,c++,libxlsxwriter,write,pending,0")
           }
-          $output.AddRange([string[]](& dotnet run --project benchmarks/csharp/Xlpp.Benchmarks.csproj -c Release 2>&1))
-          $output.AddRange([string[]](& python benchmarks/benchmark.py 2>&1))
+          $output.AddRange([string[]](& dotnet run --project benchmarks/csharp/Xlpp.Benchmarks.csproj -c Release 2>&1 |
+            Tee-Object csharp-benchmark.log))
+          $output.AddRange([string[]](& python benchmarks/benchmark.py 2>&1 |
+            Tee-Object python-benchmark.log))
           $benchmarks = $output | Select-String -Pattern '^BENCHMARK,'
           $benchmarks | ForEach-Object { $_.Line } | Out-File bench-results.txt -Encoding utf8
           Write-Output "--- Benchmark Results ---"
@@ -66,4 +70,7 @@ jobs:
             bench-results.txt
             cmake-configure.log
             cmake-build.log
+            cpp-benchmark.log
+            csharp-benchmark.log
+            python-benchmark.log
           if-no-files-found: ignore
