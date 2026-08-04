@@ -47,8 +47,11 @@ jobs:
         run: |
           $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
           $output = New-Object System.Collections.Generic.List[string]
-          if (Test-Path .\build-benchmark\Release\xlpp_external_benchmark.exe) {
-            $output.AddRange([string[]](& .\build-benchmark\Release\xlpp_external_benchmark.exe 2>&1 |
+          $cppExecutable = Get-ChildItem -Path .\build-benchmark -Filter xlpp_external_benchmark.exe -Recurse |
+            Where-Object { $_.FullName -match '\\Release\\' } |
+            Select-Object -ExpandProperty FullName
+          if ($cppExecutable) {
+            $output.AddRange([string[]](& $cppExecutable 2>&1 |
               Tee-Object cpp-benchmark.log))
           } else {
             $output.Add("BENCHMARK,c++,XLPP,write,pending,0")

@@ -7,12 +7,13 @@
 [![API Documentation](https://img.shields.io/badge/API-Doxygen-blue)](https://thang199801666.github.io/XLPP/)
 [![PyPI version](https://img.shields.io/pypi/v/xlpp.svg)](https://pypi.org/project/xlpp/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/xlpp.svg)](https://pypi.org/project/xlpp/)
+[![NuGet version](https://img.shields.io/nuget/v/XLPP.svg)](https://www.nuget.org/packages/XLPP/)
 [![Benchmarks](https://github.com/thang199801666/XLPP/actions/workflows/benchmark.yml/badge.svg)](https://github.com/thang199801666/XLPP/actions/workflows/benchmark.yml)
 
 **High-performance C++20 Excel `.xlsx` read/write library.**  
 One dependency (zlib). SIMD-accelerated parsing. Multi-threaded save. Python & C# bindings.
 
-API reference: [Doxygen documentation](https://thang199801666.github.io/XLPP/)
+API reference: [API Reference](API_REFERENCE.md) | [Doxygen documentation](https://thang199801666.github.io/XLPP/)
 
 ```cpp
 #include <XLPP/XLPP.h>
