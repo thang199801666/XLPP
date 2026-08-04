@@ -26,30 +26,37 @@ ws.font().setBold(true);
 wb.save("output.xlsx");
 ```
 
-## Features
+## Feature Comparison
 
-| Category | Details |
-|----------|---------|
-| **I/O** | Read/write `.xlsx`, `.xlsm` (macros preserved on round-trip) |
-| **Cells** | string, number, bool, date, error, formula (shared/array) |
-| **Styles** | font, fill, border, alignment, number format, named styles |
-| **Layout** | merge, freeze, row/col dimensions, insert/delete rows/cols |
-| **Tables** | named tables with columns & style info |
-| **Filters** | autoFilter, sort state, custom/value filters |
-| **Validation** | data validation (list, whole, decimal, date, custom) |
-| **Conditional** | cell-is & formula rules with differential formatting |
-| **Charts** | bar, line, pie, scatter, doughnut, radar, area, bubble |
-| **Pivot** | pivot tables with row/column/page/data fields |
-| **Images** | PNG, JPEG with cell anchoring |
-| **Comments** | legacy comments with author |
-| **Hyperlinks** | external & internal targets |
-| **Page setup** | orientation, paper size, margins, headers/footers, print area |
-| **Protection** | workbook & worksheet protection with granular permissions |
-| **Properties** | title, creator, subject, keywords, custom properties |
-| **Streaming** | append-only writer & pull-based reader for 100K+ rows |
-| **Strict OOXML** | ISO 29500 strict namespaces |
-| **ZIP64** | packages exceeding 4 GB |
-| **Macro safe** | VBA & custom XML survive load→save |
+`Partial` means the feature is available with limitations or is not fully
+round-trip compatible. `Write only` means the library cannot read an existing
+workbook.
+
+| Feature | XLPP | openpyxl (Python) | XlsxWriter (Python) | ClosedXML (C#) | libxlsxwriter (C++) |
+|---------|:----:|:-----------------:|:-------------------:|:---------------:|:-------------------:|
+| Read and write `.xlsx` | Yes | Yes | Write only | Yes | Write only |
+| `.xlsm` / VBA round-trip | Yes | Partial | Partial | Partial | Partial |
+| Cell values and formulas | Yes | Yes | Yes | Yes | Yes |
+| Shared and array formulas | Yes | Partial | Partial | Partial | Partial |
+| Fonts, fills, borders and number formats | Yes | Yes | Yes | Yes | Yes |
+| Merged cells and freeze panes | Yes | Yes | Yes | Yes | Yes |
+| Tables and auto-filters | Yes | Yes | Yes | Yes | Yes |
+| Data validation | Yes | Yes | Yes | Yes | Yes |
+| Conditional formatting | Yes | Yes | Yes | Yes | Yes |
+| Charts | Yes | Yes | Yes | Yes | Yes |
+| Pivot tables | Yes | Partial | No | Partial | No |
+| Images and hyperlinks | Yes | Yes | Yes | Yes | Yes |
+| Comments and document properties | Yes | Yes | Yes | Yes | Yes |
+| Worksheet and workbook protection | Yes | Yes | Yes | Yes | Yes |
+| Streaming large worksheets | Yes | Partial | Yes | Partial | Yes |
+| Strict OOXML support | Yes | Partial | No | Partial | No |
+| ZIP64 workbooks | Yes | Partial | Yes | Partial | Partial |
+| Native C++ API | Yes | No | No | No | Yes |
+| Python API | Yes | Yes | Yes | No | No |
+| C# API | Yes | No | No | Yes | No |
+| SIMD-accelerated XML scanning | Yes | No | No | No | No |
+| mmap zero-copy reading | Yes | No | No | No | No |
+| Multi-threaded save | Yes | No | No | No | No |
 
 ## Performance
 
