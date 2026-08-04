@@ -142,18 +142,15 @@ jobs:
           lcov --capture --directory build-cov/src --output-file coverage.info \
             --gcov-tool /usr/bin/gcov-14 \
             --rc lcov_branch_coverage=1 --ignore-errors mismatch,gcov,negative
-          lcov --remove coverage.info --output-file coverage-filtered.info \
-            '*/tests/*' \
-            --rc lcov_branch_coverage=1 --ignore-errors mismatch,negative
-          genhtml coverage-filtered.info --output-directory coverage-html \
+          genhtml coverage.info --output-directory coverage-html \
             --rc lcov_branch_coverage=1 --branch-coverage
 
       - name: Print coverage summary
-        run: lcov --summary coverage-filtered.info --rc lcov_branch_coverage=1
+        run: lcov --summary coverage.info --rc lcov_branch_coverage=1
 
       - name: Enforce line-coverage threshold
         run: |
-          LINE=$(lcov --summary coverage-filtered.info --rc lcov_branch_coverage=1 2>&1 \
+          LINE=$(lcov --summary coverage.info --rc lcov_branch_coverage=1 2>&1 \
             | grep 'lines......:' | awk '{print $2}' | tr -d '%')
           echo "Library line coverage: ${LINE}%"
           awk -v line="$LINE" -v thr="50" 'BEGIN { if (line + 0 < thr + 0) { print "Coverage below threshold"; exit 1 } }'
