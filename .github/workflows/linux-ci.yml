@@ -168,7 +168,7 @@ jobs:
           sudo apt-get install -y ninja-build g++-14 zlib1g-dev
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
-          python -m pip install --upgrade pip build pybind11 setuptools
+          python -m pip install --upgrade pip build wheel pybind11 setuptools
 
       - name: Build native libraries
         run: |
