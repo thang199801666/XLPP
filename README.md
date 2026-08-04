@@ -66,50 +66,50 @@ available in [`benchmarks/README.md`](benchmarks/README.md).
 
 ### Cross-library reference run
 
-Measured on the local Windows development machine. The GitHub Actions
-workflow publishes runner-specific results as the `benchmark-results` artifact.
+Measured on the Windows GitHub Actions runner, using the latest successful
+benchmark run.
 
 #### 10K rows × 15 cols
 
 | Library | Write | Read |
 |---------|------:|-----:|
-| XLPP (Python) | **653.4 ms** | **309.0 ms** |
-| openpyxl (Python) | 1081.5 ms | 1092.5 ms |
-| XlsxWriter (Python) | 933.3 ms | n/a |
-| XLPP (C++) | See CI artifact | See CI artifact |
-| libxlsxwriter (C++) | See CI artifact | n/a |
-| XLPP (C#) | See CI artifact | See CI artifact |
-| ClosedXML (C#) | See CI artifact | See CI artifact |
+| XLPP (Python) | **1011.9 ms** | **468.4 ms** |
+| openpyxl (Python) | 2106.9 ms | 1682.2 ms |
+| XlsxWriter (Python) | 1825.8 ms | n/a |
+| XLPP (C++) | **548.1 ms** | n/a |
+| libxlsxwriter (C++) | 271.3 ms | n/a |
+| XLPP (C#) | **1000.9 ms** | n/a |
+| ClosedXML (C#) | 2590.3 ms | n/a |
 
 #### 10K rows × 15 cols (with Lookup table)
 
 | Library | Write | Read |
 |---------|------:|-----:|
-| XLPP (Python) | pending CI | pending CI |
-| openpyxl (Python) | pending CI | pending CI |
-| XlsxWriter (Python) | pending CI | n/a |
-| XLPP (C++) | pending CI | pending CI |
-| libxlsxwriter (C++) | pending CI | n/a |
-| XLPP (C#) | pending CI | pending CI |
-| ClosedXML (C#) | pending CI | pending CI |
+| XLPP (Python) | n/a | n/a |
+| openpyxl (Python) | n/a | n/a |
+| XlsxWriter (Python) | n/a | n/a |
+| XLPP (C++) | n/a | n/a |
+| libxlsxwriter (C++) | n/a | n/a |
+| XLPP (C#) | n/a | n/a |
+| ClosedXML (C#) | n/a | n/a |
 
 #### 10K rows × 15 cols (with formula)
 
 | Library | Write | Read |
 |---------|------:|-----:|
-| XLPP (Python) | pending CI | pending CI |
-| openpyxl (Python) | pending CI | pending CI |
-| XlsxWriter (Python) | pending CI | n/a |
-| XLPP (C++) | pending CI | pending CI |
-| libxlsxwriter (C++) | pending CI | n/a |
-| XLPP (C#) | pending CI | pending CI |
-| ClosedXML (C#) | pending CI | pending CI |
+| XLPP (Python) | n/a | n/a |
+| openpyxl (Python) | n/a | n/a |
+| XlsxWriter (Python) | n/a | n/a |
+| XLPP (C++) | n/a | n/a |
+| libxlsxwriter (C++) | n/a | n/a |
+| XLPP (C#) | n/a | n/a |
+| ClosedXML (C#) | n/a | n/a |
 
-The C++ XLPP/libxlsxwriter write comparison is included in the GitHub Actions
-artifact; libxlsxwriter is write-only. Timings vary by runner and are
-indicative rather than a performance guarantee. `pending CI` in the tables
-below means that scenario has not yet been added to the runner, not that the
-base benchmark workflow failed.
+The C++ XLPP/libxlsxwriter write comparison is included above; libxlsxwriter
+is write-only. Lookup-table, formula, and large-file streaming scenarios are
+not part of the current cross-language runner, so they are shown as `n/a`
+instead of being represented by invented timings. Timings vary by runner and
+are indicative rather than a performance guarantee.
 
 ### Large-file streaming read
 
@@ -119,13 +119,12 @@ GitHub Actions artifact contains the raw timings and file sizes.
 
 | File | Cells | XLPP (C++) | openpyxl (Python) | ClosedXML (C#) |
 |------|------:|-----------:|------------------:|---------------:|
-| 100K rows × 10 cols | 1M | pending CI | pending CI | pending CI |
-| 500K rows × 10 cols | 5M | pending CI | pending CI | pending CI |
-| 1M rows × 10 cols | 10M | pending CI | pending CI | pending CI |
+| 100K rows × 10 cols | 1M | n/a | n/a | n/a |
+| 500K rows × 10 cols | 5M | n/a | n/a | n/a |
+| 1M rows × 10 cols | 10M | n/a | n/a | n/a |
 
 The existing non-streaming XLPP reference is approximately **940K cells/sec**
-at 1M cells. It is not used as a streaming result and is shown only as a
-baseline until the large-file streaming job publishes measurements.
+at 1M cells. It is not used as a streaming result.
 
 ## Quick Start
 

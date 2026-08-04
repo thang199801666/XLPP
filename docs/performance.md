@@ -23,13 +23,13 @@ for every implementation and reports cells per second.
 
 | File | Cells | XLPP streaming | openpyxl `read_only` | ClosedXML streaming |
 |------|------:|---------------:|---------------------:|--------------------:|
-| 100K rows × 10 cols | 1M | pending CI | pending CI | pending CI |
-| 500K rows × 10 cols | 5M | pending CI | pending CI | pending CI |
-| 1M rows × 10 cols | 10M | pending CI | pending CI | pending CI |
+| 100K rows × 10 cols | 1M | n/a | n/a | n/a |
+| 500K rows × 10 cols | 5M | n/a | n/a | n/a |
+| 1M rows × 10 cols | 10M | n/a | n/a | n/a |
 
-These values remain pending until the GitHub Actions large-file job runs. The
-existing 940K cells/sec figure above is a normal workbook-load baseline, not a
-streaming measurement.
+The existing 940K cells/sec figure above is a normal workbook-load baseline,
+not a streaming measurement. The large-file streaming runner is not enabled
+yet, so these cells are intentionally `n/a`.
 
 ### Python Binding (vs openpyxl vs xlsxwriter)
 

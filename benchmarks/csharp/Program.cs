@@ -3,7 +3,7 @@ using ClosedXML.Excel;
 using XLPP;
 
 const int rows = 10_000;
-const int columns = 10;
+const int columns = 15;
 var temp = Path.GetTempPath();
 
 static string Value(int row, int column) => column switch
