@@ -7,8 +7,10 @@ build = "cp38-* cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
 # Smoke test: install the wheel, build a workbook in memory and round-trip it.
 test-command = "python -c \"import xlpp; wb=xlpp.Workbook(); ws=wb.add_worksheet('CI'); ws['A1'].value=42; wb.save('ci.xlsx'); wb2=xlpp.Workbook(); wb2.load('ci.xlsx'); assert wb2['CI']['A1'].value == 42.0; print('wheel OK')\""
 
-[tool.cibuildwheel.linux]
-manylinux-x86_64-image = "manylinux_2_28"
+# Note: the manylinux image is intentionally not pinned here. cibuildwheel's
+# pinned manylinux_2_28 digest was unavailable on the registry and silently
+# fell back to manylinux2014 (GCC 10); letting cibuildwheel pick its default
+# keeps behavior predictable.
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]

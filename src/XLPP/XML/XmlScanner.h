@@ -103,11 +103,11 @@ inline bool containsEntity(std::string_view s) noexcept { return s.find('&') != 
 
 // Locale-independent, allocation-free numeric parsing. The integer overloads
 // use std::from_chars everywhere; floating-point parsing uses it too except on
-// Apple platforms, where libc++ (even on macOS 14 SDKs) does not ship the
-// double overload. There we fall back to strtod against the classic C locale.
+// standard libraries that lack the double overload: Apple libc++ (macOS SDKs)
+// and libstdc++ before GCC 11. There we fall back to strtod.
 inline bool parseDouble(std::string_view s, double& out) noexcept {
     if (s.empty()) return false;
-#if !defined(_LIBCPP_VERSION) || !defined(__APPLE__)
+#if !defined(_LIBCPP_VERSION) && !(defined(__GLIBCXX__) && __GNUC__ < 11)
     const auto result = std::from_chars(s.data(), s.data() + s.size(), out);
     return result.ec == std::errc{} && result.ptr == s.data() + s.size();
 #else
