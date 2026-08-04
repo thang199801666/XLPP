@@ -3093,6 +3093,90 @@ void testWorkbookCopyMoveSemantics(TestContext& test) {
                     "Copy is independent of original");
 }
 
+void testStyledEmptyCellsRoundTrip(TestContext& test) {
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_styled_empty.xlsx";
+    {
+        xlpp::Workbook wb;
+        auto& sheet = wb.addWorksheet("Styled");
+        sheet.cell("A1").setValue(std::string("filled"));
+        auto& styled = sheet.cell("B2");
+        styled.fill().setPatternType("solid");
+        styled.fill().foregroundColor().setArgb("FFFFFF00");
+        styled.border().top().setStyle("medium");
+        wb.save(path);
+    }
+    {
+        xlpp::Workbook loaded;
+        loaded.load(path);
+        const auto* sheet = loaded.worksheet("Styled");
+        test.checkTrue(sheet != nullptr, "Styled worksheet loads");
+        const auto* styled = sheet->tryCell("B2");
+        test.checkTrue(styled != nullptr, "Styled-empty cell survives round-trip");
+        test.checkEqual(styled->fill().patternType(), std::string("solid"), "Empty cell keeps its fill");
+        test.checkEqual(styled->fill().foregroundColor().argb(), std::string("FFFFFF00"), "Empty cell keeps fill color");
+        test.checkEqual(styled->border().top().style(), std::string("medium"), "Empty cell keeps border");
+        test.checkTrue(styled->empty(), "Styled cell still has no value");
+        test.checkEqual(sheet->dimensions(), std::string("A1:B2"), "Styled empty cell extends dimensions");
+    }
+    std::filesystem::remove(path);
+}
+
+void testDefinedNamesFullRoundTrip(TestContext& test) {
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_defined_names_full.xlsx";
+    {
+        xlpp::Workbook wb;
+        wb.addWorksheet("Sheet1");
+        xlpp::DefinedName global("GlobalName", "'Sheet1'!$A$1:$C$5");
+        global.setComment("A global name");
+        wb.addDefinedName(std::move(global));
+        xlpp::DefinedName local("LocalName", "'Sheet1'!$B$2");
+        local.setLocalSheetId(0);
+        local.setHidden(true);
+        wb.addDefinedName(std::move(local));
+        wb.save(path);
+    }
+    {
+        xlpp::Workbook loaded;
+        loaded.load(path);
+        test.checkEqual(loaded.definedNames().size(), std::size_t{2}, "Both defined names load");
+        const auto* global = loaded.definedName("GlobalName");
+        test.checkTrue(global != nullptr, "Global name loads");
+        test.checkEqual(global->value(), std::string("'Sheet1'!$A$1:$C$5"), "Global name value");
+        test.checkEqual(global->comment(), std::string("A global name"), "Global name comment");
+        test.checkTrue(!global->localSheetId().has_value(), "Global name has no sheet scope");
+        const auto* local = loaded.definedName("LocalName");
+        test.checkTrue(local != nullptr, "Local name loads");
+        test.checkTrue(local->localSheetId().has_value(), "Local name keeps sheet scope");
+        test.checkEqual(*local->localSheetId(), std::size_t{0}, "Local name sheet id");
+        test.checkTrue(local->hidden(), "Local name hidden flag round-trips");
+    }
+    std::filesystem::remove(path);
+}
+
+void testRowValuesAndCells(TestContext& test) {
+    xlpp::Worksheet sheet("Rows");
+    sheet.cell("A1").setValue(std::string("a"));
+    sheet.cell("B1").setValue(1.0);
+    sheet.cell("D1").setValue(std::string("d"));
+    sheet.cell("A2").setValue(std::string("second"));
+
+    auto row = sheet.row(1);
+    test.checkEqual(row.number(), std::size_t{1}, "Row number");
+    const auto values = row.values();
+    test.checkEqual(values.size(), std::size_t{4}, "Row::values spans min to max column");
+    test.checkEqual(std::get<std::string>(values[0]), std::string("a"), "Row::values first");
+    test.checkNear(std::get<double>(values[1]), 1.0, 1e-12, "Row::values numeric");
+    test.checkTrue(std::holds_alternative<std::monostate>(values[2]), "Row::values empty gap");
+    test.checkEqual(std::get<std::string>(values[3]), std::string("d"), "Row::values last");
+
+    const auto cells = row.cells();
+    test.checkEqual(cells.size(), std::size_t{3}, "Row::cells skips empty cells");
+    test.checkEqual(cells[0]->address(), std::string("A1"), "Row::cells first address");
+    test.checkEqual(cells[2]->address(), std::string("D1"), "Row::cells last address");
+
+    test.checkEqual(sheet.row(2).tryCell(1)->stringValueOr(""), std::string("second"), "tryCell via row proxy");
+}
+
 
 }
 
@@ -3178,6 +3262,9 @@ int main() {
         {"Reference stability across inserts", testReferenceStabilityAcrossInserts},
         {"Reference lifetime contract", testReferenceLifetimeContract},
         {"Workbook copy/move semantics", testWorkbookCopyMoveSemantics},
+        {"Styled empty cells round-trip", testStyledEmptyCellsRoundTrip},
+        {"Defined names full round-trip", testDefinedNamesFullRoundTrip},
+        {"Row values and cells", testRowValuesAndCells},
     };
 
     std::cout << "============================================================\n";
