@@ -1,0 +1,74 @@
+name: C# CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-test-pack:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            native: xlpp_capi.dll
+          - os: ubuntu-latest
+            rid: linux-x64
+            native: libxlpp_capi.so
+          - os: macos-14
+            rid: osx-arm64
+            native: libxlpp_capi.dylib
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up MSBuild
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-14 zlib1g-dev
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+
+      - name: Build native C API library
+        run: |
+          cmake -S . -B build-capi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF \
+            -DXLPP_BUILD_CAPI=ON -DXLPP_USE_BUNDLED_ZLIB=ON
+          cmake --build build-capi
+
+      - name: Stage native library for the runtimes folder
+        shell: bash
+        run: |
+          mkdir -p bindings/csharp/runtimes/${{ matrix.rid }}/native
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp build-capi/bin/${{ matrix.native }} bindings/csharp/runtimes/${{ matrix.rid }}/native/
+          else
+            cp build-capi/bin/${{ matrix.native }} bindings/csharp/runtimes/${{ matrix.rid }}/native/
+          fi
+          ls -la bindings/csharp/runtimes/${{ matrix.rid }}/native/
+
+      - name: Run C# tests
+        run: dotnet test bindings/csharp/tests/XlppNet.Tests/XlppNet.Tests.csproj -c Release
+
+      - name: Pack NuGet
+        run: dotnet pack bindings/csharp/XlppNet.csproj -c Release -o nuget-out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xlpp-nuget-${{ matrix.os }}
+          path: nuget-out/*.nupkg

@@ -3177,6 +3177,105 @@ void testRowValuesAndCells(TestContext& test) {
     test.checkEqual(sheet.row(2).tryCell(1)->stringValueOr(""), std::string("second"), "tryCell via row proxy");
 }
 
+void testDateCellNumberFormat(TestContext& test) {
+    xlpp::Cell cell("A1");
+    cell.setDate(2024, 1, 15);
+    test.checkTrue(cell.isDate(), "setDate creates a date value");
+    test.checkEqual(cell.numberFormat(), std::string("yyyy-mm-dd"), "setDate applies a date number format");
+
+    xlpp::Cell cell2("B1");
+    cell2.setDateTime(xlpp::DateTime{2024, 1, 15, 13, 30, 0});
+    test.checkEqual(cell2.numberFormat(), std::string("yyyy-mm-dd h:mm:ss"), "setDateTime applies a datetime format");
+}
+
+void testCellRangeOperations(TestContext& test) {
+    xlpp::Worksheet sheet("Ranges");
+    auto range = sheet.range("A1:C2");
+    range.setValue(1.0);
+    test.checkNear(std::get<double>(sheet.cell("A1").value()), 1.0, 1e-12, "range setValue A1");
+    test.checkNear(std::get<double>(sheet.cell("C2").value()), 1.0, 1e-12, "range setValue C2");
+    test.checkEqual(range.rowCount(), std::size_t{2}, "range rowCount");
+    test.checkEqual(range.columnCount(), std::size_t{3}, "range columnCount");
+    test.checkEqual(range.cells().size(), std::size_t{6}, "range cells() count");
+    test.checkEqual(range.rows().size(), std::size_t{2}, "range rows() count");
+
+    std::size_t visited = 0;
+    range.forEach([&](xlpp::Cell& c) { ++visited; });
+    test.checkEqual(visited, std::size_t{6}, "range forEach visits every cell");
+
+    const auto values = range.values();
+    test.checkEqual(values.size(), std::size_t{6}, "range values() count");
+
+    range.clear();
+    test.checkTrue(sheet.cell("B1").empty(), "range clear empties cells");
+}
+
+void testPropertiesFullRoundTrip(TestContext& test) {
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_props_full.xlsx";
+    {
+        xlpp::Workbook wb;
+        wb.addWorksheet("S").cell("A1").setValue("x");
+        auto& p = wb.properties();
+        p.setTitle("The Title");
+        p.setSubject("The Subject");
+        p.setCreator("The Creator");
+        p.setDescription("The Description");
+        p.setKeywords("k1,k2");
+        p.setCategory("Tests");
+        p.setLastModifiedBy("Unit Test");
+        wb.save(path);
+    }
+    {
+        xlpp::Workbook loaded;
+        loaded.load(path);
+        const auto& p = loaded.properties();
+        test.checkEqual(p.title(), std::string("The Title"), "Title round-trip");
+        test.checkEqual(p.subject(), std::string("The Subject"), "Subject round-trip");
+        test.checkEqual(p.creator(), std::string("The Creator"), "Creator round-trip");
+        test.checkEqual(p.description(), std::string("The Description"), "Description round-trip");
+        test.checkEqual(p.keywords(), std::string("k1,k2"), "Keywords round-trip");
+        test.checkEqual(p.category(), std::string("Tests"), "Category round-trip");
+        test.checkEqual(p.lastModifiedBy(), std::string("Unit Test"), "LastModifiedBy round-trip");
+    }
+    std::filesystem::remove(path);
+}
+
+void testHyperlinkDisplayTooltipRoundTrip(TestContext& test) {
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_hyperlink_dt.xlsx";
+    {
+        xlpp::Workbook wb;
+        auto& sheet = wb.addWorksheet("Links");
+        auto& cell = sheet.cell("A1");
+        cell.setValue(std::string("Open"));
+        xlpp::Hyperlink link("https://example.com/page");
+        link.setDisplay("Example page");
+        link.setTooltip("Open the example");
+        cell.setHyperlink(std::move(link));
+        wb.save(path);
+    }
+    {
+        xlpp::Workbook loaded;
+        loaded.load(path);
+        const auto* cell = loaded.worksheet("Links")->tryCell("A1");
+        test.checkTrue(cell->hasHyperlink(), "Hyperlink present after round-trip");
+        test.checkEqual(cell->hyperlinkValue()->target(), std::string("https://example.com/page"), "Target round-trip");
+        test.checkEqual(cell->hyperlinkValue()->display(), std::string("Example page"), "Display round-trip");
+        test.checkEqual(cell->hyperlinkValue()->tooltip(), std::string("Open the example"), "Tooltip round-trip");
+    }
+    std::filesystem::remove(path);
+}
+
+void testColumnDimensionByName(TestContext& test) {
+    xlpp::Worksheet sheet("Cols");
+    auto& dim = sheet.columnDimension("B");
+    dim.width = 33.5;
+    dim.hidden = true;
+    dim.outlineLevel = 2;
+    test.checkNear(sheet.tryColumnDimension(2)->width.value_or(0.0), 33.5, 1e-12, "columnDimension by name width");
+    test.checkTrue(sheet.tryColumnDimension(2)->hidden, "columnDimension by name hidden");
+    test.checkEqual(sheet.tryColumnDimension(2)->outlineLevel, 2, "columnDimension by name outline");
+}
+
 
 }
 
@@ -3265,6 +3364,11 @@ int main() {
         {"Styled empty cells round-trip", testStyledEmptyCellsRoundTrip},
         {"Defined names full round-trip", testDefinedNamesFullRoundTrip},
         {"Row values and cells", testRowValuesAndCells},
+        {"Date cell number format", testDateCellNumberFormat},
+        {"CellRange operations", testCellRangeOperations},
+        {"Properties full round-trip", testPropertiesFullRoundTrip},
+        {"Hyperlink display and tooltip", testHyperlinkDisplayTooltipRoundTrip},
+        {"Column dimension by name", testColumnDimensionByName},
     };
 
     std::cout << "============================================================\n";

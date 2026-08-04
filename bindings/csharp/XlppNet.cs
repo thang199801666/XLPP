@@ -2,6 +2,8 @@
 // Requires xlpp_capi.dll in the same directory or PATH.
 
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace XLPP
@@ -11,10 +13,44 @@ namespace XLPP
     {
         private const string Dll = "xlpp_capi";
 
+        static Native()
+        {
+            // Resolve the native library from the NuGet runtimes/<rid>/native
+            // folder (automatic on .NET Core 3.0+) and fall back to the
+            // application base directory for manual deployment.
+            NativeLibrary.SetDllImportResolver(
+                typeof(Native).Assembly,
+                (name, assembly, searchPath) =>
+                {
+                    if (name != Dll && name != Dll + ".dll" && name != "lib" + Dll + ".so" &&
+                        name != "lib" + Dll + ".dylib")
+                        return IntPtr.Zero;
+
+                    // 1) Standard .NET resolution (deps.json / runtimes/<rid>/native).
+                    if (NativeLibrary.TryLoad(Dll, assembly, searchPath, out var handle))
+                        return handle;
+
+                    // 2) NuGet runtimes/<rid>/native next to the app (project-ref dev).
+                    string nativeName = Dll + ".dll";
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) nativeName = "lib" + Dll + ".so";
+                    else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) nativeName = "lib" + Dll + ".dylib";
+                    var rid = RuntimeInformation.RuntimeIdentifier;
+                    if (!string.IsNullOrEmpty(rid))
+                    {
+                        var candidate = Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", nativeName);
+                        if (File.Exists(candidate)) return NativeLibrary.Load(candidate);
+                    }
+
+                    // 3) Native library copied next to the assembly.
+                    var local = Path.Combine(AppContext.BaseDirectory, nativeName);
+                    if (File.Exists(local)) return NativeLibrary.Load(local);
+
+                    return IntPtr.Zero;
+                });
+        }
+
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_version();
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern string xlpp_version_str();  // simulated
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_workbook_create();
@@ -63,6 +99,22 @@ namespace XLPP
         public static extern ulong xlpp_sheet_max_row(IntPtr ws);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern ulong xlpp_sheet_max_col(IntPtr ws);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern IntPtr xlpp_sheet_name(IntPtr ws);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern void xlpp_sheet_rename(IntPtr ws, string name);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_sheet_append_row(IntPtr ws, string[] values, int count);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_sheet_append_doubles(IntPtr ws, double[] values, int count);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_sheet_insert_rows(IntPtr ws, ulong index, ulong amount);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_sheet_delete_rows(IntPtr ws, ulong index, ulong amount);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_sheet_insert_cols(IntPtr ws, ulong index, ulong amount);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_sheet_delete_cols(IntPtr ws, ulong index, ulong amount);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlpp_cell_value_type(IntPtr c);
@@ -74,6 +126,12 @@ namespace XLPP
         public static extern IntPtr xlpp_cell_get_string(IntPtr c);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlpp_cell_is_empty(IntPtr c);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr xlpp_cell_address(IntPtr c);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ulong xlpp_cell_row(IntPtr c);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ulong xlpp_cell_column(IntPtr c);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern void xlpp_cell_set_string(IntPtr c, string v);
@@ -85,6 +143,8 @@ namespace XLPP
         public static extern void xlpp_cell_set_formula(IntPtr c, string f);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_cell_get_formula(IntPtr c);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_cell_has_formula(IntPtr c);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_cell_font(IntPtr c);
@@ -105,6 +165,12 @@ namespace XLPP
         public static extern void xlpp_font_set_italic(IntPtr f, int v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern void xlpp_font_set_color(IntPtr f, string argb);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr xlpp_font_get_name(IntPtr f);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern double xlpp_font_get_size(IntPtr f);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_font_get_bold(IntPtr f);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_border_left(IntPtr b);
@@ -145,6 +211,9 @@ namespace XLPP
         public void SetBold(bool v) => Native.xlpp_font_set_bold(_handle, v ? 1 : 0);
         public void SetItalic(bool v) => Native.xlpp_font_set_italic(_handle, v ? 1 : 0);
         public void SetColor(string argb) => Native.xlpp_font_set_color(_handle, argb);
+        public string Name => MarshalHelper.PtrToString(Native.xlpp_font_get_name(_handle));
+        public double Size => Native.xlpp_font_get_size(_handle);
+        public bool Bold => Native.xlpp_font_get_bold(_handle) != 0;
     }
 
     public class Fill
@@ -193,6 +262,9 @@ namespace XLPP
 
         public CellValueType ValueType => (CellValueType)Native.xlpp_cell_value_type(_handle);
         public bool IsEmpty => Native.xlpp_cell_is_empty(_handle) != 0;
+        public string Address => MarshalHelper.PtrToString(Native.xlpp_cell_address(_handle));
+        public ulong Row => Native.xlpp_cell_row(_handle);
+        public ulong Column => Native.xlpp_cell_column(_handle);
 
         public object? Value
         {
@@ -225,6 +297,8 @@ namespace XLPP
             set => Native.xlpp_cell_set_formula(_handle, value ?? "");
         }
 
+        public bool HasFormula => Native.xlpp_cell_has_formula(_handle) != 0;
+
         public Font Font => new(Native.xlpp_cell_font(_handle));
         public Fill Fill => new(Native.xlpp_cell_fill(_handle));
         public Border Border => new(Native.xlpp_cell_border(_handle));
@@ -235,6 +309,9 @@ namespace XLPP
     {
         internal IntPtr _handle;
         internal Worksheet(IntPtr h) => _handle = h;
+
+        public string Name => MarshalHelper.PtrToString(Native.xlpp_sheet_name(_handle));
+        public void Rename(string name) => Native.xlpp_sheet_rename(_handle, name);
 
         public Cell this[string address] => new(Native.xlpp_sheet_cell(_handle, address));
         public Cell Cell(ulong row, ulong col) => new(Native.xlpp_sheet_cell_rc(_handle, row, col));
@@ -247,11 +324,23 @@ namespace XLPP
         public void MergeCells(string range) => Native.xlpp_sheet_merge_cells(_handle, range);
         public void UnmergeCells(string range) => Native.xlpp_sheet_unmerge_cells(_handle, range);
         public void FreezePanes(string cell) => Native.xlpp_sheet_freeze_panes(_handle, cell);
+
+        public void AppendRow(params string[] values) =>
+            Native.xlpp_sheet_append_row(_handle, values, values.Length);
+        public void AppendRow(params double[] values) =>
+            Native.xlpp_sheet_append_doubles(_handle, values, values.Length);
+
+        public void InsertRows(ulong index, ulong amount = 1) => Native.xlpp_sheet_insert_rows(_handle, index, amount);
+        public void DeleteRows(ulong index, ulong amount = 1) => Native.xlpp_sheet_delete_rows(_handle, index, amount);
+        public void InsertColumns(ulong index, ulong amount = 1) => Native.xlpp_sheet_insert_cols(_handle, index, amount);
+        public void DeleteColumns(ulong index, ulong amount = 1) => Native.xlpp_sheet_delete_cols(_handle, index, amount);
     }
 
     public class Workbook : IDisposable
     {
         internal IntPtr _handle;
+
+        public static string Version => MarshalHelper.PtrToString(Native.xlpp_version());
 
         public Workbook()
         {
@@ -272,6 +361,8 @@ namespace XLPP
         public Worksheet AddWorksheet(string name)
         {
             var h = Native.xlpp_workbook_add_sheet(_handle, name);
+            if (h == IntPtr.Zero)
+                throw new ArgumentException($"Failed to add worksheet '{name}'");
             return new Worksheet(h);
         }
 
@@ -286,7 +377,9 @@ namespace XLPP
             get
             {
                 var h = Native.xlpp_workbook_get_sheet(_handle, index);
-                return new Worksheet(h);
+                return h == IntPtr.Zero
+                    ? throw new ArgumentOutOfRangeException(nameof(index), "Worksheet index out of range")
+                    : new Worksheet(h);
             }
         }
 

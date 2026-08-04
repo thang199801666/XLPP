@@ -745,3 +745,120 @@ def test_index_error_for_bad_index():
     wb = xlpp.Workbook()
     with pytest.raises(IndexError):
         _ = wb[5]
+
+
+# ---------------------------------------------------------------------------
+# Named styles / tables / filters / page setup round-trips
+# ---------------------------------------------------------------------------
+
+def test_named_styles():
+    wb = xlpp.Workbook()
+    wb.add_worksheet("S")
+    ns = wb.add_named_style(xlpp.NamedStyle("Accent", xlpp.Style()))
+    ns.style().font().bold = True
+    ns.style().number_format = "0.00"
+    assert wb.named_style("Accent") is ns
+    ws = wb["S"]
+    ws["A1"].value = "x"
+    wb.apply_named_style(ws["A1"], "Accent")
+    assert ws["A1"].font().bold is True
+    assert ws["A1"].number_format == "0.00"
+
+
+def test_table_roundtrip(tmp_path):
+    path = tmp_path / "table.xlsx"
+    wb = xlpp.Workbook()
+    ws = wb.add_worksheet("Data")
+    ws.append(["Col1", "Col2"])
+    ws.append([1, 2])
+    t = ws.add_table("MyTable", "A1:B2")
+    t.add_column("Col1")
+    t.add_column("Col2")
+    wb.save(str(path))
+
+    wb2 = xlpp.Workbook()
+    wb2.load(str(path))
+    ws2 = wb2["Data"]
+    assert ws2["A1"].value == "Col1"
+    assert ws2["B2"].value == 2.0
+
+
+def test_autofilter_roundtrip(tmp_path):
+    path = tmp_path / "filter.xlsx"
+    wb = xlpp.Workbook()
+    ws = wb.add_worksheet("Data")
+    ws.append(["Name", "Status"])
+    ws.append(["Alpha", "Open"])
+    ws.auto_filter().reference = "A1:B2"
+    wb.save(str(path))
+
+    wb2 = xlpp.Workbook()
+    wb2.load(str(path))
+    assert wb2["Data"].auto_filter().reference == "A1:B2"
+
+
+def test_defined_name_roundtrip(tmp_path):
+    path = tmp_path / "names.xlsx"
+    wb = xlpp.Workbook()
+    wb.add_worksheet("S")
+    wb.add_defined_name(xlpp.DefinedName("MyRange", "'S'!$A$1:$B$2"))
+    wb.save(str(path))
+
+    wb2 = xlpp.Workbook()
+    wb2.load(str(path))
+    assert len(wb2.defined_names) >= 1
+    assert wb2.defined_names[0].name == "MyRange"
+    assert wb2.defined_names[0].value == "'S'!$A$1:$B$2"
+
+
+def test_page_setup_roundtrip(tmp_path):
+    path = tmp_path / "page.xlsx"
+    wb = xlpp.Workbook()
+    ws = wb.add_worksheet("P")
+    ws["A1"].value = "x"
+    ws.page_setup().orientation = xlpp.PageOrientation.LANDSCAPE
+    ws.page_setup().scale = 90
+    ws.page_margins().left = 0.5
+    wb.save(str(path))
+
+    wb2 = xlpp.Workbook()
+    wb2.load(str(path))
+    assert wb2["P"]["A1"].value == "x"
+
+
+def test_workbook_iteration_after_load(tmp_path):
+    path = tmp_path / "iter.xlsx"
+    wb = xlpp.Workbook()
+    wb.add_worksheet("A")
+    wb.add_worksheet("B")
+    wb.save(str(path))
+
+    wb2 = xlpp.Workbook()
+    wb2.load(str(path))
+    assert [w.name for w in wb2] == ["A", "B"]
+
+
+def test_cell_reference_parse_edges():
+    assert xlpp.CellReference.parse("$a$1").address() == "A1"
+    assert xlpp.CellReference.parse("XFD1048576").column == 16384
+    assert xlpp.CellReference.parse("XFD1048576").row == 1048576
+    with pytest.raises(ValueError):
+        xlpp.CellReference.parse("")
+    with pytest.raises(ValueError):
+        xlpp.CellReference.parse("A0")
+
+
+def test_extreme_number_roundtrip(tmp_path):
+    path = tmp_path / "extreme.xlsx"
+    wb = xlpp.Workbook()
+    ws = wb.add_worksheet("N")
+    ws["A1"].value = -123456789012345.0
+    ws["A2"].value = 1e-12
+    ws["A3"].value = 1e21
+    wb.save(str(path))
+
+    wb2 = xlpp.Workbook()
+    wb2.load(str(path))
+    assert wb2["N"]["A1"].value == -123456789012345.0
+    assert wb2["N"]["A2"].value == 1e-12
+    assert wb2["N"]["A3"].value == 1e21

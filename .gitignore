@@ -33,6 +33,12 @@ dist/
 wheel-verify/
 dist-verify/
 
+# .NET / C#
+bin/
+obj/
+*.nupkg
+nuget-verify/
+
 # IDE
 .idea/
 .vscode/

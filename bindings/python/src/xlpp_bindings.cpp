@@ -306,6 +306,15 @@ PYBIND11_MODULE(xlpp, m) {
         .def("add_column", &Table::addColumn, py::return_value_policy::reference_internal)
         .def("__repr__", [](const Table& t) { return "<Table " + t.name() + ">"; });
 
+    // === NamedStyle ===
+    py::class_<NamedStyle>(m, "NamedStyle")
+        .def(py::init<>())
+        .def(py::init<std::string>(), py::arg("name"))
+        .def(py::init<std::string, Style>(), py::arg("name"), py::arg("style"))
+        .def_property("name", &NamedStyle::name, &NamedStyle::setName)
+        .def("style", static_cast<Style& (NamedStyle::*)()>(&NamedStyle::style),
+             py::return_value_policy::reference_internal);
+
     // === DefinedName ===
     py::class_<DefinedName>(m, "DefinedName")
         .def(py::init<std::string, std::string>())
@@ -668,6 +677,12 @@ PYBIND11_MODULE(xlpp, m) {
              py::return_value_policy::reference_internal)
         .def("apply_named_style", &Workbook::applyNamedStyle)
         .def("add_defined_name", &Workbook::addDefinedName, py::return_value_policy::reference_internal)
+        .def_property_readonly("defined_names", [](Workbook& wb) -> py::list {
+            py::list out;
+            for (auto& n : wb.definedNames())
+                out.append(py::cast(&n, py::return_value_policy::reference));
+            return out;
+        })
         .def_property("date_1904", &Workbook::date1904, &Workbook::setDate1904)
         .def("clear", &Workbook::clear)
         .def("__iter__", [](Workbook& wb) {

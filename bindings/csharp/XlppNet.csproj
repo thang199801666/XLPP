@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>XLPP</AssemblyName>
+    <RootNamespace>XLPP</RootNamespace>
+    <PackageId>XLPP</PackageId>
+    <Version>1.0.0</Version>
+    <Description>XL++ C# binding — high-performance C++20 Excel .xlsx read/write library.</Description>
+    <Authors>XL++ contributors</Authors>
+    <Company>XL++</Company>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/thang199801666/XLPP</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/thang199801666/XLPP</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>excel;xlsx;spreadsheet;ooxml;xlpp</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Native libraries are resolved from runtimes/<rid>/native at load time.
+         Copied to the output directory so project-referencing apps find them. -->
+    <None Include="runtimes/**" Pack="true" PackagePath="runtimes/"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="LICENSE.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The tests/ directory is a separate project; do not compile it here. -->
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+  </ItemGroup>
+
+</Project>

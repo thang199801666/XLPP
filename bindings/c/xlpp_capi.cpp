@@ -35,7 +35,11 @@ XLPP_API void xlpp_workbook_destroy(xlpp_workbook wb) {
 }
 
 XLPP_API xlpp_worksheet xlpp_workbook_add_sheet(xlpp_workbook wb, const char* name) {
-    return reinterpret_cast<xlpp_worksheet>(&WB(wb)->addWorksheet(name));
+    // addWorksheet throws on empty/duplicate names; never let a C++ exception
+    // cross the C ABI.
+    try {
+        return reinterpret_cast<xlpp_worksheet>(&WB(wb)->addWorksheet(name));
+    } catch (...) { return nullptr; }
 }
 
 XLPP_API int xlpp_workbook_sheet_count(xlpp_workbook wb) {
@@ -43,7 +47,9 @@ XLPP_API int xlpp_workbook_sheet_count(xlpp_workbook wb) {
 }
 
 XLPP_API xlpp_worksheet xlpp_workbook_get_sheet(xlpp_workbook wb, int index) {
-    return reinterpret_cast<xlpp_worksheet>(&(*WB(wb))[static_cast<std::size_t>(index)]);
+    try {
+        return reinterpret_cast<xlpp_worksheet>(&(*WB(wb))[static_cast<std::size_t>(index)]);
+    } catch (...) { return nullptr; }
 }
 
 XLPP_API xlpp_worksheet xlpp_workbook_sheet_by_name(xlpp_workbook wb, const char* name) {
@@ -89,11 +95,15 @@ XLPP_API const char* xlpp_sheet_name(xlpp_worksheet ws) { return WS(ws)->name().
 XLPP_API void xlpp_sheet_rename(xlpp_worksheet ws, const char* name) { WS(ws)->rename(name); }
 
 XLPP_API xlpp_cell xlpp_sheet_cell(xlpp_worksheet ws, const char* address) {
-    return reinterpret_cast<xlpp_cell>(&WS(ws)->cell(address));
+    try {
+        return reinterpret_cast<xlpp_cell>(&WS(ws)->cell(address));
+    } catch (...) { return nullptr; }
 }
 
 XLPP_API xlpp_cell xlpp_sheet_cell_rc(xlpp_worksheet ws, uint64_t row, uint64_t col) {
-    return reinterpret_cast<xlpp_cell>(&WS(ws)->cell(static_cast<std::size_t>(row), static_cast<std::size_t>(col)));
+    try {
+        return reinterpret_cast<xlpp_cell>(&WS(ws)->cell(static_cast<std::size_t>(row), static_cast<std::size_t>(col)));
+    } catch (...) { return nullptr; }
 }
 
 XLPP_API int xlpp_sheet_has_cell(xlpp_worksheet ws, const char* address) {
@@ -119,9 +129,9 @@ XLPP_API void xlpp_sheet_append_doubles(xlpp_worksheet ws, const double* values,
     WS(ws)->append(cv);
 }
 
-XLPP_API void xlpp_sheet_merge_cells(xlpp_worksheet ws, const char* range)     { WS(ws)->mergeCells(range); }
-XLPP_API void xlpp_sheet_unmerge_cells(xlpp_worksheet ws, const char* range)   { WS(ws)->unmergeCells(range); }
-XLPP_API void xlpp_sheet_freeze_panes(xlpp_worksheet ws, const char* cell)     { WS(ws)->freezePanes(cell); }
+XLPP_API void xlpp_sheet_merge_cells(xlpp_worksheet ws, const char* range)     { try { WS(ws)->mergeCells(range); } catch (...) {} }
+XLPP_API void xlpp_sheet_unmerge_cells(xlpp_worksheet ws, const char* range)   { try { WS(ws)->unmergeCells(range); } catch (...) {} }
+XLPP_API void xlpp_sheet_freeze_panes(xlpp_worksheet ws, const char* cell)     { try { WS(ws)->freezePanes(cell); } catch (...) {} }
 
 XLPP_API uint64_t xlpp_sheet_max_row(xlpp_worksheet ws) { return WS(ws)->maxRow(); }
 XLPP_API uint64_t xlpp_sheet_max_col(xlpp_worksheet ws) { return WS(ws)->maxColumn(); }
@@ -133,16 +143,16 @@ XLPP_API void xlpp_sheet_dimensions(xlpp_worksheet ws, char* out, int outSize) {
 }
 
 XLPP_API void xlpp_sheet_insert_rows(xlpp_worksheet ws, uint64_t index, uint64_t amount) {
-    WS(ws)->insertRows(static_cast<std::size_t>(index), static_cast<std::size_t>(amount));
+    try { WS(ws)->insertRows(static_cast<std::size_t>(index), static_cast<std::size_t>(amount)); } catch (...) {}
 }
 XLPP_API void xlpp_sheet_delete_rows(xlpp_worksheet ws, uint64_t index, uint64_t amount) {
-    WS(ws)->deleteRows(static_cast<std::size_t>(index), static_cast<std::size_t>(amount));
+    try { WS(ws)->deleteRows(static_cast<std::size_t>(index), static_cast<std::size_t>(amount)); } catch (...) {}
 }
 XLPP_API void xlpp_sheet_insert_cols(xlpp_worksheet ws, uint64_t index, uint64_t amount) {
-    WS(ws)->insertColumns(static_cast<std::size_t>(index), static_cast<std::size_t>(amount));
+    try { WS(ws)->insertColumns(static_cast<std::size_t>(index), static_cast<std::size_t>(amount)); } catch (...) {}
 }
 XLPP_API void xlpp_sheet_delete_cols(xlpp_worksheet ws, uint64_t index, uint64_t amount) {
-    WS(ws)->deleteColumns(static_cast<std::size_t>(index), static_cast<std::size_t>(amount));
+    try { WS(ws)->deleteColumns(static_cast<std::size_t>(index), static_cast<std::size_t>(amount)); } catch (...) {}
 }
 
 // ============================================================
@@ -164,7 +174,9 @@ XLPP_API int xlpp_cell_value_type(xlpp_cell c) {
 }
 
 XLPP_API int xlpp_cell_get_bool(xlpp_cell c) {
-    return std::get<bool>(CELL(c)->value()) ? 1 : 0;
+    try {
+        return std::get<bool>(CELL(c)->value()) ? 1 : 0;
+    } catch (...) { return 0; }
 }
 XLPP_API double xlpp_cell_get_number(xlpp_cell c) {
     if (auto* v = std::get_if<double>(&CELL(c)->value())) return *v;
