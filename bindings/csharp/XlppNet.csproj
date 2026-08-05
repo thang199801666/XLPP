@@ -30,7 +30,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The tests/ directory is a separate project; do not compile it here. -->
+    <!-- Program.cs is a top-level-statements smoke test; exclude it from the library.
+         The tests/ directory is a separate project; do not compile it here. -->
+    <Compile Remove="Program.cs" />
+    <None Remove="Program.cs" />
     <Compile Remove="tests/**" />
     <None Remove="tests/**" />
   </ItemGroup>
