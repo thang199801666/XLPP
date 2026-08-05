@@ -4,6 +4,9 @@ from pybind11.setup_helpers import Pybind11Extension, build_ext
 
 xlpp_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
+with open(os.path.join(xlpp_root, "VERSION"), encoding="utf-8") as version_file:
+    package_version = version_file.read().strip()
+
 debug = os.environ.get("XLPP_DEBUG", "0") == "1"
 config = "Debug" if debug else "Release"
 
@@ -51,7 +54,7 @@ except OSError:
 
 setup(
     name="xlpp",
-    version="1.1.0",
+    version=package_version,
     author="XL++ contributors",
     description="High-performance C++ Excel xlsx library for Python",
     long_description=long_description,

@@ -67,6 +67,7 @@ std::string contentTypes(std::size_t sheetCount, std::size_t tableCount, std::si
     for (std::size_t i = 1; i <= pivotCount; ++i) {
         xml << "<Override PartName=\"/xl/pivotTables/pivotTable" << i << ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml\"/>";
         xml << "<Override PartName=\"/xl/pivotCache/pivotCacheDefinition" << i << ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml\"/>";
+        xml << "<Override PartName=\"/xl/pivotCache/pivotCacheRecords" << i << ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml\"/>";
     }
     const std::set<std::string> builtInDefaults{"rels", "xml", "vml", "png", "jpg", "jpeg"};
     for (const auto& part : preserved) {
@@ -87,10 +88,7 @@ bool isRegeneratedPart(const std::string& name) {
         || name == "xl/workbook.xml" || name == "xl/_rels/workbook.xml.rels"
         || name == "xl/styles.xml" || name == "xl/sharedStrings.xml"
         || name.rfind("xl/worksheets/", 0) == 0 || name.rfind("xl/tables/", 0) == 0
-        || name.rfind("xl/charts/", 0) == 0 || name.rfind("xl/pivotTables/", 0) == 0
-        || name.rfind("xl/pivotCache/", 0) == 0
-        || name.rfind("xl/comments", 0) == 0 || name.rfind("xl/drawings/", 0) == 0
-        || name.rfind("xl/media/", 0) == 0;
+        || name.rfind("xl/comments", 0) == 0;
 }
 
 // Effective content types for preserved parts: <Override> rules win; parts
@@ -956,15 +954,17 @@ std::string chartXml(const xlpp::Chart& chart, const std::string& sheetName, boo
     xml << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>";
     xml << "<c:chartSpace xmlns:c=\"" << (strict ? "http://purl.oclc.org/ooxml/drawingml/chart" : "http://schemas.openxmlformats.org/drawingml/2006/chart") << "\"";
     xml << " xmlns:a=\"" << (strict ? "http://purl.oclc.org/ooxml/drawingml/main" : "http://schemas.openxmlformats.org/drawingml/2006/main") << "\">";
-    xml << "<c:chart><c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en-US\"/><a:t>" << xmlEscape(chart.title()) << "</a:t></a:r></a:p></c:rich></c:tx></c:title>";
+    xml << "<c:chart>";
+    if (!chart.title().empty())
+        xml << "<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en-US\"/><a:t>" << xmlEscape(chart.title()) << "</a:t></a:r></a:p></c:rich></c:tx><c:overlay val=\"0\"/></c:title>";
+    if (!chart.style().empty()) xml << "<c:style val=\"" << xmlEscape(chart.style()) << "\"/>";
     xml << "<c:plotArea><c:layout/>";
     xml << "<c:" << xlpp::Chart::typeName(chart.type(), chart.grouping()) << ">";
     for (std::size_t s = 0; s < chart.series().size(); ++s) {
         const auto& series = chart.series()[s];
         xml << "<c:ser><c:idx val=\"" << s << "\"/><c:order val=\"" << s << "\"/>";
         if (!series.title().empty())
-            xml << "<c:tx><c:strRef><c:f>" << xmlEscape("'" + sheetName + "'!$A$1") << "</c:f></c:strRef></c:tx>";
-        xml << "<c:spPr><a:ln><a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill></a:ln></c:spPr>";
+            xml << "<c:tx><c:v>" << xmlEscape(series.title()) << "</c:v></c:tx>";
         if (!series.valuesReference().empty())
             xml << "<c:val><c:numRef><c:f>" << xmlEscape(series.valuesReference()) << "</c:f></c:numRef></c:val>";
         if (!series.categoriesReference().empty())
@@ -975,9 +975,9 @@ std::string chartXml(const xlpp::Chart& chart, const std::string& sheetName, boo
     if (chart.type() == xlpp::Chart::Type::Pie) xml << "<c:firstSliceAng val=\"0\"/>";
     xml << "</c:" << xlpp::Chart::typeName(chart.type(), chart.grouping()) << ">";
     xml << "<c:catAx><c:axId val=\"1\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling><c:delete val=\"0\"/><c:axPos val=\"b\"/>";
-    if (!chart.xAxisTitle().empty()) xml << "<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>" << xmlEscape(chart.xAxisTitle()) << "</a:t></a:r></a:p></c:rich></c:tx></c:title>";
+    if (!chart.xAxisTitle().empty()) xml << "<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>" << xmlEscape(chart.xAxisTitle()) << "</a:t></a:r></a:p></c:rich></c:tx><c:overlay val=\"0\"/></c:title>";
     xml << "</c:catAx><c:valAx><c:axId val=\"2\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling><c:delete val=\"0\"/><c:axPos val=\"l\"/>";
-    if (!chart.yAxisTitle().empty()) xml << "<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>" << xmlEscape(chart.yAxisTitle()) << "</a:t></a:r></a:p></c:rich></c:tx></c:title>";
+    if (!chart.yAxisTitle().empty()) xml << "<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>" << xmlEscape(chart.yAxisTitle()) << "</a:t></a:r></a:p></c:rich></c:tx><c:overlay val=\"0\"/></c:title>";
     xml << "</c:valAx></c:plotArea>";
     if (chart.showLegend()) xml << "<c:legend><c:legendPos val=\"" << xmlEscape(chart.legendPosition()) << "\"/></c:legend>";
     xml << "</c:chart></c:chartSpace>";
@@ -1005,6 +1005,15 @@ std::string chartDrawingXml(const xlpp::Worksheet& sheet, bool strict) {
 
 std::string pivotTableXml(const xlpp::PivotTable& pt, std::size_t id, bool strict) {
     std::ostringstream xml;
+    const auto fieldCount = pt.cache().fields().size();
+    const auto validateIndex = [fieldCount](int index) {
+        if (index < 0 || (fieldCount != 0 && static_cast<std::size_t>(index) >= fieldCount))
+            throw std::invalid_argument("Pivot field index is outside the cache field range");
+    };
+    for (const auto& field : pt.rowFields()) if (field.fieldIndex() >= 0) validateIndex(field.fieldIndex());
+    for (const auto& field : pt.columnFields()) if (field.fieldIndex() >= 0) validateIndex(field.fieldIndex());
+    for (const auto& field : pt.pageFields()) if (field.fieldIndex() >= 0) validateIndex(field.fieldIndex());
+    for (const auto& field : pt.dataFields()) validateIndex(field.fieldIndex());
     xml << R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" name=")"
         << xmlEscape(pt.name()) << "\" cacheId=\"" << pt.cache().cacheId() << "\" applyNumberFormats=\"0\" applyBorderFormats=\"0\" applyFontFormats=\"0\""
         << " applyPatternFormats=\"0\" applyAlignmentFormats=\"0\" applyWidthHeightFormats=\"1\" dataCaption=\"Values\" updatedVersion=\"6\" minRefreshableVersion=\"3\""
@@ -1014,11 +1023,11 @@ std::string pivotTableXml(const xlpp::PivotTable& pt, std::size_t id, bool stric
     xml << " ref=\"" << xmlEscape(pt.location().empty() ? "A3" : pt.location()) << "\"/>";
     xml << "<pivotFields count=\"" << (pt.rowFields().size() + pt.columnFields().size() + pt.pageFields().size() + pt.dataFields().size()) << "\">";
     for (const auto& f : pt.rowFields())
-        xml << "<pivotField axis=\"" << xmlEscape(f.axis()) << "\" showAll=\"" << (f.showAll() ? 1 : 0) << "\"/>";
+        xml << "<pivotField" << (f.fieldIndex() >= 0 ? " fld=\"" + std::to_string(f.fieldIndex()) + "\"" : "") << " axis=\"" << xmlEscape(f.axis()) << "\" showAll=\"" << (f.showAll() ? 1 : 0) << "\"/>";
     for (const auto& f : pt.columnFields())
-        xml << "<pivotField axis=\"" << xmlEscape(f.axis()) << "\" showAll=\"" << (f.showAll() ? 1 : 0) << "\"/>";
+        xml << "<pivotField" << (f.fieldIndex() >= 0 ? " fld=\"" + std::to_string(f.fieldIndex()) + "\"" : "") << " axis=\"" << xmlEscape(f.axis()) << "\" showAll=\"" << (f.showAll() ? 1 : 0) << "\"/>";
     for (const auto& f : pt.pageFields())
-        xml << "<pivotField axis=\"" << xmlEscape(f.axis()) << "\" showAll=\"" << (f.showAll() ? 1 : 0) << "\"/>";
+        xml << "<pivotField" << (f.fieldIndex() >= 0 ? " fld=\"" + std::to_string(f.fieldIndex()) + "\"" : "") << " axis=\"" << xmlEscape(f.axis()) << "\" showAll=\"" << (f.showAll() ? 1 : 0) << "\"/>";
     for (const auto& f : pt.dataFields())
         xml << "<pivotField dataField=\"1\" showAll=\"0\"/>";
     xml << "</pivotFields>";
@@ -1032,8 +1041,8 @@ std::string pivotTableXml(const xlpp::PivotTable& pt, std::size_t id, bool stric
     for (std::size_t i = 0; i < pt.pageFields().size(); ++i) xml << "<pageField hier=\"-1\"/>";
     xml << "</pageFields>";
     xml << "<dataFields count=\"" << pt.dataFields().size() << "\">";
-    for (std::size_t i = 0; i < pt.dataFields().size(); ++i)
-        xml << "<dataField name=\"Values\" fld=\"" << (pt.rowFields().size() + pt.columnFields().size() + pt.pageFields().size() + i) << "\" baseField=\"0\" baseItem=\"0\"/>";
+    for (const auto& field : pt.dataFields())
+        xml << "<dataField name=\"Values\" fld=\"" << field.fieldIndex() << "\" baseField=\"0\" baseItem=\"0\"/>";
     xml << "</dataFields><pivotTableStyleInfo name=\"PivotStyleLight16\" showRowHeaders=\"1\" showColHeaders=\"1\" showRowStripes=\"0\" showColStripes=\"0\" showLastColumn=\"1\"/>";
     xml << "</pivotTableDefinition>";
     return xml.str();
@@ -1041,9 +1050,47 @@ std::string pivotTableXml(const xlpp::PivotTable& pt, std::size_t id, bool stric
 
 std::string pivotCacheXml(const xlpp::PivotTable& pt, bool strict) {
     std::ostringstream xml;
-    xml << R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1" refreshOnLoad="1" recordCount="0">)";
-    xml << "<cacheSource type=\"worksheet\"><worksheetSource ref=\"" << xmlEscape(pt.cache().sourceData()) << "\"/></cacheSource>";
-    xml << "<cacheFields count=\"0\"/></pivotCacheDefinition>";
+    const auto& cache = pt.cache();
+    const auto fieldCount = cache.fields().size();
+    xml << R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1" refreshOnLoad="1" recordCount=")"
+        << cache.records().size() << "\">";
+    xml << "<cacheSource type=\"worksheet\"><worksheetSource ref=\"" << xmlEscape(cache.sourceData()) << "\"/></cacheSource>";
+    xml << "<cacheFields count=\"" << fieldCount << "\">";
+    std::vector<std::vector<std::string>> sharedItems(fieldCount);
+    for (const auto& record : cache.records()) {
+        for (std::size_t i = 0; i < record.size() && i < fieldCount; ++i) {
+            if (std::find(sharedItems[i].begin(), sharedItems[i].end(), record[i]) == sharedItems[i].end())
+                sharedItems[i].push_back(record[i]);
+        }
+    }
+    for (std::size_t i = 0; i < cache.fields().size(); ++i) {
+        const auto& field = cache.fields()[i];
+        const auto& items = sharedItems[i];
+        xml << "<cacheField name=\"" << xmlEscape(field) << "\"><sharedItems count=\"" << items.size() << "\">";
+        for (const auto& value : items) {
+            char* end = nullptr;
+            const auto number = std::strtod(value.c_str(), &end);
+            if (end && *end == '\0' && end != value.c_str()) xml << "<n v=\"" << number << "\"/>";
+            else if (value == "true" || value == "false") xml << "<b v=\"" << (value == "true" ? 1 : 0) << "\"/>";
+            else if (!value.empty() && value.front() == '#') xml << "<e v=\"" << xmlEscape(value) << "\"/>";
+            else xml << "<s v=\"" << xmlEscape(value) << "\"/>";
+        }
+        xml << "</sharedItems></cacheField>";
+    }
+    xml << "</cacheFields>";
+    if (!cache.records().empty()) {
+        xml << "<cacheRecords count=\"" << cache.records().size() << "\">";
+        for (const auto& record : cache.records()) {
+            xml << "<r>";
+            for (std::size_t i = 0; i < record.size(); ++i) {
+                const auto it = i < sharedItems.size() ? std::find(sharedItems[i].begin(), sharedItems[i].end(), record[i]) : sharedItems[0].end();
+                xml << "<x v=\"" << (it == (i < sharedItems.size() ? sharedItems[i].end() : sharedItems[0].end()) ? 0 : std::distance(sharedItems[i].begin(), it)) << "\"/>";
+            }
+            xml << "</r>";
+        }
+        xml << "</cacheRecords>";
+    }
+    xml << "</pivotCacheDefinition>";
     return xml.str();
 }
 
@@ -1653,6 +1700,17 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
                     sheetRels << "<Relationship Id=\"rIdPivotCache" << (pi + 1) << "\" Type=\"" << nsRelsDoc(strict) << "/pivotCacheDefinition\" Target=\"../pivotCache/pivotCacheDefinition" << globalPivotId << ".xml\"/>";
                     z.add("xl/pivotTables/pivotTable" + std::to_string(globalPivotId) + ".xml", pivotTableXml(sheet.pivotTables()[pi], globalPivotId, strict));
                     z.add("xl/pivotCache/pivotCacheDefinition" + std::to_string(globalPivotId) + ".xml", pivotCacheXml(sheet.pivotTables()[pi], strict));
+                    std::ostringstream records;
+                    records << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><pivotCacheRecords xmlns=\"" << nsMain(strict) << "\" count=\"" << sheet.pivotTables()[pi].cache().records().size() << "\">";
+                    for (const auto& record : sheet.pivotTables()[pi].cache().records()) {
+                        records << "<r>";
+                        for (const auto& value : record) records << "<s v=\"" << xmlEscape(value) << "\"/>";
+                        records << "</r>";
+                    }
+                    records << "</pivotCacheRecords>";
+                    z.add("xl/pivotCache/pivotCacheRecords" + std::to_string(globalPivotId) + ".xml", records.str());
+                    z.add("xl/pivotCache/_rels/pivotCacheDefinition" + std::to_string(globalPivotId) + ".xml.rels",
+                          "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"" + nsRelsPkg(strict) + "\"><Relationship Id=\"rId1\" Type=\"" + nsRelsDoc(strict) + "/pivotCacheRecords\" Target=\"pivotCacheRecords" + std::to_string(globalPivotId) + ".xml\"/></Relationships>");
                 }
             }
             sheetRels << "</Relationships>";
@@ -1675,7 +1733,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
     }
     wb << "</workbook>";
     z.add("xl/workbook.xml", wb.str()); z.add("xl/_rels/workbook.xml.rels", rels.str());
-    for (const auto& part : preservedParts_) z.add(part.name, part.data, part.compress);
+    for (const auto& part : preservedParts_) z.addUnique(part.name, part.data, part.compress);
     z.save(p);
 }
 void Workbook::load(const std::filesystem::path& p) { load(p, LoadOptions{}); }

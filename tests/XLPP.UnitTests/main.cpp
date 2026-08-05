@@ -212,7 +212,7 @@ void testRichTextSharedStrings(TestContext& test) {
             R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>)");
         z.add("xl/styles.xml",
             R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>)");
-        z.add("xl/worksheets/sheet1.xml",
+         z.replace("xl/worksheets/sheet1.xml",
             R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:A2"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr baseColWidth="10" defaultRowHeight="15"/><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row><row r="2"><c r="A2" t="s"><v>1</v></c></row></sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>)");
         // Rich text shared string: two <r> elements that should be concatenated
         z.add("xl/sharedStrings.xml",
@@ -311,7 +311,7 @@ void testNumFmtIdDateRoundTrip(TestContext& test) {
             R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>)");
         z.add("xl/styles.xml",
             R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>)");
-        z.add("xl/worksheets/sheet1.xml",
+         z.replace("xl/worksheets/sheet1.xml",
             R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:A2"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr baseColWidth="10" defaultRowHeight="15"/><sheetData><row r="1"><c r="A1" s="1"><v>45306</v></c></row><row r="2"><c r="A2"><v>42</v></c></row></sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>)");
         z.save(path);
     }
@@ -2073,7 +2073,7 @@ void testPartPreservation(TestContext& test) {
         auto ct = z.get("[Content_Types].xml");
         const auto marker = std::string("<Override PartName=\"/customXml/item1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.customXmlProperties+xml\"/>");
         ct.insert(ct.rfind("</Types>"), marker);
-        z.add("[Content_Types].xml", ct);
+         z.replace("[Content_Types].xml", ct);
         z.save(staged);
     }
     {
@@ -2101,6 +2101,120 @@ void testPartPreservation(TestContext& test) {
     std::filesystem::remove(base);
     std::filesystem::remove(staged);
     std::filesystem::remove(out);
+}
+
+void testBinaryPartPreservation(TestContext& test) {
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto base = dir / "xlpp_binary_preserve_base.xlsx";
+    const auto staged = dir / "xlpp_binary_preserve_staged.xlsm";
+    const auto out = dir / "xlpp_binary_preserve_out.xlsm";
+    {
+        xlpp::Workbook w;
+        w.addWorksheet("Sheet1").cell("A1").setValue("macro host");
+        w.save(base);
+    }
+    {
+        auto z = xlpp::internal::ZipArchive::open(base);
+        const std::string vbaBytes("VBA\0fixture", 11);
+        z.add("xl/vbaProject.bin", vbaBytes, false);
+        auto ct = z.get("[Content_Types].xml");
+        const auto marker = std::string("<Override PartName=\"/xl/vbaProject.bin\" ContentType=\"application/vnd.ms-office.vbaProject\"/>");
+        ct.insert(ct.rfind("</Types>"), marker);
+         z.replace("[Content_Types].xml", ct);
+        z.save(staged);
+    }
+    {
+        xlpp::Workbook w;
+        w.load(staged);
+        bool found = false;
+        for (const auto& part : w.preservedParts()) {
+            if (part.name == "xl/vbaProject.bin") {
+                found = true;
+                test.checkEqual(part.data.size(), std::size_t{11}, "Binary part size preserved");
+                test.checkEqual(part.data[3], '\0', "Binary part NUL byte preserved");
+                test.checkEqual(part.overrideType, std::string("application/vnd.ms-office.vbaProject"), "Binary part content type preserved");
+            }
+        }
+        test.checkTrue(found, "VBA binary part captured by load");
+        w.save(out);
+    }
+    {
+        auto z = xlpp::internal::ZipArchive::open(out);
+        const auto data = z.get("xl/vbaProject.bin");
+        test.checkEqual(data.size(), std::size_t{11}, "Binary part survives save");
+        test.checkEqual(data[3], '\0', "Binary part NUL byte survives save");
+        test.checkTrue(z.get("[Content_Types].xml").find("application/vnd.ms-office.vbaProject") != std::string::npos,
+                       "Binary part content type survives save");
+    }
+    std::filesystem::remove(base);
+    std::filesystem::remove(staged);
+    std::filesystem::remove(out);
+}
+
+void testChartPartPreservation(TestContext& test) {
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto base = dir / "xlpp_chart_preserve_base.xlsx";
+    const auto staged = dir / "xlpp_chart_preserve_staged.xlsx";
+    const auto out = dir / "xlpp_chart_preserve_out.xlsx";
+    {
+        xlpp::Workbook w;
+        w.addWorksheet("Sheet1").cell("A1").setValue("chart host");
+        w.save(base);
+    }
+    {
+        auto z = xlpp::internal::ZipArchive::open(base);
+        const std::string chartXml = "<c:chartSpace xmlns:c=\"urn:fixture\"><c:extLst><c:ext uri=\"custom\"/></c:extLst></c:chartSpace>";
+        z.add("xl/charts/chart1.xml", chartXml);
+        z.add("xl/drawings/drawing1.xml", "<drawing/>" );
+        z.add("xl/drawings/_rels/drawing1.xml.rels", "<Relationships><Relationship Id=\"rIdChart1\" Target=\"../charts/chart1.xml\"/></Relationships>");
+        z.add("xl/worksheets/_rels/sheet1.xml.rels", "<Relationships><Relationship Id=\"rIdDrawing\" Target=\"../drawings/drawing1.xml\"/></Relationships>");
+        auto ct = z.get("[Content_Types].xml");
+        const auto marker = std::string("<Override PartName=\"/xl/charts/chart1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>");
+        ct.insert(ct.rfind("</Types>"), marker);
+         z.replace("[Content_Types].xml", ct);
+        z.save(staged);
+    }
+    {
+        xlpp::Workbook w;
+        w.load(staged);
+        const auto it = std::find_if(w.preservedParts().begin(), w.preservedParts().end(),
+            [](const xlpp::PreservedPart& part) { return part.name == "xl/charts/chart1.xml"; });
+        test.checkTrue(it != w.preservedParts().end(), "Chart part is preserved on load");
+        w.save(out);
+    }
+    {
+        auto z = xlpp::internal::ZipArchive::open(out);
+        test.checkEqual(z.get("xl/charts/chart1.xml"), std::string("<c:chartSpace xmlns:c=\"urn:fixture\"><c:extLst><c:ext uri=\"custom\"/></c:extLst></c:chartSpace>"), "Chart XML survives load-save");
+        test.checkEqual(z.get("xl/drawings/_rels/drawing1.xml.rels"), std::string("<Relationships><Relationship Id=\"rIdChart1\" Target=\"../charts/chart1.xml\"/></Relationships>"), "Chart relationships survive load-save");
+    }
+    std::filesystem::remove(base);
+    std::filesystem::remove(staged);
+    std::filesystem::remove(out);
+}
+
+void testZipUniqueEntryPolicy(TestContext& test) {
+    xlpp::internal::ZipArchive zip;
+    zip.add("entry.xml", "generated");
+    zip.addUnique("entry.xml", "preserved");
+    zip.addUnique("other.xml", "preserved");
+    test.checkEqual(zip.get("entry.xml"), std::string("generated"), "Unique ZIP add does not overwrite generated entry");
+    test.checkEqual(zip.get("other.xml"), std::string("preserved"), "Unique ZIP add inserts new entry");
+}
+
+void testPivotValidation(TestContext& test) {
+    xlpp::PivotTable pivot("Validation");
+    pivot.cache().setFields({"Category", "Amount"});
+    bool widthRejected = false;
+    try { pivot.cache().addRecord({"only-one"}); } catch (const std::invalid_argument&) { widthRejected = true; }
+    test.checkTrue(widthRejected, "Pivot cache rejects mismatched record width");
+    pivot.addDataField(2);
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Pivot");
+    sheet.addPivotTable(std::move(pivot));
+    bool indexRejected = false;
+    try { workbook.save(std::filesystem::temp_directory_path() / "xlpp_invalid_pivot.xlsx"); }
+    catch (const std::invalid_argument&) { indexRejected = true; }
+    test.checkTrue(indexRejected, "Pivot serialization rejects invalid field index");
 }
 
 void testStrictNamespaces(TestContext& test) {
@@ -2153,7 +2267,7 @@ void testLenientLoad(TestContext& test) {
     }
     {
         auto z = xlpp::internal::ZipArchive::open(good);
-        z.add("xl/worksheets/sheet1.xml",
+         z.replace("xl/worksheets/sheet1.xml",
               "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData><row r=\"1\"><c r=\"A1\"><v>not-a-number</v></c></row></sheetData></worksheet>",
               false);
         z.save(broken);
@@ -2227,7 +2341,7 @@ void testMalformedInputHardening(TestContext& test) {
     // Huge <col> range must be rejected (bounds the per-column loop).
     {
         auto z = xlpp::internal::ZipArchive::open(wbPath);
-        z.add("xl/worksheets/sheet1.xml",
+         z.replace("xl/worksheets/sheet1.xml",
               sheetXml("<cols><col min=\"1\" max=\"2000000000\" width=\"8\"/></cols>"), false);
         z.save(crafted);
         bool threw = false;
@@ -2239,7 +2353,7 @@ void testMalformedInputHardening(TestContext& test) {
     // Zero or descending <col> range rejected.
     {
         auto z = xlpp::internal::ZipArchive::open(wbPath);
-        z.add("xl/worksheets/sheet1.xml",
+         z.replace("xl/worksheets/sheet1.xml",
               sheetXml("<cols><col min=\"5\" max=\"2\" width=\"8\"/></cols>"), false);
         z.save(crafted);
         bool threw = false;
@@ -2249,7 +2363,7 @@ void testMalformedInputHardening(TestContext& test) {
     // Bad numeric cell values (number without t, overflow, non-finite) never crash.
     {
         auto z = xlpp::internal::ZipArchive::open(wbPath);
-        z.add("xl/worksheets/sheet1.xml",
+         z.replace("xl/worksheets/sheet1.xml",
               sheetXml("<sheetData><row r=\"1\"><c r=\"A1\"><v>1e400</v></c><c r=\"B1\"><v>99999999999999999999</v></c></row></sheetData>"), false);
         z.save(crafted);
         auto w = loads(true);
@@ -2259,7 +2373,7 @@ void testMalformedInputHardening(TestContext& test) {
     // Unclosed/invalid XML structures are tolerated (empty result), not a crash.
     {
         auto z = xlpp::internal::ZipArchive::open(wbPath);
-        z.add("xl/worksheets/sheet1.xml",
+         z.replace("xl/worksheets/sheet1.xml",
               "<?xml version=\"1.0\"?><worksheet><sheetData><row r=\"1\"><c r=\"A1\"><v>1</v>", false);
         z.save(crafted);
         auto w = loads(true);
@@ -2764,6 +2878,7 @@ void testChartAndPivotPackage(TestContext& test) {
     chart.setYAxisTitle("Units");
     chart.setShowLegend(true);
     chart.setLegendPosition("b");
+    chart.setStyle("10");
     auto& series = chart.addSeries(xlpp::ChartSeries("Units"));
     series.reference("Charts", "$B$2:$B$3");
     series.categories("Charts", "$A$2:$A$3");
@@ -2773,9 +2888,14 @@ void testChartAndPivotPackage(TestContext& test) {
     pivot.setLocation("D1");
     pivot.cache().setCacheId(1);
     pivot.cache().setSourceData("'Charts'!$A$1:$B$3");
+    pivot.cache().setFields({"Quarter", "Units"});
+    pivot.cache().addRecord({"Q1", "10"});
+    pivot.cache().addRecord({"Q2", "20"});
     pivot.addRowField("Quarter");
+    pivot.rowFields().back().setFieldIndex(0);
     pivot.addColumnField("Units");
-    pivot.addDataField();
+    pivot.columnFields().back().setFieldIndex(1);
+    pivot.addDataField(1);
     sheet.addPivotTable(std::move(pivot));
 
     wb.save(path);
@@ -2786,14 +2906,47 @@ void testChartAndPivotPackage(TestContext& test) {
     const auto chartXml = z.get("xl/charts/chart1.xml");
     test.checkTrue(chartXml.find("barChart") != std::string::npos, "Bar chart type in part");
     test.checkTrue(chartXml.find("Sales") != std::string::npos, "Chart title in part");
+    test.checkTrue(chartXml.find("<c:overlay val=\"0\"/>") != std::string::npos, "Chart title overlay in part");
+    test.checkTrue(chartXml.find("<c:v>Units</c:v>") != std::string::npos, "Series title in part");
+    test.checkTrue(chartXml.find("<c:style val=\"10\"/>") != std::string::npos, "Chart style in part");
+    test.checkTrue(chartXml.find("<c:legendPos val=\"b\"/>") != std::string::npos, "Legend position in part");
     test.checkTrue(z.contains("xl/pivotTables/pivotTable1.xml"), "Pivot part written");
     test.checkTrue(z.contains("xl/pivotCache/pivotCacheDefinition1.xml"), "Pivot cache written");
+    test.checkTrue(z.contains("xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels"), "Pivot cache relationship part written");
+    test.checkTrue(z.contains("xl/pivotCache/pivotCacheRecords1.xml"), "Pivot cache records part written");
+    const auto pivotCacheRels = z.get("xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels");
+    test.checkTrue(pivotCacheRels.find("pivotCacheRecords") != std::string::npos, "Pivot cache records relationship written");
+    const auto pivotCacheXml = z.get("xl/pivotCache/pivotCacheDefinition1.xml");
+    test.checkTrue(pivotCacheXml.find("recordCount=\"2\"") != std::string::npos, "Pivot cache record count written");
+    test.checkTrue(pivotCacheXml.find("<cacheFields count=\"2\">") != std::string::npos, "Pivot cache fields written");
+    test.checkTrue(pivotCacheXml.find("name=\"Quarter\"") != std::string::npos, "Pivot first field written");
+    test.checkTrue(pivotCacheXml.find("<sharedItems count=\"2\">") != std::string::npos, "Pivot shared items written");
+    test.checkTrue(pivotCacheXml.find("<cacheRecords count=\"2\">") != std::string::npos, "Pivot cache records written");
+    test.checkTrue(pivotCacheXml.find("<s v=\"Q1\"/>") != std::string::npos, "Pivot shared string written");
+    test.checkTrue(pivotCacheXml.find("<n v=\"10\"/>") != std::string::npos, "Pivot shared number written");
+    test.checkTrue(pivotCacheXml.find("<x v=\"0\"/><x v=\"0\"/>") != std::string::npos, "Pivot cache indexes written");
+    const auto pivotTableXml = z.get("xl/pivotTables/pivotTable1.xml");
+    test.checkTrue(pivotTableXml.find("fld=\"0\" axis=\"axisRow\"") != std::string::npos, "Pivot row field index written");
+    test.checkTrue(pivotTableXml.find("fld=\"1\" axis=\"axisCol\"") != std::string::npos, "Pivot column field index written");
+    test.checkTrue(pivotTableXml.find("<dataField name=\"Values\" fld=\"1\"") != std::string::npos, "Pivot data field index written");
     test.checkTrue(z.contains("xl/drawings/drawing1.xml"), "Drawing part written for chart");
 
     {
         xlpp::Workbook loaded;
         loaded.load(path);
         test.checkTrue(loaded.worksheet("Charts") != nullptr, "Chart workbook reloads");
+        const auto preservedPivot = std::find_if(loaded.preservedParts().begin(), loaded.preservedParts().end(),
+            [](const xlpp::PreservedPart& part) { return part.name == "xl/pivotTables/pivotTable1.xml"; });
+        test.checkTrue(preservedPivot != loaded.preservedParts().end(), "Pivot table part is preserved on load");
+        const auto preservedCache = std::find_if(loaded.preservedParts().begin(), loaded.preservedParts().end(),
+            [](const xlpp::PreservedPart& part) { return part.name == "xl/pivotCache/pivotCacheDefinition1.xml"; });
+        test.checkTrue(preservedCache != loaded.preservedParts().end(), "Pivot cache part is preserved on load");
+        const auto preservedOut = std::filesystem::temp_directory_path() / "xlpp_m21_chart_pivot_preserved.xlsx";
+        loaded.save(preservedOut);
+        auto preservedZip = xlpp::internal::ZipArchive::open(preservedOut);
+        test.checkTrue(preservedZip.get("xl/pivotTables/pivotTable1.xml") == z.get("xl/pivotTables/pivotTable1.xml"), "Pivot table XML survives load-save");
+        test.checkTrue(preservedZip.get("xl/pivotCache/pivotCacheDefinition1.xml") == z.get("xl/pivotCache/pivotCacheDefinition1.xml"), "Pivot cache XML survives load-save");
+        std::filesystem::remove(preservedOut);
     }
     std::filesystem::remove(path);
 }
@@ -3337,6 +3490,10 @@ int main() {
         {"ZIP64, limits, cancel and progress", testZip64LimitsCancelProgress},
         {"ZIP64 forced write path", testZip64WritePath},
         {"Package part preservation", testPartPreservation},
+        {"Binary package part preservation", testBinaryPartPreservation},
+        {"Chart part preservation", testChartPartPreservation},
+        {"ZIP unique entry policy", testZipUniqueEntryPolicy},
+        {"Pivot validation", testPivotValidation},
         {"Strict/transitional namespaces", testStrictNamespaces},
         {"Lenient load recovery", testLenientLoad},
         {"Malformed input hardening", testMalformedInputHardening},

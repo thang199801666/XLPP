@@ -292,17 +292,54 @@ PYBIND11_MODULE(xlpp, m) {
     py::class_<Image>(m, "Image")
         .def_static("from_file", &Image::fromFile);
 
+    py::enum_<Chart::Type>(m, "ChartType")
+        .value("BAR", Chart::Type::Bar).value("LINE", Chart::Type::Line).value("PIE", Chart::Type::Pie)
+        .value("SCATTER", Chart::Type::Scatter).value("DOUGHNUT", Chart::Type::Doughnut)
+        .value("RADAR", Chart::Type::Radar).value("AREA", Chart::Type::Area).value("BUBBLE", Chart::Type::Bubble);
+    py::enum_<Chart::Grouping>(m, "ChartGrouping")
+        .value("STANDARD", Chart::Grouping::Standard).value("STACKED", Chart::Grouping::Stacked)
+        .value("PERCENT_STACKED", Chart::Grouping::PercentStacked).value("CLUSTERED", Chart::Grouping::Clustered);
+    py::class_<ChartSeries>(m, "ChartSeries")
+        .def(py::init<std::string>())
+        .def_property("title", &ChartSeries::title, &ChartSeries::setTitle)
+        .def_property("values_reference", &ChartSeries::valuesReference, &ChartSeries::setValuesReference)
+        .def_property("categories_reference", &ChartSeries::categoriesReference, &ChartSeries::setCategoriesReference);
+    py::class_<Chart>(m, "Chart")
+        .def(py::init<Chart::Type>(), py::arg("type") = Chart::Type::Bar)
+        .def_property("grouping", &Chart::grouping, &Chart::setGrouping)
+        .def_property("title", &Chart::title, &Chart::setTitle)
+        .def_property("x_axis_title", &Chart::xAxisTitle, &Chart::setXAxisTitle)
+        .def_property("y_axis_title", &Chart::yAxisTitle, &Chart::setYAxisTitle)
+        .def_property("style", &Chart::style, &Chart::setStyle)
+        .def_property("width", &Chart::width, &Chart::setWidth)
+        .def_property("height", &Chart::height, &Chart::setHeight)
+        .def_property("show_legend", &Chart::showLegend, &Chart::setShowLegend)
+        .def_property("legend_position", &Chart::legendPosition, &Chart::setLegendPosition)
+        .def("add_series", &Chart::addSeries, py::return_value_policy::reference_internal)
+        .def_property_readonly("series", [](Chart& c) -> std::vector<ChartSeries>& { return c.series(); }, py::return_value_policy::reference_internal);
+
     // === Table ===
     py::class_<TableColumn>(m, "TableColumn")
         .def_property_readonly("id", &TableColumn::id)
         .def_property("name", &TableColumn::name, &TableColumn::setName);
 
+    py::class_<TableStyleInfo>(m, "TableStyleInfo")
+        .def_property("name", &TableStyleInfo::name, &TableStyleInfo::setName)
+        .def_property("show_first_column", &TableStyleInfo::showFirstColumn, &TableStyleInfo::setShowFirstColumn)
+        .def_property("show_last_column", &TableStyleInfo::showLastColumn, &TableStyleInfo::setShowLastColumn)
+        .def_property("show_row_stripes", &TableStyleInfo::showRowStripes, &TableStyleInfo::setShowRowStripes)
+        .def_property("show_column_stripes", &TableStyleInfo::showColumnStripes, &TableStyleInfo::setShowColumnStripes);
+
     py::class_<Table>(m, "Table")
         .def(py::init<>())
         .def(py::init<std::string, std::string>())
         .def_property_readonly("name", &Table::name)
-        .def_property_readonly("display_name", &Table::displayName)
+        .def_property("display_name", &Table::displayName, &Table::setDisplayName)
         .def_property("reference", &Table::reference, &Table::setReference)
+        .def_property("show_header_row", &Table::showHeaderRow, &Table::setShowHeaderRow)
+        .def_property("show_totals_row", &Table::showTotalsRow, &Table::setShowTotalsRow)
+        .def_property_readonly("columns", [](Table& t) -> std::vector<TableColumn>& { return t.columns(); }, py::return_value_policy::reference_internal)
+        .def_property_readonly("style_info", [](Table& t) -> TableStyleInfo& { return t.styleInfo(); }, py::return_value_policy::reference_internal)
         .def("add_column", &Table::addColumn, py::return_value_policy::reference_internal)
         .def("__repr__", [](const Table& t) { return "<Table " + t.name() + ">"; });
 
@@ -604,6 +641,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def("protection", py::overload_cast<>(&Worksheet::protection),
              py::return_value_policy::reference_internal)
         .def("add_table", &Worksheet::addTable, py::return_value_policy::reference_internal)
+        .def("add_chart", [](Worksheet& ws, Chart chart) { ws.addChart(std::move(chart)); })
         .def("add_image", [](Worksheet& ws, const std::string& path, const std::string& anchor) -> Image& {
             return ws.addImage(path, anchor);
         }, py::return_value_policy::reference_internal)

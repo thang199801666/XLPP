@@ -119,6 +119,36 @@ def test_worksheet_not_found_raises():
         _ = wb["Missing"]
 
 
+def test_table_chart_and_rules_api(tmp_path):
+    wb = xlpp.Workbook()
+    ws = wb.add_worksheet("Data")
+    ws.append(["Q1", 10])
+    table = ws.add_table("Sales", "A1:B1")
+    table.display_name = "SalesDisplay"
+    table.show_header_row = True
+    table.show_totals_row = False
+    table.style_info.name = "TableStyleMedium4"
+    table.style_info.show_row_stripes = False
+    table.add_column("Value")
+
+    chart = xlpp.Chart(xlpp.ChartType.BAR)
+    chart.title = "Sales"
+    chart.x_axis_title = "Quarter"
+    chart.y_axis_title = "Units"
+    chart.grouping = xlpp.ChartGrouping.STACKED
+    chart.add_series(xlpp.ChartSeries("Units"))
+    chart.series[0].values_reference = "'Data'!$B$1:$B$1"
+    chart.series[0].categories_reference = "'Data'!$A$1:$A$1"
+    ws.add_chart(chart)
+
+    validation = ws.data_validations.add(xlpp.DataValidationType.LIST, "A1:A3")
+    validation.allow_blank = True
+    ws.conditional_formatting.add_rule("B1:B3", xlpp.ConditionalRuleType.FORMULA, "B1>0")
+    path = tmp_path / "binding_features.xlsx"
+    wb.save(str(path))
+    assert path.exists()
+
+
 def test_copy_worksheet():
     wb = xlpp.Workbook()
     src = wb.add_worksheet("Source")

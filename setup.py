@@ -14,6 +14,9 @@ from pybind11.setup_helpers import build_ext
 
 root = os.path.abspath(os.path.dirname(__file__))
 
+with open(os.path.join(root, "VERSION"), encoding="utf-8") as version_file:
+    package_version = version_file.read().strip()
+
 is_msvc = os.name == "nt"
 
 if is_msvc:
@@ -76,7 +79,7 @@ except OSError:
 
 setup(
     name="xlpp",
-    version="1.0.0",
+    version=package_version,
     author="XL++ contributors",
     description="High-performance C++ Excel xlsx library for Python",
     long_description=long_description,

@@ -4,6 +4,15 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <exception>
+
+namespace {
+thread_local std::string g_lastError;
+
+void clearError() noexcept { g_lastError.clear(); }
+void setError(const char* message) noexcept { g_lastError = message ? message : "XLPP C API error"; }
+void setError(const std::exception& error) noexcept { g_lastError = error.what(); }
+}
 
 // Simple handle wrapping: cast between opaque pointer and C++ pointer
 #define WB(h)   reinterpret_cast<xlpp::Workbook*>(h)
@@ -23,11 +32,27 @@
 extern "C" {
 
 XLPP_API const char* xlpp_version(void) {
-    return "1.0.0";
+    return "1.1.1";
+}
+
+XLPP_API const char* xlpp_last_error(void) {
+    return g_lastError.c_str();
+}
+
+XLPP_API void xlpp_clear_error(void) {
+    clearError();
 }
 
 XLPP_API xlpp_workbook xlpp_workbook_create(void) {
-    return reinterpret_cast<xlpp_workbook>(new xlpp::Workbook());
+    try {
+        clearError();
+        return reinterpret_cast<xlpp_workbook>(new xlpp::Workbook());
+    } catch (const std::exception& error) {
+        setError(error);
+    } catch (...) {
+        setError("Failed to create workbook");
+    }
+    return nullptr;
 }
 
 XLPP_API void xlpp_workbook_destroy(xlpp_workbook wb) {
@@ -38,21 +63,29 @@ XLPP_API xlpp_worksheet xlpp_workbook_add_sheet(xlpp_workbook wb, const char* na
     // addWorksheet throws on empty/duplicate names; never let a C++ exception
     // cross the C ABI.
     try {
+        clearError();
+        if (!wb || !name) { setError("Workbook and sheet name are required"); return nullptr; }
         return reinterpret_cast<xlpp_worksheet>(&WB(wb)->addWorksheet(name));
-    } catch (...) { return nullptr; }
+    } catch (const std::exception& error) { setError(error); return nullptr; }
+    catch (...) { setError("Failed to add worksheet"); return nullptr; }
 }
 
 XLPP_API int xlpp_workbook_sheet_count(xlpp_workbook wb) {
+    if (!wb) { setError("Workbook handle is null"); return 0; }
     return static_cast<int>(WB(wb)->sheetCount());
 }
 
 XLPP_API xlpp_worksheet xlpp_workbook_get_sheet(xlpp_workbook wb, int index) {
     try {
+        clearError();
+        if (!wb || index < 0) { setError("Workbook handle or sheet index is invalid"); return nullptr; }
         return reinterpret_cast<xlpp_worksheet>(&(*WB(wb))[static_cast<std::size_t>(index)]);
-    } catch (...) { return nullptr; }
+    } catch (const std::exception& error) { setError(error); return nullptr; }
+    catch (...) { setError("Failed to get worksheet"); return nullptr; }
 }
 
 XLPP_API xlpp_worksheet xlpp_workbook_sheet_by_name(xlpp_workbook wb, const char* name) {
+    if (!wb || !name) { setError("Workbook and sheet name are required"); return nullptr; }
     auto* ws = WB(wb)->worksheet(name);
     return reinterpret_cast<xlpp_worksheet>(ws);
 }
@@ -63,16 +96,22 @@ XLPP_API int xlpp_workbook_remove_sheet(xlpp_workbook wb, const char* name) {
 
 XLPP_API int xlpp_workbook_load(xlpp_workbook wb, const char* path) {
     try {
+        clearError();
+        if (!wb || !path) { setError("Workbook and path are required"); return 0; }
         WB(wb)->load(std::filesystem::path(path));
         return 1;
-    } catch (...) { return 0; }
+    } catch (const std::exception& error) { setError(error); return 0; }
+    catch (...) { setError("Failed to load workbook"); return 0; }
 }
 
 XLPP_API int xlpp_workbook_save(xlpp_workbook wb, const char* path) {
     try {
+        clearError();
+        if (!wb || !path) { setError("Workbook and path are required"); return 0; }
         WB(wb)->save(std::filesystem::path(path));
         return 1;
-    } catch (...) { return 0; }
+    } catch (const std::exception& error) { setError(error); return 0; }
+    catch (...) { setError("Failed to save workbook"); return 0; }
 }
 
 XLPP_API xlpp_properties xlpp_workbook_properties(xlpp_workbook wb) {
@@ -155,6 +194,19 @@ XLPP_API void xlpp_sheet_delete_cols(xlpp_worksheet ws, uint64_t index, uint64_t
     try { WS(ws)->deleteColumns(static_cast<std::size_t>(index), static_cast<std::size_t>(amount)); } catch (...) {}
 }
 
+XLPP_API xlpp_table xlpp_sheet_add_table(xlpp_worksheet ws, const char* name, const char* reference) {
+    try {
+        if (!ws || !name || !reference) { setError("Worksheet, table name, and reference are required"); return nullptr; }
+        return reinterpret_cast<xlpp_table>(&WS(ws)->addTable(name, reference));
+    } catch (const std::exception& error) { setError(error); return nullptr; }
+    catch (...) { setError("Failed to add table"); return nullptr; }
+}
+
+XLPP_API xlpp_table xlpp_sheet_table(xlpp_worksheet ws, const char* name) {
+    if (!ws || !name) return nullptr;
+    return reinterpret_cast<xlpp_table>(WS(ws)->table(name));
+}
+
 // ============================================================
 // Cell
 // ============================================================
@@ -211,6 +263,70 @@ XLPP_API void xlpp_cell_set_hyperlink(xlpp_cell c, const char* url) {
 }
 XLPP_API void xlpp_cell_set_comment(xlpp_cell c, const char* text, const char* author) {
     CELL(c)->setComment(xlpp::Comment(text ? text : "", author ? author : ""));
+}
+
+XLPP_API const char* xlpp_table_name(xlpp_table table) { return table ? reinterpret_cast<xlpp::Table*>(table)->name().c_str() : ""; }
+XLPP_API const char* xlpp_table_reference(xlpp_table table) { return table ? reinterpret_cast<xlpp::Table*>(table)->reference().c_str() : ""; }
+XLPP_API void xlpp_table_set_reference(xlpp_table table, const char* value) { if (table && value) reinterpret_cast<xlpp::Table*>(table)->setReference(value); }
+XLPP_API int xlpp_table_show_header_row(xlpp_table table) { return table && reinterpret_cast<xlpp::Table*>(table)->showHeaderRow() ? 1 : 0; }
+XLPP_API void xlpp_table_set_show_header_row(xlpp_table table, int value) { if (table) reinterpret_cast<xlpp::Table*>(table)->setShowHeaderRow(value != 0); }
+XLPP_API int xlpp_table_show_totals_row(xlpp_table table) { return table && reinterpret_cast<xlpp::Table*>(table)->showTotalsRow() ? 1 : 0; }
+XLPP_API void xlpp_table_set_show_totals_row(xlpp_table table, int value) { if (table) reinterpret_cast<xlpp::Table*>(table)->setShowTotalsRow(value != 0); }
+XLPP_API int xlpp_table_column_count(xlpp_table table) { return table ? static_cast<int>(reinterpret_cast<xlpp::Table*>(table)->columns().size()) : 0; }
+XLPP_API void xlpp_table_add_column(xlpp_table table, const char* name) { if (table && name) reinterpret_cast<xlpp::Table*>(table)->addColumn(name); }
+XLPP_API const char* xlpp_table_display_name(xlpp_table table) { return table ? reinterpret_cast<xlpp::Table*>(table)->displayName().c_str() : ""; }
+XLPP_API void xlpp_table_set_display_name(xlpp_table table, const char* value) { if (table && value) reinterpret_cast<xlpp::Table*>(table)->setDisplayName(value); }
+XLPP_API const char* xlpp_table_style_name(xlpp_table table) { return table ? reinterpret_cast<xlpp::Table*>(table)->styleInfo().name().c_str() : ""; }
+XLPP_API void xlpp_table_set_style_name(xlpp_table table, const char* value) { if (table && value) reinterpret_cast<xlpp::Table*>(table)->styleInfo().setName(value); }
+XLPP_API int xlpp_table_show_row_stripes(xlpp_table table) { return table && reinterpret_cast<xlpp::Table*>(table)->styleInfo().showRowStripes() ? 1 : 0; }
+XLPP_API void xlpp_table_set_show_row_stripes(xlpp_table table, int value) { if (table) reinterpret_cast<xlpp::Table*>(table)->styleInfo().setShowRowStripes(value != 0); }
+
+XLPP_API xlpp_data_validation xlpp_sheet_add_list_validation(xlpp_worksheet ws, const char* reference, const char* formula) {
+    try {
+        if (!ws || !reference || !formula) { setError("Worksheet, validation reference, and formula are required"); return nullptr; }
+        auto& value = WS(ws)->dataValidations().add(xlpp::DataValidationType::List, reference);
+        value.setFormula1(formula);
+        return reinterpret_cast<xlpp_data_validation>(&value);
+    } catch (const std::exception& error) { setError(error); return nullptr; }
+    catch (...) { setError("Failed to add list validation"); return nullptr; }
+}
+
+XLPP_API void xlpp_validation_set_allow_blank(xlpp_data_validation validation, int value) { if (validation) reinterpret_cast<xlpp::DataValidation*>(validation)->setAllowBlank(value != 0); }
+XLPP_API void xlpp_validation_set_prompt(xlpp_data_validation validation, const char* title, const char* text) { if (validation) { auto* v = reinterpret_cast<xlpp::DataValidation*>(validation); v->setPromptTitle(title ? title : ""); v->setPrompt(text ? text : ""); } }
+XLPP_API void xlpp_validation_set_error(xlpp_data_validation validation, const char* title, const char* text) { if (validation) { auto* v = reinterpret_cast<xlpp::DataValidation*>(validation); v->setErrorTitle(title ? title : ""); v->setError(text ? text : ""); } }
+
+XLPP_API xlpp_chart xlpp_chart_create(int type) {
+    if (type < 0 || type > 7) { setError("Chart type is invalid"); return nullptr; }
+    return reinterpret_cast<xlpp_chart>(new xlpp::Chart(static_cast<xlpp::Chart::Type>(type)));
+}
+XLPP_API void xlpp_chart_destroy(xlpp_chart chart) { delete reinterpret_cast<xlpp::Chart*>(chart); }
+XLPP_API void xlpp_chart_set_title(xlpp_chart chart, const char* title) { if (!chart) { setError("Chart handle is null"); return; } reinterpret_cast<xlpp::Chart*>(chart)->setTitle(title ? title : ""); }
+XLPP_API void xlpp_chart_set_x_axis_title(xlpp_chart chart, const char* title) { if (!chart) { setError("Chart handle is null"); return; } reinterpret_cast<xlpp::Chart*>(chart)->setXAxisTitle(title ? title : ""); }
+XLPP_API void xlpp_chart_set_y_axis_title(xlpp_chart chart, const char* title) { if (!chart) { setError("Chart handle is null"); return; } reinterpret_cast<xlpp::Chart*>(chart)->setYAxisTitle(title ? title : ""); }
+XLPP_API void xlpp_chart_set_style(xlpp_chart chart, const char* style) { if (!chart) { setError("Chart handle is null"); return; } reinterpret_cast<xlpp::Chart*>(chart)->setStyle(style ? style : ""); }
+XLPP_API void xlpp_chart_set_grouping(xlpp_chart chart, int grouping) { if (!chart) { setError("Chart handle is null"); return; } if (grouping < 0 || grouping > 3) { setError("Chart grouping is invalid"); return; } reinterpret_cast<xlpp::Chart*>(chart)->setGrouping(static_cast<xlpp::Chart::Grouping>(grouping)); }
+XLPP_API void xlpp_chart_set_size(xlpp_chart chart, int width, int height) { if (!chart) { setError("Chart handle is null"); return; } if (width <= 0 || height <= 0) { setError("Chart size must be positive"); return; } auto* c = reinterpret_cast<xlpp::Chart*>(chart); c->setWidth(width); c->setHeight(height); }
+XLPP_API void xlpp_chart_set_legend(xlpp_chart chart, int show, const char* position) { if (!chart) { setError("Chart handle is null"); return; } auto* c = reinterpret_cast<xlpp::Chart*>(chart); c->setShowLegend(show != 0); if (position) c->setLegendPosition(position); }
+XLPP_API xlpp_chart_series xlpp_chart_add_series(xlpp_chart chart, const char* title) { if (!chart) { setError("Chart handle is null"); return nullptr; } return reinterpret_cast<xlpp_chart_series>(&reinterpret_cast<xlpp::Chart*>(chart)->addSeries(xlpp::ChartSeries(title ? title : ""))); }
+XLPP_API void xlpp_chart_series_set_values_reference(xlpp_chart_series series, const char* reference) { if (!series) { setError("Chart series handle is null"); return; } reinterpret_cast<xlpp::ChartSeries*>(series)->setValuesReference(reference ? reference : ""); }
+XLPP_API void xlpp_chart_series_set_categories_reference(xlpp_chart_series series, const char* reference) { if (!series) { setError("Chart series handle is null"); return; } reinterpret_cast<xlpp::ChartSeries*>(series)->setCategoriesReference(reference ? reference : ""); }
+XLPP_API int xlpp_sheet_add_chart(xlpp_worksheet ws, xlpp_chart chart) {
+    if (!chart) return 0;
+    auto* value = reinterpret_cast<xlpp::Chart*>(chart);
+    if (!ws) { delete value; return 0; }
+    try {
+        WS(ws)->addChart(std::move(*value));
+        delete value;
+        return 1;
+    } catch (const std::exception& error) {
+        setError(error);
+        delete value;
+        return 0;
+    } catch (...) {
+        setError("Failed to add chart");
+        delete value;
+        return 0;
+    }
 }
 
 // ============================================================

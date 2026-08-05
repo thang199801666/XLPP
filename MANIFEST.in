@@ -5,3 +5,5 @@ include README.md
 recursive-include include *.h
 recursive-include src *.h
 recursive-include third_party/zlib *.h
+include VERSION
+include scripts/check-version.py

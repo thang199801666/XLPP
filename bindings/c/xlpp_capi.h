@@ -38,6 +38,8 @@ typedef struct xlpp_comment_t*     xlpp_comment;
 typedef struct xlpp_table_t*      xlpp_table;
 typedef struct xlpp_data_validation_t* xlpp_data_validation;
 typedef struct xlpp_conditional_rule_t* xlpp_conditional_rule;
+typedef struct xlpp_chart_t*        xlpp_chart;
+typedef struct xlpp_chart_series_t* xlpp_chart_series;
 
 // Cell value types
 #define XLPP_VALUE_EMPTY  0
@@ -100,7 +102,6 @@ XLPP_API void         xlpp_sheet_freeze_panes(xlpp_worksheet ws, const char* cel
 XLPP_API void         xlpp_sheet_clear_freeze_panes(xlpp_worksheet ws);
 XLPP_API int          xlpp_sheet_is_merged(xlpp_worksheet ws, const char* address);
 XLPP_API int          xlpp_sheet_merged_range_count(xlpp_worksheet ws);
-XLPP_API const char*  xlpp_sheet_merged_range(xlpp_worksheet ws, int index);
 XLPP_API void         xlpp_sheet_set_print_area(xlpp_worksheet ws, const char* value);
 XLPP_API const char*  xlpp_sheet_print_area(xlpp_worksheet ws);
 
@@ -113,7 +114,6 @@ XLPP_API void         xlpp_sheet_delete_rows(xlpp_worksheet ws, uint64_t index, 
 XLPP_API void         xlpp_sheet_insert_cols(xlpp_worksheet ws, uint64_t index, uint64_t amount);
 XLPP_API void         xlpp_sheet_delete_cols(xlpp_worksheet ws, uint64_t index, uint64_t amount);
 XLPP_API int           xlpp_sheet_frozen_pane(xlpp_worksheet ws, char* out, int outSize);
-XLPP_API int           xlpp_sheet_merged_range_count(xlpp_worksheet ws);
 XLPP_API int           xlpp_sheet_merged_range(xlpp_worksheet ws, int index, char* out, int outSize);
 XLPP_API xlpp_table    xlpp_sheet_add_table(xlpp_worksheet ws, const char* name, const char* reference);
 XLPP_API xlpp_table    xlpp_sheet_table(xlpp_worksheet ws, const char* name);
@@ -218,6 +218,12 @@ XLPP_API int            xlpp_table_show_totals_row(xlpp_table table);
 XLPP_API void           xlpp_table_set_show_totals_row(xlpp_table table, int value);
 XLPP_API int            xlpp_table_column_count(xlpp_table table);
 XLPP_API void           xlpp_table_add_column(xlpp_table table, const char* name);
+XLPP_API const char*    xlpp_table_display_name(xlpp_table table);
+XLPP_API void           xlpp_table_set_display_name(xlpp_table table, const char* value);
+XLPP_API const char*    xlpp_table_style_name(xlpp_table table);
+XLPP_API void           xlpp_table_set_style_name(xlpp_table table, const char* value);
+XLPP_API int            xlpp_table_show_row_stripes(xlpp_table table);
+XLPP_API void           xlpp_table_set_show_row_stripes(xlpp_table table, int value);
 
 // Data validation
 XLPP_API xlpp_data_validation xlpp_sheet_add_list_validation(xlpp_worksheet ws, const char* reference, const char* formula);
@@ -232,11 +238,26 @@ XLPP_API void xlpp_conditional_rule_set_priority(xlpp_conditional_rule rule, uin
 XLPP_API void xlpp_conditional_rule_set_stop_if_true(xlpp_conditional_rule rule, int value);
 XLPP_API void xlpp_conditional_rule_set_font_color(xlpp_conditional_rule rule, const char* argb);
 XLPP_API void xlpp_conditional_rule_set_fill_color(xlpp_conditional_rule rule, const char* argb);
+XLPP_API xlpp_chart xlpp_chart_create(int type);
+XLPP_API void xlpp_chart_destroy(xlpp_chart chart);
+XLPP_API void xlpp_chart_set_title(xlpp_chart chart, const char* title);
+XLPP_API void xlpp_chart_set_x_axis_title(xlpp_chart chart, const char* title);
+XLPP_API void xlpp_chart_set_y_axis_title(xlpp_chart chart, const char* title);
+XLPP_API void xlpp_chart_set_style(xlpp_chart chart, const char* style);
+XLPP_API void xlpp_chart_set_grouping(xlpp_chart chart, int grouping);
+XLPP_API void xlpp_chart_set_size(xlpp_chart chart, int width, int height);
+XLPP_API void xlpp_chart_set_legend(xlpp_chart chart, int show, const char* position);
+XLPP_API xlpp_chart_series xlpp_chart_add_series(xlpp_chart chart, const char* title);
+XLPP_API void xlpp_chart_series_set_values_reference(xlpp_chart_series series, const char* reference);
+XLPP_API void xlpp_chart_series_set_categories_reference(xlpp_chart_series series, const char* reference);
+XLPP_API int xlpp_sheet_add_chart(xlpp_worksheet ws, xlpp_chart chart);
 
 // ============================================================
 // Utility
 // ============================================================
 XLPP_API const char*  xlpp_version(void);
+XLPP_API const char*  xlpp_last_error(void);
+XLPP_API void         xlpp_clear_error(void);
 XLPP_API void         xlpp_free_string(const char* str);
 
 #ifdef __cplusplus

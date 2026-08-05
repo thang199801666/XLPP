@@ -165,8 +165,18 @@ std::vector<PlannedEntry> planEntries(const std::vector<InputEntry>& inputs, int
 
 namespace xlpp::internal {
 
-void ZipArchive::add(std::string name, std::string data, bool compress){ entries_[std::move(name)] = Entry{std::move(data), {}, false, compress}; }
-void ZipArchive::addFile(std::string name, std::filesystem::path sourcePath, bool compress){ entries_[std::move(name)] = Entry{{}, std::move(sourcePath), true, compress}; }
+void ZipArchive::add(std::string name, std::string data, bool compress){
+    if (entries_.contains(name)) throw std::invalid_argument("Duplicate ZIP entry: " + name);
+    entries_.emplace(std::move(name), Entry{std::move(data), {}, false, compress});
+}
+void ZipArchive::addFile(std::string name, std::filesystem::path sourcePath, bool compress){
+    if (entries_.contains(name)) throw std::invalid_argument("Duplicate ZIP entry: " + name);
+    entries_.emplace(std::move(name), Entry{{}, std::move(sourcePath), true, compress});
+}
+void ZipArchive::addUnique(std::string name, std::string data, bool compress){
+    if (!entries_.contains(name)) add(std::move(name), std::move(data), compress);
+}
+void ZipArchive::replace(std::string name, std::string data, bool compress){ entries_[std::move(name)] = Entry{std::move(data), {}, false, compress}; }
 bool ZipArchive::contains(const std::string& n)const{return entries_.contains(n);}
 const std::string& ZipArchive::get(const std::string& n)const{auto i=entries_.find(n);if(i==entries_.end())throw std::runtime_error("ZIP entry not found: "+n);if(i->second.fromFile)throw std::runtime_error("ZIP file-backed entry is not materialized: "+n);return i->second.data;}
 std::vector<std::string> ZipArchive::entryNames() const { std::vector<std::string> names; names.reserve(entries_.size()); for (const auto& [name, entry] : entries_) names.push_back(name); return names; }

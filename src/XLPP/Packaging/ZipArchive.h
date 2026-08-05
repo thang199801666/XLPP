@@ -30,6 +30,8 @@ class ZipArchive {
 public:
     void add(std::string name, std::string data, bool compress = true);
     void addFile(std::string name, std::filesystem::path sourcePath, bool compress = true);
+    void addUnique(std::string name, std::string data, bool compress = true);
+    void replace(std::string name, std::string data, bool compress = true);
     void save(const std::filesystem::path& path) const;
     void save(const std::filesystem::path& path, const ZipWriteOptions& options) const;
     static ZipArchive open(const std::filesystem::path& path);
