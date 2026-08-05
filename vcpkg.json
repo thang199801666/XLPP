@@ -1,6 +1,6 @@
 {
   "name": "xlpp",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "High-performance C++20 Excel xlsx library",
   "dependencies": [
     "zlib",
