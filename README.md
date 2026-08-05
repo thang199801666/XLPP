@@ -168,6 +168,10 @@ or `cmake -B build -G Ninja && cmake --build build` (any platform)
 
 ### Python
 
+See the complete [Python guide](docs/python.md) for installation, cell values,
+formatting, tables, charts, validation, NumPy helpers, and round-trip
+preservation details.
+
 ```python
 import xlpp
 from datetime import date
