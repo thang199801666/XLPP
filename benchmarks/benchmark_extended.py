@@ -48,6 +48,8 @@ def write_xlpp(path, scenario):
         lookup.cell(row, 2).value = row * 1.25
     for row in range(1, ROWS + 1):
         cells(data, row, scenario == "formula")
+    data["A1"].font().bold = True
+    data.freeze_panes("A2")
     workbook.save(str(path))
 
 
@@ -64,6 +66,8 @@ def write_openpyxl(path, scenario):
         data.append([f"Item-{row - 1}", row, value(row - 1, 2), *[value(row - 1, c) for c in range(3, end_col)]])
         if scenario == "formula":
             data.cell(row, COLS).value = f'=VLOOKUP(A{row},Lookup!$A$1:$B${LOOKUP_ROWS},2,FALSE)'
+    data["A1"].font = openpyxl.styles.Font(bold=True)
+    data.freeze_panes = "A2"
     workbook.save(path)
 
 
@@ -80,6 +84,7 @@ def write_xlsxwriter(path, scenario):
                 data.write_formula(row, col, f'=VLOOKUP(A{row + 1},Lookup!$A$1:$B${LOOKUP_ROWS},2,FALSE)')
             else:
                 data.write(row, col, value(row, col))
+    data.freeze_panes(1, 0)
     workbook.close()
 
 
@@ -119,6 +124,15 @@ def run_write_only(scenario, library, writer):
 
 
 for scenario in ("lookup", "formula"):
+    warmup = Path(tempfile.gettempdir()) / f"xlpp-warmup-{scenario}.xlsx"
+    write_xlpp(warmup, scenario)
+    warmup.unlink(missing_ok=True)
+    warmup = Path(tempfile.gettempdir()) / f"openpyxl-warmup-{scenario}.xlsx"
+    write_openpyxl(warmup, scenario)
+    warmup.unlink(missing_ok=True)
+    warmup = Path(tempfile.gettempdir()) / f"xlsxwriter-warmup-{scenario}.xlsx"
+    write_xlsxwriter(warmup, scenario)
+    warmup.unlink(missing_ok=True)
     run(scenario, "XLPP", write_xlpp, read_xlpp)
     run(scenario, "openpyxl", write_openpyxl, read_openpyxl)
     run_write_only(scenario, "XlsxWriter", write_xlsxwriter)

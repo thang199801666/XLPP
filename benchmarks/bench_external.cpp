@@ -108,6 +108,8 @@ static double write_xlpp_scenario(const std::filesystem::path& path, const char*
             else cell.setValue((row * 7919 % 10000000) / 100.0);
         }
     }
+    data.cell("A1").font().setBold(true);
+    data.freezePanes("A2");
     workbook.save(path);
     return elapsed_ms(start, Clock::now());
 }
@@ -137,6 +139,7 @@ static double write_xlsxwriter_scenario(const std::filesystem::path& path, const
             }
         }
     }
+    worksheet_freeze_panes(data, 1, 0);
     if (workbook_close(workbook) != 0) throw std::runtime_error("scenario save failed");
     return elapsed_ms(start, Clock::now());
 }
@@ -197,6 +200,14 @@ int main() {
     const auto directory = std::filesystem::temp_directory_path();
     const auto xlpp_path = directory / "xlpp_external_benchmark.xlsx";
     const auto xlsxwriter_path = directory / "xlsxwriter_benchmark.xlsx";
+
+    // Warm up each serializer so one-time initialization is not charged to a case.
+    const auto warmup_xlpp = directory / "xlpp-warmup.xlsx";
+    const auto warmup_xlsxwriter = directory / "xlsxwriter-warmup.xlsx";
+    write_xlpp(warmup_xlpp, 20, 5);
+    write_xlsxwriter(warmup_xlsxwriter, 20, 5);
+    std::filesystem::remove(warmup_xlpp);
+    std::filesystem::remove(warmup_xlsxwriter);
 
     const double xlpp_ms = write_xlpp(xlpp_path, rows, cols);
     const double xlsxwriter_ms = write_xlsxwriter(xlsxwriter_path, rows, cols);

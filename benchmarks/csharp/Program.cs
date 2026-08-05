@@ -6,6 +6,24 @@ const int rows = 10_000;
 const int columns = 15;
 var temp = Path.GetTempPath();
 
+// Warm up both serializers before measuring the real workloads.
+var warmupXlppPath = Path.Combine(temp, "xlpp-csharp-warmup.xlsx");
+using (var workbook = new Workbook())
+{
+    var sheet = workbook.AddWorksheet("Warmup");
+    sheet["A1"].Value = "warmup";
+    workbook.Save(warmupXlppPath);
+}
+File.Delete(warmupXlppPath);
+var warmupClosedPath = Path.Combine(temp, "closedxml-warmup.xlsx");
+using (var workbook = new XLWorkbook())
+{
+    var sheet = workbook.Worksheets.Add("Warmup");
+    sheet.Cell("A1").Value = "warmup";
+    workbook.SaveAs(warmupClosedPath);
+}
+File.Delete(warmupClosedPath);
+
 static string Value(int row, int column) => column switch
 {
     0 => $"Item-{row}",
@@ -49,6 +67,8 @@ static void RunXlppScenario(string scenario, string path)
                     data.Cell((ulong)(row + 1), (ulong)(column + 1)).Value = Value(row, column);
             }
         }
+        data["A1"].Font.SetBold(true);
+        data.FreezePanes("A2");
         workbook.Save(path);
         Print("XLPP", $"{scenario}_write", timer, path);
     }
@@ -84,6 +104,8 @@ static void RunClosedXmlScenario(string scenario, string path)
                     cell.Value = Value(row, column);
             }
         }
+        data.Cell("A1").Style.Font.Bold = true;
+        data.SheetView.FreezeRows(1);
         workbook.SaveAs(path);
     }
     Print("ClosedXML", $"{scenario}_write", timer, path);

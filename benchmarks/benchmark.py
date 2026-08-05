@@ -115,6 +115,17 @@ def run_benchmarks():
     results = []
     tmppath = Path(tempfile.gettempdir())
 
+    # Pay one-time import/serializer initialization before timing the cases.
+    warmup_data = generate_data(20, 5)
+    warmup_paths = [tmppath / "xlpp_warmup.xlsx", tmppath / "openpyxl_warmup.xlsx", tmppath / "xlsxwriter_warmup.xlsx"]
+    write_xlpp(warmup_paths[0], warmup_data)
+    if HAS_OPENPYXL:
+        write_openpyxl(warmup_paths[1], warmup_data)
+    if HAS_XLSXWRITER:
+        write_xlsxwriter(warmup_paths[2], warmup_data)
+    for warmup_path in warmup_paths:
+        warmup_path.unlink(missing_ok=True)
+
     for rows, cols, label in configs:
         print(f"\n{'='*60}")
         print(f"  Benchmark: {label}")
