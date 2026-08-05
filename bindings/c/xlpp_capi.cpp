@@ -23,7 +23,7 @@
 extern "C" {
 
 XLPP_API const char* xlpp_version(void) {
-    return "1.0.0";
+    return "1.1.1";
 }
 
 XLPP_API xlpp_workbook xlpp_workbook_create(void) {

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(XLPP
-    VERSION 1.0.0
+    VERSION 1.1.1
     DESCRIPTION "High-performance C++20 Excel xlsx read/write library"
     LANGUAGES CXX C
 )

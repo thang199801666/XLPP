@@ -76,7 +76,7 @@ except OSError:
 
 setup(
     name="xlpp",
-    version="1.0.0",
+    version="1.1.1",
     author="XL++ contributors",
     description="High-performance C++ Excel xlsx library for Python",
     long_description=long_description,
