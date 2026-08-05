@@ -21,6 +21,13 @@
 #define STY(h)  reinterpret_cast<xlpp::Style*>(h)
 #define PROP(h) reinterpret_cast<xlpp::DocumentProperties*>(h)
 
+namespace {
+thread_local std::string g_lastError;
+void clearError() noexcept { g_lastError.clear(); }
+void setError(const char* message) noexcept { g_lastError = message ? message : "XLPP C API error"; }
+void setError(const std::exception& error) noexcept { g_lastError = error.what(); }
+}
+
 // String copy helper into caller buffer.
 static void copyStr(const std::string& s, char* out, int outSize) {
     if (!out || outSize <= 0) return;
@@ -47,9 +54,11 @@ XLPP_API void xlpp_workbook_destroy(xlpp_workbook wb) {
 }
 
 XLPP_API xlpp_worksheet xlpp_workbook_add_sheet(xlpp_workbook wb, const char* name) {
+    if (!wb) { setError("Workbook handle is null"); return nullptr; }
+    if (!name || !name[0]) { setError("Workbook and sheet name are required"); return nullptr; }
     try {
         return reinterpret_cast<xlpp_worksheet>(&WB(wb)->addWorksheet(name));
-    } catch (...) { return nullptr; }
+    } catch (const std::exception& e) { setError(e); return nullptr; }
 }
 
 XLPP_API int xlpp_workbook_sheet_count(xlpp_workbook wb) {
@@ -1239,6 +1248,14 @@ XLPP_API int xlpp_stream_reader_read_sheet(xlpp_stream_reader r, int index,
 
 XLPP_API void xlpp_free_string(const char* str) {
     (void)str;
+}
+
+XLPP_API const char* xlpp_last_error(void) {
+    return g_lastError.c_str();
+}
+
+XLPP_API void xlpp_clear_error(void) {
+    clearError();
 }
 
 } // extern "C"

@@ -832,6 +832,8 @@ XLPP_API int xlpp_stream_reader_read_sheet(xlpp_stream_reader r, int index,
 // ============================================================
 XLPP_API const char*  xlpp_version(void);
 XLPP_API void         xlpp_free_string(const char* str);
+XLPP_API const char*  xlpp_last_error(void);
+XLPP_API void         xlpp_clear_error(void);
 
 #ifdef __cplusplus
 }
