@@ -34,10 +34,23 @@ Outputs:
 cd bindings\python
 
 # Install pybind11
-pip install pybind11 setuptools
+pip install pybind11 setuptools build
 
 # Build + install
 pip install .
+
+Build and publish a wheel (requires a native XLPP Release build and PyPI credentials):
+
+```powershell
+python -m pip install build twine
+python -m build --wheel
+python -m twine check dist/*
+python -m twine upload dist/*
+```
+
+The repository workflow `.github/workflows/pypi-publish.yml` builds the native
+wheel on GitHub Actions and publishes it through the existing `pypi` environment.
+No local C++ build is required.
 ```
 
 ### Quick test

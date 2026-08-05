@@ -35,6 +35,9 @@ typedef struct xlpp_style_t*       xlpp_style;
 typedef struct xlpp_properties_t*  xlpp_properties;
 typedef struct xlpp_hyperlink_t*   xlpp_hyperlink;
 typedef struct xlpp_comment_t*     xlpp_comment;
+typedef struct xlpp_table_t*      xlpp_table;
+typedef struct xlpp_data_validation_t* xlpp_data_validation;
+typedef struct xlpp_conditional_rule_t* xlpp_conditional_rule;
 
 // Cell value types
 #define XLPP_VALUE_EMPTY  0
@@ -58,6 +61,9 @@ XLPP_API int            xlpp_workbook_remove_sheet(xlpp_workbook wb, const char*
 
 XLPP_API int  xlpp_workbook_load(xlpp_workbook wb, const char* path);
 XLPP_API int  xlpp_workbook_save(xlpp_workbook wb, const char* path);
+XLPP_API void xlpp_workbook_clear(xlpp_workbook wb);
+XLPP_API int  xlpp_workbook_date1904(xlpp_workbook wb);
+XLPP_API void xlpp_workbook_set_date1904(xlpp_workbook wb, int enabled);
 
 XLPP_API xlpp_properties xlpp_workbook_properties(xlpp_workbook wb);
 
@@ -69,6 +75,9 @@ XLPP_API void xlpp_properties_set_creator(xlpp_properties p, const char* v);
 XLPP_API void xlpp_properties_set_subject(xlpp_properties p, const char* v);
 XLPP_API const char* xlpp_properties_get_title(xlpp_properties p);
 XLPP_API const char* xlpp_properties_get_creator(xlpp_properties p);
+XLPP_API const char* xlpp_properties_get_subject(xlpp_properties p);
+XLPP_API void xlpp_properties_set_description(xlpp_properties p, const char* v);
+XLPP_API const char* xlpp_properties_get_description(xlpp_properties p);
 
 // ============================================================
 // Worksheet
@@ -79,13 +88,21 @@ XLPP_API void         xlpp_sheet_rename(xlpp_worksheet ws, const char* name);
 XLPP_API xlpp_cell    xlpp_sheet_cell(xlpp_worksheet ws, const char* address);
 XLPP_API xlpp_cell    xlpp_sheet_cell_rc(xlpp_worksheet ws, uint64_t row, uint64_t col);
 XLPP_API int          xlpp_sheet_has_cell(xlpp_worksheet ws, const char* address);
+XLPP_API void         xlpp_sheet_append_row_numbers(xlpp_worksheet ws, const double* values, int count);
 
 XLPP_API void         xlpp_sheet_append_row(xlpp_worksheet ws, const char** values, int count);
 XLPP_API void         xlpp_sheet_append_doubles(xlpp_worksheet ws, const double* values, int count);
+XLPP_API void         xlpp_sheet_append_mixed(xlpp_worksheet ws, const char** values, const int* types, int count);
 
 XLPP_API void         xlpp_sheet_merge_cells(xlpp_worksheet ws, const char* range);
 XLPP_API void         xlpp_sheet_unmerge_cells(xlpp_worksheet ws, const char* range);
 XLPP_API void         xlpp_sheet_freeze_panes(xlpp_worksheet ws, const char* cell);
+XLPP_API void         xlpp_sheet_clear_freeze_panes(xlpp_worksheet ws);
+XLPP_API int          xlpp_sheet_is_merged(xlpp_worksheet ws, const char* address);
+XLPP_API int          xlpp_sheet_merged_range_count(xlpp_worksheet ws);
+XLPP_API const char*  xlpp_sheet_merged_range(xlpp_worksheet ws, int index);
+XLPP_API void         xlpp_sheet_set_print_area(xlpp_worksheet ws, const char* value);
+XLPP_API const char*  xlpp_sheet_print_area(xlpp_worksheet ws);
 
 XLPP_API uint64_t     xlpp_sheet_max_row(xlpp_worksheet ws);
 XLPP_API uint64_t     xlpp_sheet_max_col(xlpp_worksheet ws);
@@ -95,6 +112,11 @@ XLPP_API void         xlpp_sheet_insert_rows(xlpp_worksheet ws, uint64_t index, 
 XLPP_API void         xlpp_sheet_delete_rows(xlpp_worksheet ws, uint64_t index, uint64_t amount);
 XLPP_API void         xlpp_sheet_insert_cols(xlpp_worksheet ws, uint64_t index, uint64_t amount);
 XLPP_API void         xlpp_sheet_delete_cols(xlpp_worksheet ws, uint64_t index, uint64_t amount);
+XLPP_API int           xlpp_sheet_frozen_pane(xlpp_worksheet ws, char* out, int outSize);
+XLPP_API int           xlpp_sheet_merged_range_count(xlpp_worksheet ws);
+XLPP_API int           xlpp_sheet_merged_range(xlpp_worksheet ws, int index, char* out, int outSize);
+XLPP_API xlpp_table    xlpp_sheet_add_table(xlpp_worksheet ws, const char* name, const char* reference);
+XLPP_API xlpp_table    xlpp_sheet_table(xlpp_worksheet ws, const char* name);
 
 // ============================================================
 // Cell
@@ -118,6 +140,13 @@ XLPP_API void         xlpp_cell_clear(xlpp_cell c);
 XLPP_API const char*  xlpp_cell_get_formula(xlpp_cell c);
 XLPP_API void         xlpp_cell_set_formula(xlpp_cell c, const char* f);
 XLPP_API int          xlpp_cell_has_formula(xlpp_cell c);
+XLPP_API void         xlpp_cell_clear_formula(xlpp_cell c);
+XLPP_API int          xlpp_cell_has_hyperlink(xlpp_cell c);
+XLPP_API void         xlpp_cell_clear_hyperlink(xlpp_cell c);
+XLPP_API int          xlpp_cell_has_comment(xlpp_cell c);
+XLPP_API void         xlpp_cell_clear_comment(xlpp_cell c);
+XLPP_API const char*  xlpp_cell_get_number_format(xlpp_cell c);
+XLPP_API void         xlpp_cell_set_number_format(xlpp_cell c, const char* value);
 
 XLPP_API xlpp_style   xlpp_cell_style(xlpp_cell c);
 XLPP_API xlpp_font    xlpp_cell_font(xlpp_cell c);
@@ -137,6 +166,7 @@ XLPP_API void         xlpp_font_set_bold(xlpp_font f, int v);
 XLPP_API void         xlpp_font_set_italic(xlpp_font f, int v);
 XLPP_API void         xlpp_font_set_underline(xlpp_font f, int v);
 XLPP_API void         xlpp_font_set_color(xlpp_font f, const char* argb);
+XLPP_API void         xlpp_font_set_strike(xlpp_font f, int v);
 XLPP_API const char*  xlpp_font_get_name(xlpp_font f);
 XLPP_API double       xlpp_font_get_size(xlpp_font f);
 XLPP_API int          xlpp_font_get_bold(xlpp_font f);
@@ -173,6 +203,35 @@ XLPP_API xlpp_fill    xlpp_style_fill(xlpp_style s);
 XLPP_API xlpp_border  xlpp_style_border(xlpp_style s);
 XLPP_API xlpp_alignment xlpp_style_alignment(xlpp_style s);
 XLPP_API void         xlpp_style_set_number_format(xlpp_style s, const char* v);
+XLPP_API int           xlpp_style_get_locked(xlpp_style s);
+XLPP_API void          xlpp_style_set_locked(xlpp_style s, int v);
+XLPP_API int           xlpp_style_get_hidden(xlpp_style s);
+XLPP_API void          xlpp_style_set_hidden(xlpp_style s, int v);
+
+// Table
+XLPP_API const char*   xlpp_table_name(xlpp_table table);
+XLPP_API const char*   xlpp_table_reference(xlpp_table table);
+XLPP_API void          xlpp_table_set_reference(xlpp_table table, const char* value);
+XLPP_API int            xlpp_table_show_header_row(xlpp_table table);
+XLPP_API void           xlpp_table_set_show_header_row(xlpp_table table, int value);
+XLPP_API int            xlpp_table_show_totals_row(xlpp_table table);
+XLPP_API void           xlpp_table_set_show_totals_row(xlpp_table table, int value);
+XLPP_API int            xlpp_table_column_count(xlpp_table table);
+XLPP_API void           xlpp_table_add_column(xlpp_table table, const char* name);
+
+// Data validation
+XLPP_API xlpp_data_validation xlpp_sheet_add_list_validation(xlpp_worksheet ws, const char* reference, const char* formula);
+XLPP_API void xlpp_validation_set_allow_blank(xlpp_data_validation validation, int value);
+XLPP_API void xlpp_validation_set_prompt(xlpp_data_validation validation, const char* title, const char* text);
+XLPP_API void xlpp_validation_set_error(xlpp_data_validation validation, const char* title, const char* text);
+
+// Conditional formatting
+XLPP_API xlpp_conditional_rule xlpp_sheet_add_formula_rule(xlpp_worksheet ws, const char* reference, const char* formula);
+XLPP_API xlpp_conditional_rule xlpp_sheet_add_data_bar_rule(xlpp_worksheet ws, const char* reference, const char* color);
+XLPP_API void xlpp_conditional_rule_set_priority(xlpp_conditional_rule rule, uint64_t priority);
+XLPP_API void xlpp_conditional_rule_set_stop_if_true(xlpp_conditional_rule rule, int value);
+XLPP_API void xlpp_conditional_rule_set_font_color(xlpp_conditional_rule rule, const char* argb);
+XLPP_API void xlpp_conditional_rule_set_fill_color(xlpp_conditional_rule rule, const char* argb);
 
 // ============================================================
 // Utility

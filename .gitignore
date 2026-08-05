@@ -5,6 +5,7 @@ x64/
 .vs/
 build/
 out/
+build-*/
 *.obj
 *.pdb
 *.ilk
@@ -23,6 +24,7 @@ bindings/python/dist/
 bindings/python/*.egg-info/
 bindings/python/__pycache__/
 bindings/python/*.pyd
+xlpp*.pyd
 *.pyc
 
 # Python packaging (repo-root setup.py is now self-contained)

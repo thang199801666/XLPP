@@ -41,7 +41,7 @@ cd build && ./tests/XLPP_UnitTests
 
 ```bash
 cd bindings/python
-pip install pybind11 setuptools
+pip install pybind11 setuptools build
 pip install .
 ```
 

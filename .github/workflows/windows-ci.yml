@@ -55,7 +55,7 @@ jobs:
           python-version: '3.12'
       - run: vcpkg install --triplet x64-windows
       - run: msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
-      - run: pip install pybind11 setuptools
+       - run: pip install pybind11 setuptools build
       - name: Build + Test Python
         working-directory: bindings/python
         run: |
