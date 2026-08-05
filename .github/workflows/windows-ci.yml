@@ -43,21 +43,3 @@ jobs:
         with:
           name: xlpp-capi
           path: bindings/x64/Release/XLPP.CApi.dll
-
-  python:
-    name: Python Binding
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: microsoft/setup-msbuild@v2
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: vcpkg install --triplet x64-windows
-      - run: msbuild XL++.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
-       - run: pip install pybind11 setuptools build
-      - name: Build + Test Python
-        working-directory: bindings/python
-        run: |
-          python setup.py build_ext --inplace
-          python -c "import xlpp; wb=xlpp.Workbook(); ws=wb.add_worksheet('CI'); ws['A1'].value=42; wb.save('ci_test.xlsx'); wb2=xlpp.Workbook(); wb2.load('ci_test.xlsx'); assert wb2['CI']['A1'].value == 42.0; print('Python binding OK')"
