@@ -55,7 +55,23 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade packaging
-          python -c "import pathlib, zipfile; from packaging.version import Version; expected=Version(pathlib.Path('VERSION').read_text().strip()); wheels=list(pathlib.Path('wheelhouse').glob('*.whl')); assert wheels, 'No wheels built'; versions=[]; [versions.append(Version(zf.read(next(n for n in zf.namelist() if n.endswith('.dist-info/METADATA'))).decode().split('Version: ', 1)[1].splitlines()[0])) for w in wheels for zf in [zipfile.ZipFile(w)]]; assert all(v == expected for v in versions), (versions, expected)"
+          python - <<'PY'
+          import pathlib
+          import zipfile
+          from packaging.version import Version
+
+          expected = Version(pathlib.Path("VERSION").read_text().strip())
+          wheels = sorted(pathlib.Path("wheelhouse").glob("*.whl"))
+          assert wheels, "No wheels built"
+          versions = []
+          for wheel in wheels:
+              with zipfile.ZipFile(wheel) as zf:
+                  name = next(n for n in zf.namelist() if n.endswith(".dist-info/METADATA"))
+                  text = zf.read(name).decode()
+                  line = next(l for l in text.splitlines() if l.startswith("Version: "))
+                  versions.append(Version(line.split(": ", 1)[1]))
+          assert all(v == expected for v in versions), (versions, expected)
+          PY
 
       - uses: actions/upload-artifact@v4
         with:
