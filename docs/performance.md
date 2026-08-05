@@ -23,9 +23,9 @@ for every implementation and reports cells per second.
 
 | File | Cells | XLPP streaming | openpyxl `read_only` | ClosedXML streaming |
 |------|------:|---------------:|---------------------:|--------------------:|
-| 100K rows × 10 cols | 1M | **247.6 ms** | 11994.76 ms | n/a |
-| 500K rows × 10 cols | 5M | **1282.8 ms** | 62408.05 ms | n/a |
-| 1M rows × 10 cols | 10M | **2586.1 ms** | 118098.01 ms | n/a |
+| 100K rows × 10 cols | 1M | **258.7 ms** | 12655.00 ms | n/a |
+| 500K rows × 10 cols | 5M | **1289.8 ms** | 57746.51 ms | n/a |
+| 1M rows × 10 cols | 10M | **2562.2 ms** | 121278.43 ms | n/a |
 
 The existing 940K cells/sec figure above is a normal workbook-load baseline,
 not a streaming measurement. ClosedXML is `n/a` because it has no streaming

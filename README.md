@@ -74,37 +74,37 @@ benchmark run.
 
 | Library | Write | Read |
 |---------|------:|-----:|
-| XLPP (Python) | **883.4 ms** | **418.7 ms** |
-| openpyxl (Python) | 2107.5 ms | 1704.7 ms |
-| XlsxWriter (Python) | 1503.1 ms | n/a |
-| XLPP (C++) | **487.8 ms** | **229.5 ms** |
-| libxlsxwriter (C++) | 266.3 ms | n/a |
-| XLPP (C#) | **703.7 ms** | **353.0 ms** |
-| ClosedXML (C#) | 2188.9 ms | 3581.4 ms |
+| XLPP (Python) | **810.4 ms** | **402.6 ms** |
+| openpyxl (Python) | 2079.9 ms | 1690.8 ms |
+| XlsxWriter (Python) | 1384.8 ms | n/a |
+| XLPP (C++) | **468.3 ms** | **252.4 ms** |
+| libxlsxwriter (C++) | 263.1 ms | n/a |
+| XLPP (C#) | **713.7 ms** | **355.2 ms** |
+| ClosedXML (C#) | 1266.7 ms | 3945.6 ms |
 
 #### 10K rows × 15 cols (with Lookup table)
 
 | Library | Write | Read |
 |---------|------:|-----:|
-| XLPP (Python) | **812.5 ms** | **319.5 ms** |
-| openpyxl (Python) | 2107.8 ms | 1748.0 ms |
-| XlsxWriter (Python) | 1048.2 ms | n/a |
-| XLPP (C++) | **488.2 ms** | **228.0 ms** |
-| libxlsxwriter (C++) | 263.7 ms | n/a |
-| XLPP (C#) | **537.4 ms** | **310.6 ms** |
-| ClosedXML (C#) | 446.8 ms | 646.6 ms |
+| XLPP (Python) | **749.9 ms** | **286.8 ms** |
+| openpyxl (Python) | 2068.9 ms | 1679.1 ms |
+| XlsxWriter (Python) | 940.1 ms | n/a |
+| XLPP (C++) | **464.6 ms** | **234.5 ms** |
+| libxlsxwriter (C++) | 260.5 ms | n/a |
+| XLPP (C#) | **491.3 ms** | **285.7 ms** |
+| ClosedXML (C#) | 402.0 ms | 603.7 ms |
 
 #### 10K rows × 15 cols (with formula)
 
 | Library | Write | Read |
 |---------|------:|-----:|
-| XLPP (Python) | **823.8 ms** | **340.0 ms** |
-| openpyxl (Python) | 2210.3 ms | 1772.1 ms |
-| XlsxWriter (Python) | 1457.4 ms | n/a |
-| XLPP (C++) | **489.7 ms** | **258.5 ms** |
-| libxlsxwriter (C++) | 279.9 ms | n/a |
-| XLPP (C#) | 548.8 ms | 328.2 ms |
-| ClosedXML (C#) | 519.3 ms | 614.2 ms |
+| XLPP (Python) | **790.8 ms** | **306.0 ms** |
+| openpyxl (Python) | 2092.8 ms | 1653.7 ms |
+| XlsxWriter (Python) | 1401.4 ms | n/a |
+| XLPP (C++) | **467.2 ms** | **247.8 ms** |
+| libxlsxwriter (C++) | 293.4 ms | n/a |
+| XLPP (C#) | 492.7 ms | 306.8 ms |
+| ClosedXML (C#) | 484.6 ms | 596.4 ms |
 
 The C++ XLPP/libxlsxwriter write comparison is included above; libxlsxwriter
 is write-only. `n/a` is used only where a library cannot perform the read
@@ -120,9 +120,9 @@ files contain 10 columns.
 
 | File | Cells | XLPP (C++) | openpyxl (Python) | ClosedXML (C#) |
 |------|------:|-----------:|------------------:|---------------:|
-| 100K rows × 10 cols | 1M | **247.6 ms** | 11994.76 ms | n/a |
-| 500K rows × 10 cols | 5M | **1282.8 ms** | 62408.05 ms | n/a |
-| 1M rows × 10 cols | 10M | **2586.1 ms** | 118098.01 ms | n/a |
+| 100K rows × 10 cols | 1M | **258.7 ms** | 12655.00 ms | n/a |
+| 500K rows × 10 cols | 5M | **1289.8 ms** | 57746.51 ms | n/a |
+| 1M rows × 10 cols | 10M | **2562.2 ms** | 121278.43 ms | n/a |
 
 ClosedXML has no streaming reader API, so `n/a` is intentional. The existing
 non-streaming XLPP reference is approximately **940K cells/sec** at 1M cells;
