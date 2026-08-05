@@ -8,19 +8,21 @@ root = pathlib.Path(__file__).resolve().parents[1]
 version = (root / "VERSION").read_text(encoding="utf-8").strip()
 
 checks = {
-    "CMakeLists.txt": f"VERSION {version}",
-    "vcpkg.json": f'"version": "{version}"',
-    "setup.py": f'version="{version}"',
-    "bindings/python/setup.py": f'version="{version}"',
-    "bindings/c/xlpp_capi.cpp": f'return "{version}";',
-    "bindings/csharp/XlppNet.csproj": f"<Version>{version}</Version>",
+    "CMakeLists.txt": [f"VERSION {version}"],
+    "vcpkg.json": [f'"version": "{version}"'],
+    # setup.py reads the canonical VERSION file at build time.
+    "setup.py": ["version=package_version"],
+    "bindings/python/setup.py": ["version=package_version"],
+    "bindings/c/xlpp_capi.cpp": [f'return "{version}";'],
+    "bindings/csharp/XlppNet.csproj": [f"<Version>{version}</Version>"],
 }
 
 errors = []
-for relative, expected in checks.items():
+for relative, expected_values in checks.items():
     path = root / relative
-    if expected not in path.read_text(encoding="utf-8"):
-        errors.append(f"{relative}: expected {expected!r}")
+    content = path.read_text(encoding="utf-8")
+    if not any(expected in content for expected in expected_values):
+        errors.append(f"{relative}: expected one of {expected_values!r}")
 
 if errors:
     print("Version mismatch:")
