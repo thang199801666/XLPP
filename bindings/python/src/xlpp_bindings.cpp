@@ -1364,7 +1364,7 @@ PYBIND11_MODULE(xlpp, m) {
             return "<Workbook sheets=" + std::to_string(wb.sheetCount()) + ">";
         });
 
-    m.attr("__version__") = "1.1.1";
+    m.attr("__version__") = "1.1.2";
 
     // Excel 365 dynamic-array function prefix helper
     m.def("xlfn", [](const std::string& f) { return xlpp::xlfn(f); },

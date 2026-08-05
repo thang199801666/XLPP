@@ -7,8 +7,8 @@
     <AssemblyName>XLPP</AssemblyName>
     <RootNamespace>XLPP</RootNamespace>
     <PackageId>XLPP</PackageId>
-    <Version>1.1.1</Version>
-    <Description>XL++ C# binding — high-performance C++20 Excel .xlsx read/write library.</Description>
+    <Version>1.1.2</Version>
+    <Description>XL++ C# binding ??? high-performance C++20 Excel .xlsx read/write library.</Description>
     <Authors>XL++ contributors</Authors>
     <Company>XL++</Company>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

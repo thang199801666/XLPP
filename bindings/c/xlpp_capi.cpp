@@ -42,7 +42,7 @@ static void copyStr(const std::string& s, char* out, int outSize) {
 extern "C" {
 
 XLPP_API const char* xlpp_version(void) {
-    return "1.1.1";
+    return "1.1.2";
 }
 
 XLPP_API xlpp_workbook xlpp_workbook_create(void) {
