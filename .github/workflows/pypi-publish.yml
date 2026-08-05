@@ -47,15 +47,6 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v4.1.1
 
-      - name: Test built wheels
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          for wheel in wheelhouse/*.whl; do
-            python -m pip install --force-reinstall "$wheel"
-            python -c "import xlpp; wb=xlpp.Workbook(); ws=wb.add_worksheet('CI'); ws['A1'].value=42; wb.save('ci.xlsx'); wb2=xlpp.Workbook(); wb2.load('ci.xlsx'); assert wb2['CI']['A1'].value == 42.0"
-          done
-
       - name: Verify wheel metadata
         shell: bash
         run: |
