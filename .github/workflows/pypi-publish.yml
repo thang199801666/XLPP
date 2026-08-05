@@ -24,7 +24,7 @@ on:
           - testpypi
           - pypi
 
-  jobs:
+jobs:
   wheels:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
