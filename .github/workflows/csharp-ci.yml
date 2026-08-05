@@ -39,10 +39,7 @@ jobs:
 
       - name: Configure (Windows, VS generator)
         if: runner.os == 'Windows'
-        run: |
-          cmake -S . -B build-capi -G "Visual Studio 17 2022" -A x64 ^
-            -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF ^
-            -DXLPP_BUILD_CAPI=ON -DXLPP_USE_BUNDLED_ZLIB=ON
+        run: cmake -S . -B build-capi -G "Visual Studio 18 2026" -A x64 -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_CAPI=ON -DXLPP_USE_BUNDLED_ZLIB=ON
 
       - name: Configure (Linux/macOS, Ninja)
         if: runner.os != 'Windows'
