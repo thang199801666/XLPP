@@ -40,7 +40,7 @@ struct Cfvo {
 
     Cfvo() = default;
     explicit Cfvo(std::string type_, double val) : type(std::move(type_)), value(val), hasValue(true) {}
-    Cfvo(std::string type_, std::string formula_) : type(std::move(type_)), formula(std::move(formula_)), hasValue(true) {}
+    Cfvo(std::string type_, std::string formula_) : type(std::move(type_)), hasValue(true), formula(std::move(formula_)) {}
 };
 
 // Data bar conditional formatting (Excel 2010+).

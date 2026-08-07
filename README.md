@@ -56,6 +56,16 @@ workbook.
 | Native C++ API | Yes | No | No | No | Yes |
 | Python API | Yes | Yes | Yes | No | No |
 | C# API | Yes | No | No | Yes | No |
+
+P0M extends imported-chart editing with `dPt` data-point styling, rich chart-title/per-point label runs, gradient/pattern fills, color transforms, and advanced line/custom-dash metadata. As with P0L, these APIs patch only targeted ChartML subtrees and preserve sibling DrawingML/package relationships.
+
+P0N extends preservation-aware chart editing with plot-area/legend manual layouts, axis rich titles, number formats, tick settings, major/minor units, crossing metadata, axis/gridline line formatting, and legend overlay/fill/line formatting. Imported charts retain native `axId` targeting so combined/secondary-axis charts are not flattened during selective edits.
+
+P0O adds native axis scaling (`min`/`max`/`logBase`/orientation), numeric `crossesAt`, built-in/custom display units with optional rich labels, explicit major/minor-gridline lifecycle, and selective chart-area/plot-area fill and line formatting. These changes remain stable-ID/`axId` targeted; unrelated chart XML, sibling drawings and media are preserved.
+
+P0P adds preservation-aware chart auxiliary objects: chart data tables, drop lines, high-low lines, up/down bars, and leader-line containers/formatting at plot or series label scope. Add/remove/edit operations patch only the owning ChartML subtree and preserve sibling DrawingML/media.
+
+P0Q adds first-class StockChart inspection/generation (`Chart::Type::Stock`), generation-time auxiliary objects through `Chart::primaryPlot()`, and `ChartDataTable::textStyle` support for `dTable/txPr`. Both imported and newly generated stock charts support high-low and up/down bars without flattening preserved ChartML.
 | SIMD-accelerated XML scanning | Yes | No | No | No | No |
 | mmap zero-copy reading | Yes | No | No | No | No |
 | Multi-threaded save | Yes | No | No | No | No |
@@ -166,6 +176,26 @@ std::cout << loaded.worksheet("Data")->cell("A1").stringValueOr("")
 Build: `msbuild XL++.sln /p:Configuration=Release /p:Platform=x64` (VS2022)  
 or `cmake -B build -G Ninja && cmake --build build` (any platform)
 
+### Package preservation validator
+
+The CMake build now includes `xlpp-package-validator`, which checks duplicate
+relationship IDs, dangling targets, orphaned parts, inconsistent content types,
+relationship syntax, and owner references for drawings/images/charts/tables/comments/external links/pivots. It also inventories
+preserved DrawingML shapes/text boxes/connectors/groups and can compare package
+parts before and after a round trip:
+
+```bash
+xlpp-package-validator workbook.xlsx
+xlpp-package-validator before.xlsx --compare after.xlsx
+
+# Machine-readable CI output
+xlpp-package-validator workbook.xlsx --json
+xlpp-package-validator before.xlsx --compare after.xlsx --json
+```
+
+See [OPC Preservation Core](docs/PRESERVATION_CORE.md) for current guarantees
+and limitations.
+
 ### Python
 
 See the complete [Python guide](docs/python.md) for installation, cell values,
@@ -221,6 +251,27 @@ ws["B1"].Value = 42.5;
 wb.Save("report.xlsx");
 ```
 
+
+## 3D / Surface Chart Foundation (P0R)
+
+XL++ can now read and preservation-edit Bar3D, Line3D, Area3D, Pie3D, Surface and Surface3D ChartML. Imported charts expose `view3D`, native three-axis structure, and floor/side/back wall formatting. New Bar3D and Surface3D charts can be generated while preserving the same package-validation guarantees used by the 2D chart pipeline.
+
+## Projected Pie, Doughnut & Radar Expansion (P0S)
+
+XL++ now models and generates Pie-of-Pie and Bar-of-Pie (`ofPieChart`) with split controls, second-plot size and series-line formatting. Doughnut/Pie plots expose first-slice angle, Doughnut exposes hole size, and Radar plots expose native `radarStyle` while preserving series markers. Imported charts can be selectively updated by stable ID without rebuilding sibling drawing/chart objects.
+
+## Chart Style, Theme & Series Cache Foundation (P0T)
+
+XL++ now reads workbook theme colors used by charts, preserves chart-style/color-style relationship resources, and models cached chart data (`strCache` / `numCache`) for series titles, categories and values. Imported charts can selectively change the chart style ID or cached series data without rebuilding unrelated ChartML or style resources. Newly generated charts can also serialize first-class series caches.
+
+Theme-aware chart colors expose the source scheme name plus color transforms and can resolve the base scheme color through the workbook theme palette. Direct XL++ output preserves chart-style/color-style parts byte-for-byte when they are not edited.
+
+## Cache Synchronization & Theme Transform Engine (P0U)
+
+XL++ can now rebuild chart `strCache` / `numCache` data directly from the worksheet ranges referenced by each series. `Workbook::synchronizeChartCaches()` supports quoted cross-sheet A1 references, sparse blank cells, title/category/value caches, and numeric format propagation. Unsupported external/2-D/union references are reported rather than rewritten.
+
+The chart theme model also parses major/minor Latin fonts and format-scheme metadata and resolves final RGB/alpha after DrawingML color transforms (`tint`, `shade`, luminance/saturation transforms and alpha transforms). Cache validation helpers expose duplicate-index, ordering and sparse-state diagnostics.
+
 ## Architecture
 
 ```
@@ -249,7 +300,7 @@ XLPP/
 │   ├── python/            # pybind11
 │   ├── c/                 # C API DLL
 │   └── csharp/            # P/Invoke wrapper
-├── tests/                 # 75+ unit test suites
+├── tests/                 # 150+ unit test suites
 ├── docs/                  # Documentation
 ├── BUILDING.md            # Build instructions
 └── ROADMAP.md             # Development roadmap

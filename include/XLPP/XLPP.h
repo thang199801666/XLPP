@@ -8,6 +8,7 @@
 #include "Worksheet/Filters.h"
 #include "Worksheet/Worksheet.h"
 #include "Workbook/Workbook.h"
+#include "Vba/VbaModule.h"
 
 #include <XLPP/Styles.h>
 

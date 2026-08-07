@@ -580,6 +580,39 @@ def test_roundtrip_values(tmp_path):
     assert wb2.properties.title == "Roundtrip"
 
 
+def test_write_read_file_with_library_features(tmp_path):
+    path = tmp_path / "library_features.xlsx"
+
+    workbook = xlpp.Workbook()
+    worksheet = workbook.add_worksheet("Report")
+    worksheet.append(["Product", "Quantity", "Price"])
+    worksheet.append(["Keyboard", 2, 25.5])
+    worksheet.append(["Mouse", 3, 12.0])
+    worksheet["D1"].value = "Total"
+    worksheet["D2"].set_formula("B2*C2")
+    worksheet["D3"].set_formula("B3*C3")
+    worksheet["A1"].font().bold = True
+    worksheet["D1"].font().bold = True
+    workbook.properties.title = "Sales report"
+
+    workbook.save(str(path))
+    assert path.exists()
+
+    loaded = xlpp.Workbook()
+    loaded.load(str(path))
+    report = loaded["Report"]
+
+    assert report.to_records(include_header=True) == [
+        ["Product", "Quantity", "Price", "Total"],
+        ["Keyboard", 2.0, 25.5, None],
+        ["Mouse", 3.0, 12.0, None],
+    ]
+    assert report["D2"].formula == "B2*C2"
+    assert report["D3"].formula == "B3*C3"
+    assert report["A1"].font().bold is True
+    assert loaded.properties.title == "Sales report"
+
+
 def test_roundtrip_styles(tmp_path):
     path = tmp_path / "styles.xlsx"
     wb = xlpp.Workbook()

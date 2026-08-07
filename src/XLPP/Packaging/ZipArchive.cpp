@@ -395,6 +395,8 @@ ZipArchive ZipArchive::open(const std::filesystem::path& path, const ZipOpenLimi
         }
     }
     if (limits.maxEntries && count > limits.maxEntries) throw std::runtime_error("XLSX exceeds maximum entry count");
+    if (cdOffset > b.size() || centralSize > b.size() - static_cast<std::size_t>(cdOffset))
+        throw std::runtime_error("Invalid ZIP: central directory exceeds archive bounds");
 
     ZipArchive z;
     std::uint64_t totalBytes = 0;

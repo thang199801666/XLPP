@@ -1,5 +1,7 @@
 #pragma once
+#include <XLPP/Protection/LegacyPassword.h>
 #include <string>
+#include <string_view>
 
 namespace xlpp {
 class WorksheetProtection {
@@ -8,6 +10,9 @@ public:
     void setEnabled(bool v) noexcept { enabled_ = v; }
     const std::string& passwordHash() const noexcept { return passwordHash_; }
     void setPasswordHash(std::string v) { passwordHash_ = std::move(v); enabled_ = true; }
+    bool hasPassword() const noexcept { return !passwordHash_.empty(); }
+    void setPassword(std::string_view password) { passwordHash_ = legacyProtectionPasswordHash(password); enabled_ = true; }
+    void clearPassword() noexcept { passwordHash_.clear(); }
     bool selectLockedCells() const noexcept { return selectLockedCells_; }
     void setSelectLockedCells(bool v) noexcept { selectLockedCells_ = v; }
     bool selectUnlockedCells() const noexcept { return selectUnlockedCells_; }

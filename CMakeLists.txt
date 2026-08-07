@@ -14,6 +14,7 @@ option(XLPP_BUILD_SAMPLES "Build sample programs" ON)
 option(XLPP_BUILD_CAPI "Build C API DLL" ON)
 option(XLPP_BUILD_BINDINGS "Build language bindings" OFF)
 option(XLPP_BUILD_BENCHMARKS "Build external library benchmarks" OFF)
+option(XLPP_BUILD_TOOLS "Build XLPP package inspection tools" ON)
 option(XLPP_USE_BUNDLED_ZLIB "Use bundled zlib instead of system" ON)
 
 # === C++ Standard ===
@@ -61,7 +62,11 @@ endif()
 
 # === Samples ===
 if(XLPP_BUILD_SAMPLES)
-    add_subdirectory(samples)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/CMakeLists.txt")
+        add_subdirectory(samples)
+    else()
+        message(WARNING "XLPP_BUILD_SAMPLES is ON, but no samples/CMakeLists.txt is present; skipping sample targets")
+    endif()
 endif()
 
 # === C API ===
@@ -71,6 +76,10 @@ endif()
 
 if(XLPP_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
+endif()
+
+if(XLPP_BUILD_TOOLS)
+    add_subdirectory(tools)
 endif()
 
 # === Install ===

@@ -8,9 +8,31 @@ target_include_directories(XLPP_UnitTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/XLPP
 )
 
+target_compile_definitions(XLPP_UnitTests PRIVATE
+    XLPP_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
 target_link_libraries(XLPP_UnitTests PRIVATE xlpp_static)
 
 add_test(NAME XLPP_UnitTests COMMAND XLPP_UnitTests)
+
+# Standalone examples. Each executable writes its own workbook.
+add_executable(XLPP_WriteValues
+    XLPP.Examples/write_values.cpp
+    XLPP.Examples/standalone_values_main.cpp
+)
+add_executable(XLPP_WriteChart
+    XLPP.Examples/write_chart.cpp
+    XLPP.Examples/standalone_chart_main.cpp
+)
+add_executable(XLPP_WriteImage
+    XLPP.Examples/write_image.cpp
+    XLPP.Examples/standalone_image_main.cpp
+)
+foreach(_example XLPP_WriteValues XLPP_WriteChart XLPP_WriteImage)
+    target_include_directories(${_example} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+    target_link_libraries(${_example} PRIVATE xlpp_static)
+endforeach()
 
 # --- Standalone public-header include test ---
 # Verifies every public header can be included on its own (no missing

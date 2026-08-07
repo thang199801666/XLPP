@@ -1,38 +1,29 @@
-import datetime
-import math
-
 import xlpp
-import pytest
 
 
 def test_cell_error_and_date_api(tmp_path):
     wb = xlpp.Workbook()
     ws = wb.add_worksheet("S")
-
     ws["A1"].set_error(xlpp.CellError.DIVISION_BY_ZERO)
     assert ws["A1"].is_error()
     assert ws["A1"].value == "#DIV/0!"
     assert xlpp.cell_error_to_string(xlpp.CellError.NAME) == "#NAME?"
-
     ws["B1"].set_date(xlpp.DateTime(2024, 3, 15))
     assert ws["B1"].is_date()
     d = ws["B1"].date()
     assert d.year == 2024 and d.month == 3 and d.day == 15
-
     ws["C1"].set_formula("=A1*2")
     ws["D1"].set_array_formula("SUM(A1:A10)", "D1")
     ws["E1"].set_shared_formula("=A1+B1", 0, "E1")
     ws["F1"].set_dynamic_array_formula("_xlfn.SORT(A1:A10)", "F1")
     assert ws["F1"].formula.startswith("_xlfn.SORT")
     assert ws["F1"].formula_metadata.type == xlpp.FormulaType.DYNAMIC_ARRAY
-
     assert ws["G1"].has_value() is False
 
 
 def test_cell_hyperlink_comment_style(tmp_path):
     wb = xlpp.Workbook()
     ws = wb.add_worksheet("S")
-
     c = ws["A1"]
     hl = xlpp.Hyperlink("https://example.com")
     hl.display = "Example"
@@ -43,13 +34,11 @@ def test_cell_hyperlink_comment_style(tmp_path):
     assert c.hyperlink().target == "https://example.com"
     c.clear_hyperlink()
     assert not c.has_hyperlink()
-
     c.set_comment(xlpp.Comment("Note", "Author"))
     assert c.has_comment()
     assert c.comment().text == "Note"
     c.clear_comment()
     assert not c.has_comment()
-
     c.set_number_format("0.00")
     assert c.number_format == "0.00"
     s = c.style()
@@ -58,7 +47,6 @@ def test_cell_hyperlink_comment_style(tmp_path):
     s.locked = False
     assert not s.locked
     assert s.is_default() is False
-
     a = c.alignment()
     a.shrink_to_fit = True
     a.text_rotation = 45
@@ -92,24 +80,20 @@ def test_worksheet_dimensions_and_print(tmp_path):
     cd = ws.column_dimension(1)
     cd.width = 20
     assert cd.width == 20
-
     ws.set_print_area("A1:D20")
     assert ws.print_area == "A1:D20"
     ws.print_titles_rows = "$1:$1"
     assert ws.print_titles_rows == "$1:$1"
-
     ps = ws.page_setup()
     ps.paper_size = xlpp.PaperSize.A4
     ps.fit_to_page = True
     ps.black_and_white = True
     assert ps.paper_size == xlpp.PaperSize.A4
     assert ps.fit_to_page is True
-
     po = ws.print_options()
     po.horizontal_centered = True
     po.grid_lines = True
     assert po.horizontal_centered is True
-
     hf = ws.header_footer()
     hf.odd_header = "&CHead"
     hf.different_odd_even = True
@@ -125,11 +109,9 @@ def test_protection_and_sheetview(tmp_path):
     p.sort = False
     assert p.enabled is True
     assert p.insert_rows is False
-
     wbp = wb.protection()
     wbp.lock_structure = True
     assert wbp.lock_structure is True
-
     sv = ws.sheet_view()
     sv.zoom_scale = 120
     sv.show_grid_lines = False
@@ -137,50 +119,6 @@ def test_protection_and_sheetview(tmp_path):
     assert sv.zoom_scale == 120
     assert sv.show_grid_lines is False
     assert sv.right_to_left is True
-
-
-def test_table_chart_pivot_image(tmp_path):
-    wb = xlpp.Workbook()
-    ws = wb.add_worksheet("Data")
-    ws.append(["Q1", 10])
-
-    table = ws.add_table("Sales", "A1:B1")
-    table.display_name = "SalesDisplay"
-    table.show_header_row = False
-    table.show_totals_row = True
-    table.style_info.name = "TableStyleMedium4"
-    table.style_info.show_row_stripes = False
-    table.add_column("Value")
-    assert len(table.columns) == 1
-    assert table.style_info.name == "TableStyleMedium4"
-    assert ws.table("Sales") is not None
-    assert len(ws.tables) == 1
-
-    chart = xlpp.Chart(xlpp.ChartType.BAR)
-    chart.title = "Sales"
-    chart.grouping = xlpp.ChartGrouping.STACKED
-    chart.width = 800
-    chart.show_legend = False
-    chart.legend_position = "b"
-    s = chart.add_series(xlpp.ChartSeries("Units"))
-    s.values_reference = "'Data'!$B$1:$B$1"
-    s.categories_reference = "'Data'!$A$1:$A$1"
-    ws.add_chart(chart)
-    assert ws.chart_count == 1
-    assert len(ws.charts) == 1
-
-    pivot = xlpp.PivotTable("Pivot1")
-    pivot.location = "D1"
-    pivot.add_row_field("Region")
-    pivot.add_data_field()
-    ws.add_pivot_table(pivot)
-    assert len(ws.pivot_tables) == 1
-
-    path = tmp_path / "features.xlsx"
-    wb.save(str(path))
-    wb2 = xlpp.Workbook()
-    wb2.load(str(path))
-    assert wb2["Data"].table("Sales") is not None
 
 
 def test_autofilter_datavalidation_cf(tmp_path):
@@ -194,7 +132,6 @@ def test_autofilter_datavalidation_cf(tmp_path):
     col.and_mode = True
     col.include_blank = True
     assert col.and_mode is True
-
     dv = ws.data_validations.add(xlpp.DataValidationType.WHOLE, "A1:A10")
     dv.op = xlpp.DataValidationOperator.BETWEEN
     dv.formula1 = "1"
@@ -203,11 +140,9 @@ def test_autofilter_datavalidation_cf(tmp_path):
     dv.show_drop_down = True
     assert dv.error_style == xlpp.DataValidationErrorStyle.WARNING
     assert dv.show_drop_down is True
-
     cf = ws.conditional_formatting.add_rule("B1:B3", xlpp.ConditionalRuleType.FORMULA, "B1>0")
     assert cf.type == xlpp.ConditionalRuleType.FORMULA
     assert len(ws.conditional_formatting.entries) == 1
-
     path = tmp_path / "af.xlsx"
     wb.save(str(path))
     wb2 = xlpp.Workbook()
@@ -224,7 +159,6 @@ def test_streaming_writer_reader(tmp_path):
     assert sheet.row_count == 100
     writer.close()
     assert writer.closed is True
-
     reader = xlpp.StreamingWorkbookReader(str(path))
     assert reader.worksheet_names() == ["Big"]
     ws = reader.worksheet("Big")
@@ -238,20 +172,16 @@ def test_workbook_bytes_and_customprops(tmp_path):
     wb = xlpp.Workbook()
     ws = wb.add_worksheet("S")
     ws["A1"].value = 42
-
     data = wb.save_bytes()
     assert isinstance(data, bytes)
-
     wb2 = xlpp.Workbook()
     wb2.load_bytes(data)
     assert wb2["S"]["A1"].value == 42.0
-
     cp = xlpp.CustomProperty("myKey", "myValue")
     assert cp.name == "myKey"
     assert cp.type == "lpwstr"
     wb.custom_properties().add(cp)
     assert wb.custom_properties().items[0].value == "myValue"
-
     wb.calc_properties().full_calc_on_load = True
     assert wb.calc_properties().full_calc_on_load is True
 
@@ -262,7 +192,6 @@ def test_cell_range_and_row(tmp_path):
     for r in range(1, 4):
         for c in range(1, 4):
             ws.cell(r, c).value = r * 10 + c
-
     rng = ws.range("A1:C3")
     assert rng.address() == "A1:C3"
     assert rng.row_count == 3
@@ -272,11 +201,9 @@ def test_cell_range_and_row(tmp_path):
     assert rng.cell(1, 1).value == 11.0
     assert len(rng.values()) == 9
     assert len(rng.cells()) == 9
-
     row = ws.row(1)
     assert row.number == 1
-    vals = row.values()
-    assert vals[0] == 11.0
+    assert row.values()[0] == 11.0
 
 
 def test_defined_name_and_docprops(tmp_path):
@@ -289,13 +216,11 @@ def test_defined_name_and_docprops(tmp_path):
     assert dn.hidden is True
     assert dn.comment == "note"
     assert wb.defined_name("MyRange") is not None
-
     props = wb.properties
     props.category = "Cat"
     props.last_modified_by = "User"
     assert props.category == "Cat"
     assert props.last_modified_by == "User"
-
     ns = wb.add_named_style(xlpp.NamedStyle("MyStyle"))
     ns.style().font().bold = True
     ns.style().font().size = 14

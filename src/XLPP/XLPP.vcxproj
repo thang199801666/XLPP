@@ -1,29 +1,67 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
-    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
-    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
-      <ClInclude Include="..\..\include\XLPP\Cell\Hyperlink.h" />
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ClInclude Include="..\..\include\XLPP\Cell\Hyperlink.h" />
     <ClInclude Include="..\..\include\XLPP\Cell\Comment.h" />
     <ClInclude Include="..\..\include\XLPP\Cell\Formula.h" />
     <ClInclude Include="..\..\include\XLPP\Workbook\DocumentProperties.h" />
-</ItemGroup>
+  </ItemGroup>
   <PropertyGroup Label="Globals">
-    <VCProjectVersion>18.0</VCProjectVersion><Keyword>Win32Proj</Keyword><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectGuid>{E692BBEB-BB8D-477C-BE87-0289B27C9057}</ProjectGuid><RootNamespace>XLPP</RootNamespace>
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectGuid>{E692BBEB-BB8D-477C-BE87-0289B27C9057}</ProjectGuid>
+    <RootNamespace>XLPP</RootNamespace>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration"><ConfigurationType>StaticLibrary</ConfigurationType><UseDebugLibraries>true</UseDebugLibraries><PlatformToolset>v145</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration"><ConfigurationType>StaticLibrary</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v145</PlatformToolset><CharacterSet>Unicode</CharacterSet><WholeProgramOptimization>true</WholeProgramOptimization></PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'"><ClCompile><WarningLevel>Level4</WarningLevel><LanguageStandard>stdcpp20</LanguageStandard><AdditionalIncludeDirectories>$(SolutionDir)include;$(SolutionDir)third_party\zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><PreprocessorDefinitions>XLPP_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions><MultiProcessorCompilation>true</MultiProcessorCompilation></ClCompile></ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'"><ClCompile><WarningLevel>Level4</WarningLevel><LanguageStandard>stdcpp20</LanguageStandard><AdditionalIncludeDirectories>$(SolutionDir)include;$(SolutionDir)third_party\zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><PreprocessorDefinitions>XLPP_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions><MultiProcessorCompilation>true</MultiProcessorCompilation></ClCompile></ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(SolutionDir)include;$(SolutionDir)third_party\zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>XLPP_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(SolutionDir)include;$(SolutionDir)third_party\zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>XLPP_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Workbook\Workbook.cpp" />
+    <ClCompile Include="Vba\VbaProjectBinary.cpp" />
     <ClCompile Include="Worksheet\Worksheet.cpp" />
     <ClCompile Include="Worksheet\Range.cpp" />
     <ClCompile Include="Packaging\ZipArchive.cpp" />
     <ClCompile Include="Packaging\ZipArchiveReader.cpp" />
+    <ClCompile Include="Packaging\RelationshipGraph.cpp" />
     <ClCompile Include="XML\XmlUtilities.cpp" />
     <ClCompile Include="XML\XmlPullReader.cpp" />
     <ClCompile Include="Streaming\StreamingWorkbookWriter.cpp" />
@@ -37,6 +75,7 @@
     <ClInclude Include="..\..\include\XLPP\Worksheet\Drawings\Image.h" />
     <ClInclude Include="..\..\include\XLPP\Workbook\Protection.h" />
     <ClInclude Include="..\..\include\XLPP\Workbook\Protection\WorkbookProtection.h" />
+    <ClInclude Include="..\..\include\XLPP\Protection\LegacyPassword.h" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\include\XLPP\Styles.h" />
@@ -48,6 +87,7 @@
     <ClInclude Include="..\..\include\XLPP\Styles\Style.h" />
     <ClInclude Include="..\..\include\XLPP\Styles\NamedStyle.h" />
     <ClInclude Include="..\..\include\XLPP\Workbook\Workbook.h" />
+    <ClInclude Include="..\..\include\XLPP\Vba\VbaModule.h" />
     <ClInclude Include="..\..\include\XLPP\Worksheet\Worksheet.h" />
     <ClInclude Include="..\..\include\XLPP\Worksheet\Range.h" />
     <ClInclude Include="..\..\include\XLPP\Worksheet\Dimensions.h" />
@@ -64,6 +104,8 @@
     <ClInclude Include="..\..\include\XLPP\Cell\Cell.h" />
     <ClInclude Include="..\..\include\XLPP\Cell\CellReference.h" />
     <ClInclude Include="Packaging\ZipArchive.h" />
+    <ClInclude Include="Packaging\RelationshipGraph.h" />
+    <ClInclude Include="Vba\VbaProjectBinary.h" />
     <ClInclude Include="Packaging\ZipArchiveReader.h" />
     <ClInclude Include="XML\XmlUtilities.h" />
     <ClInclude Include="XML\XmlPullReader.h" />
@@ -84,6 +126,10 @@
     <ClInclude Include="..\..\include\XLPP\Streaming\StreamingWorkbookWriter.h" />
     <ClInclude Include="..\..\include\XLPP\Streaming\StreamingWorkbookReader.h" />
   </ItemGroup>
-  <ItemGroup><ProjectReference Include="..\..\third_party\zlib\zlib.vcxproj"><Project>{8B7C2FC8-7A42-4A87-A4C7-188F119A3201}</Project></ProjectReference></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\third_party\zlib\zlib.vcxproj">
+      <Project>{8B7C2FC8-7A42-4A87-A4C7-188F119A3201}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

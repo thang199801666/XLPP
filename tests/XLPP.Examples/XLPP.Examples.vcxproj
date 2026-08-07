@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals"><VCProjectVersion>18.0</VCProjectVersion><Keyword>Win32Proj</Keyword><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion><ProjectGuid>{1F6A1D7D-0E9C-4AC4-9EB5-CCB53F7E1B30}</ProjectGuid><RootNamespace>XLPP.Examples</RootNamespace></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries>true</UseDebugLibraries><PlatformToolset>v145</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v145</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
+  <ItemDefinitionGroup><ClCompile><WarningLevel>Level4</WarningLevel><LanguageStandard>stdcpp20</LanguageStandard><AdditionalIncludeDirectories>$(SolutionDir)include;$(SolutionDir)src\XLPP;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><MultiProcessorCompilation>true</MultiProcessorCompilation></ClCompile></ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp"/>
+    <ClCompile Include="write_values.cpp"/>
+    <ClCompile Include="write_basic.cpp"/>
+    <ClCompile Include="write_rows.cpp"/>
+    <ClCompile Include="write_formula.cpp"/>
+    <ClCompile Include="write_style.cpp"/>
+    <ClCompile Include="write_types.cpp"/>
+    <ClCompile Include="write_sheets.cpp"/>
+    <ClCompile Include="write_layout.cpp"/>
+    <ClCompile Include="write_table.cpp"/>
+    <ClCompile Include="write_filter.cpp"/>
+    <ClCompile Include="write_links.cpp"/>
+    <ClCompile Include="write_validation.cpp"/>
+    <ClCompile Include="write_conditional.cpp"/>
+    <ClCompile Include="write_properties.cpp"/>
+    <ClCompile Include="write_roundtrip.cpp"/>
+    <ClCompile Include="write_range.cpp"/>
+    <ClCompile Include="write_named_style.cpp"/>
+    <ClCompile Include="write_page_setup.cpp"/>
+    <ClCompile Include="write_protection.cpp"/>
+    <ClCompile Include="write_streaming.cpp"/>
+    <ClCompile Include="write_custom_properties.cpp"/>
+    <ClCompile Include="write_date_system.cpp"/>
+    <ClCompile Include="write_array_formula.cpp"/>
+    <ClCompile Include="write_copy_sheet.cpp"/>
+    <ClCompile Include="write_load_options.cpp"/>
+    <ClCompile Include="write_chart.cpp"/>
+    <ClCompile Include="write_image.cpp"/>
+    <ClCompile Include="write_vba.cpp"/>
+    <ClCompile Include="write_rich_text.cpp"/>
+    <ClCompile Include="write_comments.cpp"/>
+    <ClCompile Include="write_sheet_view.cpp"/>
+    <ClCompile Include="write_defined_names_full.cpp"/>
+    <ClCompile Include="write_calc_properties.cpp"/>
+    <ClCompile Include="write_document_properties_full.cpp"/>
+    <ClCompile Include="write_multi_chart.cpp"/>
+    <ClCompile Include="write_pivot.cpp"/>
+    <ClCompile Include="write_formula_metadata.cpp"/>
+    <ClCompile Include="write_compression_modes.cpp"/>
+    <ClCompile Include="write_performance_streaming_write.cpp"/>
+    <ClCompile Include="write_performance_streaming_read.cpp"/>
+    <ClCompile Include="write_performance_dom_roundtrip.cpp"/>
+    <ClCompile Include="write_performance_styled.cpp"/>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="TestOutput.h"/>
+    <ClInclude Include="PerformanceCommon.h"/>
+  </ItemGroup>
+  <ItemGroup><ProjectReference Include="..\..\src\XLPP\XLPP.vcxproj"><Project>{E692BBEB-BB8D-477C-BE87-0289B27C9057}</Project></ProjectReference></ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
+</Project>

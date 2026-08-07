@@ -170,7 +170,6 @@ ZipArchiveReader::ZipArchiveReader(const std::filesystem::path& path) : path_(pa
         // Find EOCD in last 65KB
         const auto tail = std::min<std::size_t>(size, 65535 + 22);
         const auto* tailStart = data + size - tail;
-        const auto tailEnd = data + size;
         const auto eocdSig = std::string_view(reinterpret_cast<const char*>(kEocdSig.data()), 4);
         const auto tailView = std::string_view(reinterpret_cast<const char*>(tailStart), tail);
         const auto pos = tailView.rfind(eocdSig);
