@@ -1,7 +1,18 @@
 name: Python Wheels
-# Publishes xlpp wheels to PyPI when a GitHub Release is published.
+# Publishes xlpp wheels to PyPI.
+#   - GitHub Release (v*)  -> publish to PyPI (Trusted Publishing).
+#   - workflow_dispatch    -> choose testpypi or pypi.
 on:
   workflow_dispatch:
+    inputs:
+      repository:
+        description: 'Package index'
+        required: true
+        default: pypi
+        type: choice
+        options:
+          - testpypi
+          - pypi
   release:
     types: [published]
 jobs:
@@ -20,12 +31,29 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: wheels-${{ matrix.os }}, path: wheelhouse/*.whl }
   publish:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     needs: wheels
     runs-on: ubuntu-latest
-    permissions: { id-token: write }
+    permissions:
+      id-token: write
+    environment:
+      name: ${{ github.event_name == 'release' && 'pypi' || inputs.repository }}
     steps:
       - uses: actions/download-artifact@v4
-        with: { pattern: wheels-*, merge-multiple: true, path: dist }
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with: { packages-dir: dist }
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - name: Publish to TestPyPI
+        if: github.event_name == 'workflow_dispatch' && inputs.repository == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+      - name: Publish to PyPI
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.repository == 'pypi')
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          skip-existing: true
