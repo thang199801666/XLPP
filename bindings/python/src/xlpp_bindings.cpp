@@ -2355,10 +2355,10 @@ PYBIND11_MODULE(xlpp, m) {
                 return py::bytes(stream.str());
             }, py::arg("options") = nullptr)
         .def("load_in_place", [](Workbook& wb, const std::string& path, const LoadOptions& opts) {
-            wb.loadInPlace(std::filesystem::path(path), opts);
+            wb.load(std::filesystem::path(path), opts);
         }, py::arg("path"), py::arg("options"))
         .def("save_in_place", [](const Workbook& wb, const std::string& path, const SaveOptions& opts) {
-            wb.saveInPlace(std::filesystem::path(path), opts);
+            wb.save(std::filesystem::path(path), opts);
         }, py::arg("path"), py::arg("options"))
         .def_property_readonly("properties", py::overload_cast<>(&Workbook::properties))
         .def("protection", py::overload_cast<>(&Workbook::protection),
