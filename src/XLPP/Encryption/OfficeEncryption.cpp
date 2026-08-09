@@ -21,7 +21,8 @@
 #include <windows.h>
 #include <bcrypt.h>
 #elif defined(__linux__)
-#include <sys/random.h>
+#include <fcntl.h>
+#include <unistd.h>
 #elif defined(__APPLE__) || defined(__FreeBSD__)
 #include <stdlib.h>
 #endif
@@ -73,13 +74,17 @@ namespace xlpp::internal {
             #if defined(_WIN32)
             if (out.size() <= static_cast<std::size_t>(std::numeric_limits<ULONG>::max()) && BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(out.data()), static_cast<ULONG>(out.size()), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) return out;
             #elif defined(__linux__)
-            std::size_t offset = 0;
-            while (offset < out.size()) {
-                const auto countRead = ::getrandom(out.data() + offset, out.size() - offset, 0);
-                if (countRead <= 0) break;
-                offset += static_cast<std::size_t>(countRead);
+            const int fd = ::open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+            if (fd >= 0) {
+                std::size_t offset = 0;
+                while (offset < out.size()) {
+                    const auto countRead = ::read(fd, out.data() + offset, out.size() - offset);
+                    if (countRead <= 0) break;
+                    offset += static_cast<std::size_t>(countRead);
+                }
+                ::close(fd);
+                if (offset == out.size()) return out;
             }
-            if (offset == out.size()) return out;
             #elif defined(__APPLE__) || defined(__FreeBSD__)
             arc4random_buf(out.data(), out.size());
             return out;
