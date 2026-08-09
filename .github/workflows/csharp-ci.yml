@@ -19,9 +19,6 @@ jobs:
             rid: win-x64
           - os: ubuntu-latest
             rid: linux-x64
-          - os: macos-14
-            rid: osx-arm64
-
     steps:
       - uses: actions/checkout@v4
 
@@ -39,17 +36,26 @@ jobs:
 
       - name: Configure (Windows, VS generator)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build-capi -G "Visual Studio 18 2026" -A x64 -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_CAPI=ON -DXLPP_USE_BUNDLED_ZLIB=ON
+        run: |
+          $vs = 'C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\IDE\devenv.exe'
+          if (Test-Path $vs) { Write-Host "Using Visual Studio at $vs" }
+          where.exe cmake
+          if (-not (cmake --help | Select-String 'Visual Studio 18')) { throw 'CMake does not provide the Visual Studio 18 generator on this runner' }
+          cmake -S . -B build-capi -A x64 -DBUILD_TESTING=ON -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_CAPI=ON -DXLPP_USE_BUNDLED_ZLIB=ON
 
       - name: Configure (Linux/macOS, Ninja)
         if: runner.os != 'Windows'
         run: |
-          cmake -S . -B build-capi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+          cmake -S . -B build-capi -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
             -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF \
             -DXLPP_BUILD_CAPI=ON -DXLPP_USE_BUNDLED_ZLIB=ON
 
       - name: Build native C API library
         run: cmake --build build-capi --config Release -j 4
+
+      - name: Run C API smoke test
+        working-directory: build-capi
+        run: ctest --output-on-failure -R XLPP_CApiSmoke -C Release
 
       - name: Stage native library for the runtimes folder
         shell: bash

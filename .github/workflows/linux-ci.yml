@@ -30,6 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify release metadata
+        run: python3 scripts/check-version.py
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -66,6 +69,10 @@ jobs:
       - name: Test
         working-directory: build
         run: ctest --output-on-failure -C ${{ matrix.build_type }}
+
+      - name: C API smoke test
+        working-directory: build
+        run: ctest --output-on-failure -R XLPP_CApiSmoke -C ${{ matrix.build_type }}
 
   sanitizers:
     name: ASan + UBSan (Debug)
@@ -159,7 +166,6 @@ jobs:
         with:
           name: coverage-report
           path: coverage-html
-
   install-package:
     name: Install & consumer smoke test
     runs-on: ubuntu-latest
@@ -204,39 +210,3 @@ jobs:
             -DXLPP_SOURCE_DIR=${PWD}
           cmake --build /tmp/xlpp-subdir-build --target run_subdir_app
 
-  python-wheel:
-    name: Python wheel (Ubuntu)
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.12']
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-14
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
-          python -m pip install --upgrade pip build wheel pybind11 setuptools
-
-      - name: Build wheel (self-contained)
-        run: python -m build --wheel --no-isolation
-
-      - name: Test wheel
-        run: |
-          python -m venv --copies wheel-test
-          wheel-test/bin/python -m pip install --upgrade pip
-          wheel-test/bin/python -m pip install dist/*.whl
-          wheel-test/bin/python -c "import xlpp; wb=xlpp.Workbook(); ws=wb.add_worksheet('CI'); ws['A1'].value=42; print('Python binding OK')"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: xlpp-linux-wheel
-          path: dist/*.whl

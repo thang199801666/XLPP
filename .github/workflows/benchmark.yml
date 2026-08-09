@@ -1,11 +1,11 @@
 name: Benchmark
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * 1'
+  push:
+    tags: ['v*']
 
 jobs:
   benchmark:
@@ -29,7 +29,11 @@ jobs:
         run: .\x64\Release\XLPP.UnitTests.exe
       - name: Build C++ binding and benchmarks
         run: |
-          cmake -S . -B build-benchmark -G "Visual Studio 18 2026" -A x64 `
+          $vs = 'C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\IDE\devenv.exe'
+          if (Test-Path $vs) { Write-Host "Using Visual Studio at $vs" }
+          where.exe cmake
+          if (-not (cmake --help | Select-String 'Visual Studio 18')) { throw 'CMake does not provide the Visual Studio 18 generator on this runner' }
+          cmake -S . -B build-benchmark -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_CAPI=OFF `
             -DXLPP_BUILD_BENCHMARKS=ON 2>&1 | Tee-Object cmake-configure.log
