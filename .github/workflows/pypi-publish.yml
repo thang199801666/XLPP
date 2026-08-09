@@ -1,4 +1,5 @@
 name: Python Wheels
+# Publishes xlpp wheels to PyPI when a GitHub Release is published.
 on:
   workflow_dispatch:
   release:
