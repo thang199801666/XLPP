@@ -34,10 +34,22 @@ Outputs:
 cd bindings\python
 
 # Install pybind11
-pip install pybind11 setuptools
+pip install pybind11 setuptools build
 
 # Build + install
 pip install .
+
+Build and publish a wheel (requires a native XLPP Release build and PyPI credentials):
+
+```powershell
+python -m pip install build twine
+python -m build --wheel
+python -m twine check dist/*
+python -m twine upload dist/*
+```
+
+The repository workflow `.github/workflows/pypi-publish.yml` runs cibuildwheel from the repository root. The root `setup.py` is self-contained: it compiles the XL++ C++ sources and bundled zlib into the extension instead of relying on a prebuilt native XL++ library. The workflow publishes through PyPI trusted publishing on a GitHub release.
+No local C++ build is required.
 ```
 
 ### Quick test
@@ -183,31 +195,67 @@ class Program
 
 ## 4. Project Structure
 
-```
+```text
 XLPP/
-├── include/XLPP/          # Public headers
-├── src/XLPP/              # Implementation
-│   ├── Packaging/         # ZIP archive I/O + MappedFile
-│   ├── Streaming/         # Streaming read/write + shared strings
-│   ├── Threading/         # ThreadPool
-│   ├── Workbook/
-│   ├── Worksheet/
-│   └── XML/               # XML scanning + utilities
-├── third_party/zlib/      # zlib compression
-├── bindings/              # Language bindings
-│   ├── python/            # Python (pybind11)
-│   │   ├── setup.py
-│   │   ├── CMakeLists.txt
-│   │   └── src/xlpp_bindings.cpp
-│   ├── c/                 # C API (DLL for P/Invoke)
-│   │   ├── xlpp_capi.h
-│   │   └── xlpp_capi.cpp
-│   └── csharp/            # C# P/Invoke wrapper
-│       └── XlppNet.cs
-├── tests/                 # C++ unit tests
-├── samples/               # C++ sample
-├── scripts/
-│   └── pgo.ps1            # PGO build script
-├── .github/workflows/     # CI/CD
-└── BUILDING.md
+├── include/XLPP/              # Stable public C++ API
+├── src/XLPP/
+│   ├── Model/                 # Workbook / worksheet document model
+│   ├── Formula/               # Parser, evaluator, dependency primitives
+│   ├── Dependencies/          # Structural edits and reference translation
+│   ├── IO/                    # Workbook load/save facade + file transactions
+│   ├── OOXML/                 # Semantic model <-> OOXML adapters
+│   │   ├── Common/
+│   │   ├── Workbook/
+│   │   ├── Worksheet/
+│   │   ├── Styles/
+│   │   ├── Tables/
+│   │   ├── Drawings/
+│   │   ├── Comments/
+│   │   └── Pivot/
+│   ├── Package/               # Format-neutral package primitives
+│   │   ├── Zip/
+│   │   ├── Opc/
+│   │   └── Xml/
+│   ├── Preservation/          # Preservation policy / unknown-part retention
+│   ├── Charts/                # Chart-domain services
+│   ├── Encryption/            # Office encryption + CFB
+│   ├── Streaming/             # Large worksheet streaming paths
+│   ├── VBA/                   # VBA binary/project services
+│   ├── Validation/            # Workbook/package validation
+│   ├── Platform/              # OS-specific low-level facilities
+│   └── Core/                  # Shared low-level core utilities
+├── tests/unit/                # Unit tests split by domain
+├── tests/fixtures/            # Compatibility / malformed input corpus
+├── third_party/zlib/
+├── bindings/                  # C, Python and C# surfaces
+└── .github/workflows/
 ```
+
+The public library remains a single `XLPP::xlpp` target. Internally CMake builds
+separate object modules (`model`, `formula`, `dependencies`, `package`, `io`,
+`preservation`, `ooxml`, `charts`, `streaming`, `encryption`, `vba`, and
+`validation`) and aggregates them into the final static library. This keeps the
+public deployment simple while making compile dependencies visible.
+
+## Development hardening gates
+
+```bash
+# Strict warnings
+cmake -S . -B build-warn -G Ninja -DXLPP_ENABLE_STRICT_WARNINGS=ON
+cmake --build build-warn --target xlpp_static
+
+# Full ASan + UBSan regression
+cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DXLPP_ENABLE_SANITIZERS=ON -DXLPP_BUILD_TESTS=ON
+cmake --build build-asan --target XLPP_UnitTests
+ctest --test-dir build-asan -R XLPP_UnitTests --output-on-failure
+
+# Continuous workbook/package fuzzing (Clang only)
+CC=clang CXX=clang++ cmake -S . -B build-fuzz -G Ninja \
+  -DXLPP_BUILD_FUZZERS=ON -DXLPP_BUILD_TESTS=OFF \
+  -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_TOOLS=OFF
+cmake --build build-fuzz --target XLPP_WorkbookLoadFuzzer
+./build-fuzz/tests/fuzz/XLPP_WorkbookLoadFuzzer corpus/ -max_total_time=60
+```
+
+`XLPP_BUILD_FUZZERS` is opt-in and creates no target on non-Clang toolchains. The normal unit suite also contains a deterministic malformed/mutation corpus.

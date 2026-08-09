@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(XLPP
-    VERSION 1.1.1
+    VERSION 1.12.0
     DESCRIPTION "High-performance C++20 Excel xlsx read/write library"
     LANGUAGES CXX C
 )
@@ -14,7 +14,11 @@ option(XLPP_BUILD_SAMPLES "Build sample programs" ON)
 option(XLPP_BUILD_CAPI "Build C API DLL" ON)
 option(XLPP_BUILD_BINDINGS "Build language bindings" OFF)
 option(XLPP_BUILD_BENCHMARKS "Build external library benchmarks" OFF)
+option(XLPP_BUILD_TOOLS "Build XLPP package inspection tools" ON)
 option(XLPP_USE_BUNDLED_ZLIB "Use bundled zlib instead of system" ON)
+option(XLPP_ENABLE_SANITIZERS "Enable Address/UndefinedBehavior sanitizers for development builds" OFF)
+option(XLPP_ENABLE_STRICT_WARNINGS "Enable strong compiler warnings on XLPP core" OFF)
+option(XLPP_BUILD_FUZZERS "Build libFuzzer hardening targets (Clang only)" OFF)
 
 # === C++ Standard ===
 set(CMAKE_CXX_STANDARD 20)
@@ -25,6 +29,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Required so the static libraries (XLPP + bundled zlib) can be linked into
 # shared objects such as the Python extension module.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# === Development hardening ===
+if(XLPP_ENABLE_SANITIZERS)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    elseif(MSVC)
+        add_compile_options(/fsanitize=address)
+        add_link_options(/INFERASANLIBS)
+    else()
+        message(WARNING "XLPP_ENABLE_SANITIZERS is not configured for this compiler")
+    endif()
+endif()
 
 # === Platform detection ===
 if(WIN32)
@@ -59,9 +76,18 @@ if(XLPP_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+# === Fuzzing ===
+if(XLPP_BUILD_FUZZERS)
+    add_subdirectory(tests/fuzz)
+endif()
+
 # === Samples ===
 if(XLPP_BUILD_SAMPLES)
-    add_subdirectory(samples)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/CMakeLists.txt")
+        add_subdirectory(samples)
+    else()
+        message(WARNING "XLPP_BUILD_SAMPLES is ON, but no samples/CMakeLists.txt is present; skipping sample targets")
+    endif()
 endif()
 
 # === C API ===
@@ -69,8 +95,19 @@ if(XLPP_BUILD_CAPI)
     add_subdirectory(bindings/c)
 endif()
 
+# === Language bindings ===
+# Python links directly against the in-tree native target when requested.
+# C# consumes the C ABI and is built by dotnet/NuGet tooling rather than CMake.
+if(XLPP_BUILD_BINDINGS)
+    add_subdirectory(bindings/python)
+endif()
+
 if(XLPP_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
+endif()
+
+if(XLPP_BUILD_TOOLS)
+    add_subdirectory(tools)
 endif()
 
 # === Install ===

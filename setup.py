@@ -10,9 +10,45 @@ import sys
 
 import pybind11
 from setuptools import Extension, setup
-from pybind11.setup_helpers import build_ext
+from setuptools.command.build_ext import build_ext as _build_ext
+
+
+class build_ext(_build_ext):
+    """Build the extension, compiling zlib's C sources with the C compiler.
+
+    The extension mixes .cpp and .c sources. setuptools passes every
+    extra_compile_args entry (including -std=c++20) to the C compiler for
+    .c files, which clang/gcc reject ("invalid argument '-std=c++20' not
+    allowed with 'C'"). Compile the C sources separately first, then hand
+    the resulting objects to the normal C++ build so -std=c++20 only ever
+    reaches a C++ translation unit.
+    """
+
+    def build_extensions(self):
+        for ext in self.extensions:
+            c_sources = [s for s in ext.sources if s.endswith(".c")]
+            if not c_sources:
+                continue
+            others = [s for s in ext.sources if not s.endswith(".c")]
+            c_args = [a for a in ext.extra_compile_args
+                      if not a.startswith(("-std", "/std"))]
+            objects = self.compiler.compile(
+                c_sources,
+                output_dir=self.build_temp,
+                macros=ext.define_macros or [],
+                include_dirs=ext.include_dirs or [],
+                debug=self.debug,
+                extra_postargs=c_args,
+                depends=ext.depends,
+            )
+            ext.sources = others
+            ext.extra_objects = (ext.extra_objects or []) + list(objects)
+        super().build_extensions()
 
 root = os.path.abspath(os.path.dirname(__file__))
+
+with open(os.path.join(root, "VERSION"), encoding="utf-8") as version_file:
+    package_version = version_file.read().strip()
 
 is_msvc = os.name == "nt"
 
@@ -76,7 +112,7 @@ except OSError:
 
 setup(
     name="xlpp",
-    version="1.1.1",
+    version=package_version,
     author="XL++ contributors",
     description="High-performance C++ Excel xlsx library for Python",
     long_description=long_description,

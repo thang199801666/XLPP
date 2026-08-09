@@ -1,0 +1,28 @@
+name: .NET Package
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+jobs:
+  pack:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '8.0.x' }
+      - name: Configure native C ABI
+        run: cmake -S . -B build -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_CAPI=ON -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_TOOLS=OFF
+      - name: Build native C ABI
+        run: cmake --build build --config Release --target xlpp_capi
+      - name: Stage win-x64 native runtime
+        shell: pwsh
+        run: |
+          New-Item -Force -ItemType Directory bindings/csharp/runtimes/win-x64/native | Out-Null
+          Copy-Item build/bindings/c/Release/xlpp_capi.dll bindings/csharp/runtimes/win-x64/native/
+      - run: dotnet test bindings/csharp/tests/XlppNet.Tests/XlppNet.Tests.csproj -c Release
+      - run: dotnet pack bindings/csharp/XlppNet.csproj -c Release -o artifacts
+      - uses: actions/upload-artifact@v4
+        with: { name: nuget, path: artifacts/*nupkg }
+      - name: Publish NuGet
+        if: github.event_name == 'release'
+        run: dotnet nuget push "artifacts/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate

@@ -1,5 +1,5 @@
 #include "SharedStringsReader.h"
-#include "../XML/XmlUtilities.h"
+#include "Package/Xml/XmlUtilities.h"
 #include <utility>
 
 namespace {

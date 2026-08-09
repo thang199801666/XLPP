@@ -1,0 +1,59 @@
+name: Reliability CI
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  strict-warnings:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict build
+        run: cmake -S . -B build-strict -DXLPP_BUILD_TESTS=ON -DXLPP_BUILD_CAPI=ON -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_TOOLS=ON -DXLPP_ENABLE_STRICT_WARNINGS=ON
+      - name: Build strict
+        run: cmake --build build-strict --config Release --parallel 2
+      - name: Test strict
+        run: ctest --test-dir build-strict -C Release --output-on-failure
+
+  sanitizers:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure ASan + UBSan
+        run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DXLPP_BUILD_TESTS=ON -DXLPP_BUILD_CAPI=ON -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_TOOLS=OFF -DXLPP_ENABLE_SANITIZERS=ON
+      - name: Build
+        run: cmake --build build-sanitize --parallel 2
+      - name: Regression under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-sanitize --output-on-failure
+
+  fuzz:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure libFuzzer
+        env: { CC: clang, CXX: clang++ }
+        run: cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=Debug -DXLPP_BUILD_TESTS=OFF -DXLPP_BUILD_CAPI=OFF -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_TOOLS=OFF -DXLPP_BUILD_FUZZERS=ON
+      - name: Build fuzzer
+        run: cmake --build build-fuzz --parallel 2 --target XLPP_WorkbookLoadFuzzer
+      - name: Seed corpus
+        run: |
+          mkdir -p fuzz-corpus fuzz-artifacts
+          find tests -type f \( -name '*.xlsx' -o -name '*.xlsm' \) -print0 | head -z -n 40 | xargs -0 -r -I{} cp "{}" fuzz-corpus/
+          printf 'not-a-workbook' > fuzz-corpus/raw.bin
+      - name: Fuzz workbook load/validate/resave
+        run: ./build-fuzz/tests/fuzz/XLPP_WorkbookLoadFuzzer fuzz-corpus -max_total_time=120 -timeout=5 -rss_limit_mb=2048 -artifact_prefix=fuzz-artifacts/
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: fuzz-artifacts, path: fuzz-artifacts }

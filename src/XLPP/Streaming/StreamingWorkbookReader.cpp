@@ -1,9 +1,10 @@
 #include <XLPP/Streaming/StreamingWorkbookReader.h>
-#include "../Packaging/ZipArchiveReader.h"
+#include <XLPP/Cell/CellReference.h>
+#include "Package/Zip/ZipArchiveReader.h"
 #include "../Streaming/SharedStringsReader.h"
-#include "../XML/XmlPullReader.h"
-#include "../XML/XmlScanner.h"
-#include "../XML/XmlUtilities.h"
+#include "Package/Xml/XmlPullReader.h"
+#include "Package/Xml/XmlScanner.h"
+#include "Package/Xml/XmlUtilities.h"
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -15,9 +16,11 @@ namespace xlpp::internal {
 class WorksheetRowSource {
 public:
     WorksheetRowSource(ZipArchiveReader archive, std::string entryName,
-                       std::shared_ptr<const SharedStringsReader> sharedStrings)
+                       std::shared_ptr<const SharedStringsReader> sharedStrings,
+                       bool validateCellReferences)
         : entry_(archive.openEntry(std::move(entryName))),
           sharedStrings_(std::move(sharedStrings)),
+          validateCellReferences_(validateCellReferences),
           xml_(std::in_place, [this](unsigned char* out, std::size_t capacity) {
               return entry_.read(out, capacity);
           }) {}
@@ -29,6 +32,8 @@ public:
         rowNumber = 0;
         if (!indexText.empty() && !parseSize(indexText, rowNumber))
             rowNumber = static_cast<std::size_t>(std::stoull(std::string(indexText)));
+        if (validateCellReferences_ && rowNumber > MaxExcelRows)
+            throw std::runtime_error("Streaming worksheet row exceeds Excel's row limit");
         row.clear();
         XmlScanner cells(rowTag);
         std::string_view cellTag;
@@ -36,6 +41,8 @@ public:
             StreamingCell cell;
             const auto address = xmlAttribute(cellTag, "r");
             cell.address.assign(address.data(), address.size());
+            if (validateCellReferences_ && !cell.address.empty())
+                (void)CellReference::parse(cell.address);
             const auto styleValue = xmlAttribute(cellTag, "s");
             if (!styleValue.empty()) {
                 std::size_t sid = 0;
@@ -82,39 +89,37 @@ public:
 private:
     ZipEntrySource entry_;
     std::shared_ptr<const SharedStringsReader> sharedStrings_;
+    bool validateCellReferences_{true};
     std::optional<XmlPullReader> xml_;
 };
 
-} // namespace xlpp::internal
-
-namespace {
 
 struct SheetBinding {
     std::string name;
     std::string entry;
 };
 
-std::vector<SheetBinding> readSheetBindings(const xlpp::internal::ZipArchiveReader& archive) {
+std::vector<SheetBinding> readSheetBindings(const ZipArchiveReader& archive) {
     const auto workbook = archive.readEntry("xl/workbook.xml");
     std::unordered_map<std::string, std::string> targets;
     if (archive.contains("xl/_rels/workbook.xml.rels")) {
         const auto rels = archive.readEntry("xl/_rels/workbook.xml.rels");
-        xlpp::internal::XmlScanner relsScanner(rels);
+        XmlScanner relsScanner(rels);
         std::string_view relationship;
         while (relsScanner.nextElement("Relationship", relationship)) {
-            const auto id = xlpp::internal::xmlAttribute(relationship, "Id");
-            const auto target = xlpp::internal::xmlAttribute(relationship, "Target");
+            const auto id = xmlAttribute(relationship, "Id");
+            const auto target = xmlAttribute(relationship, "Target");
             targets[std::string(id)] = std::string(target);
         }
     }
     std::vector<SheetBinding> bindings;
-    xlpp::internal::XmlScanner wbScanner(workbook);
+    XmlScanner wbScanner(workbook);
     std::string_view sheet;
     while (wbScanner.nextElement("sheet", sheet)) {
-        const auto nameView = xlpp::internal::xmlAttribute(sheet, "name");
-        std::string name = xlpp::internal::xmlUnescape(nameView);
-        std::string rid = std::string(xlpp::internal::xmlAttribute(sheet, "r:id"));
-        if (rid.empty()) rid = std::string(xlpp::internal::xmlAttribute(sheet, "id"));
+        const auto nameView = xmlAttribute(sheet, "name");
+        std::string name = xmlUnescape(nameView);
+        std::string rid = std::string(xmlAttribute(sheet, "r:id"));
+        if (rid.empty()) rid = std::string(xmlAttribute(sheet, "id"));
         const auto it = targets.find(rid);
         std::string target = it == targets.end() ? std::string{} : it->second;
         if (target.empty()) target = "worksheets/sheet" + std::to_string(bindings.size() + 1) + ".xml";
@@ -125,20 +130,28 @@ std::vector<SheetBinding> readSheetBindings(const xlpp::internal::ZipArchiveRead
     return bindings;
 }
 
-} // namespace
+} // namespace xlpp::internal
 
 namespace xlpp {
 
 struct StreamingWorkbookReader::SharedState {
-    explicit SharedState(const std::filesystem::path& path) : archive(path) {}
+    SharedState(const std::filesystem::path& path, const StreamingReaderOptions& options)
+        : archive(path, internal::ZipArchiveReaderLimits{
+              options.maxFileBytes, options.maxEntryBytes, options.maxTotalBytes, options.maxEntries}),
+          validateCellReferences(options.validateCellReferences) {}
     internal::ZipArchiveReader archive;
-    std::vector<SheetBinding> bindings;
+    std::vector<internal::SheetBinding> bindings;
     std::shared_ptr<internal::SharedStringsReader> sharedStrings;
+    bool validateCellReferences{true};
 };
 
-StreamingWorkbookReader::StreamingWorkbookReader(const std::filesystem::path& path) {
-    auto state = std::make_shared<SharedState>(path);
-    state->bindings = readSheetBindings(state->archive);
+StreamingWorkbookReader::StreamingWorkbookReader(const std::filesystem::path& path)
+    : StreamingWorkbookReader(path, StreamingReaderOptions{}) {}
+
+StreamingWorkbookReader::StreamingWorkbookReader(const std::filesystem::path& path,
+                                                   const StreamingReaderOptions& options) {
+    auto state = std::make_shared<SharedState>(path, options);
+    state->bindings = internal::readSheetBindings(state->archive);
     state_ = std::move(state);
 }
 
@@ -158,7 +171,8 @@ StreamingWorksheetReader StreamingWorkbookReader::worksheet(const std::string& w
             const auto entry = binding.entry;
             auto factory = [state, entry]() -> std::shared_ptr<internal::WorksheetRowSource> {
                 return std::make_shared<internal::WorksheetRowSource>(state->archive, entry,
-                                                                      state->sharedStrings);
+                                                                      state->sharedStrings,
+                                                                      state->validateCellReferences);
             };
             return StreamingWorksheetReader(std::move(factory));
         }

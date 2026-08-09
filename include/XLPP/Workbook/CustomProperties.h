@@ -1,4 +1,5 @@
 #pragma once
+#include <XLPP/Core/StableVector.h>
 #include <string>
 #include <vector>
 
@@ -22,11 +23,11 @@ private:
 class CustomProperties {
 public:
     void add(CustomProperty prop) { properties_.push_back(std::move(prop)); }
-    const std::vector<CustomProperty>& items() const noexcept { return properties_; }
-    std::vector<CustomProperty>& items() noexcept { return properties_; }
+    const StableVector<CustomProperty>& items() const noexcept { return properties_; }
+    StableVector<CustomProperty>& items() noexcept { return properties_; }
     bool empty() const noexcept { return properties_.empty(); }
 private:
-    std::vector<CustomProperty> properties_;
+    StableVector<CustomProperty> properties_;
 };
 
 }

@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-pip install pybind11 setuptools
+pip install pybind11 setuptools build
 cd bindings/python
 pip install .
 ```

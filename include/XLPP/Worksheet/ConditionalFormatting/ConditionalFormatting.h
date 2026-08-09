@@ -1,4 +1,5 @@
 #pragma once
+#include <XLPP/Core/StableVector.h>
 #include <XLPP/Styles/Style.h>
 #include <cstddef>
 #include <optional>
@@ -40,7 +41,7 @@ struct Cfvo {
 
     Cfvo() = default;
     explicit Cfvo(std::string type_, double val) : type(std::move(type_)), value(val), hasValue(true) {}
-    Cfvo(std::string type_, std::string formula_) : type(std::move(type_)), formula(std::move(formula_)), hasValue(true) {}
+    Cfvo(std::string type_, std::string formula_) : type(std::move(type_)), hasValue(true), formula(std::move(formula_)) {}
 };
 
 // Data bar conditional formatting (Excel 2010+).
@@ -202,13 +203,13 @@ public:
         return rules_.back();
     }
 
-    const std::vector<ConditionalRule>& rules() const noexcept { return rules_; }
-    std::vector<ConditionalRule>& rules() noexcept { return rules_; }
+    const StableVector<ConditionalRule>& rules() const noexcept { return rules_; }
+    StableVector<ConditionalRule>& rules() noexcept { return rules_; }
     bool empty() const noexcept { return rules_.empty(); }
 
 private:
     std::string reference_;
-    std::vector<ConditionalRule> rules_;
+    StableVector<ConditionalRule> rules_;
 };
 
 class ConditionalFormattingCollection {
@@ -225,13 +226,13 @@ public:
         return add(std::move(reference)).addRule(std::move(rule));
     }
 
-    const std::vector<ConditionalFormattingEntry>& entries() const noexcept { return entries_; }
-    std::vector<ConditionalFormattingEntry>& entries() noexcept { return entries_; }
+    const StableVector<ConditionalFormattingEntry>& entries() const noexcept { return entries_; }
+    StableVector<ConditionalFormattingEntry>& entries() noexcept { return entries_; }
     bool empty() const noexcept { return entries_.empty(); }
     void clear() noexcept { entries_.clear(); }
 
 private:
-    std::vector<ConditionalFormattingEntry> entries_;
+    StableVector<ConditionalFormattingEntry> entries_;
 };
 
 } // namespace xlpp

@@ -1,13 +1,20 @@
+#include <XLPP/Error.h>
+#include <XLPP/Version.h>
 #pragma once
 #include "Compression.h"
 #include "Cell/CellReference.h"
 #include "Cell/DateTime.h"
 #include "Cell/Cell.h"
+#include "Formula/Calculation.h"
+#include "Encryption/Encryption.h"
 #include "Worksheet/Dimensions.h"
 #include "Worksheet/Range.h"
 #include "Worksheet/Filters.h"
 #include "Worksheet/Worksheet.h"
+#include "Worksheet/WorksheetName.h"
 #include "Workbook/Workbook.h"
+#include "Workbook/Validation.h"
+#include "Vba/VbaModule.h"
 
 #include <XLPP/Styles.h>
 
@@ -28,3 +35,8 @@
 #include <XLPP/Worksheet/Drawings.h>
 #include <XLPP/Workbook/Protection.h>
 #include <XLPP/Streaming.h>
+
+#include <XLPP/Package/Preservation.h>
+
+#include <XLPP/ExternalData.h>
+#include <XLPP/DataModel.h>

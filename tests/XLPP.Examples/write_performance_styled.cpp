@@ -1,0 +1,5 @@
+#include "PerformanceCommon.h"
+#include <iostream>
+void testPerformanceStyled() {
+    using namespace xlpp_numbered_tests; const std::size_t rows=2500,cols=10; const auto dataPath=outputPath("93_performance_styled_data.xlsx"); xlpp::Workbook wb; auto& ws=wb.addWorksheet("Styled"); xlpp::Style even; even.font().setBold(true); even.fill().setPatternType("solid"); even.fill().foregroundColor()=xlpp::Color("D9EAF7"); even.setNumberFormat("#,##0.00"); xlpp::Style odd; odd.font().setItalic(true); odd.alignment().setHorizontal("center"); for(std::size_t r=1;r<=rows;++r) for(std::size_t c=1;c<=cols;++c){auto& cell=ws.cell(r,c); cell.setValue(static_cast<double>(r*c)/3.0); cell.style()=((r+c)%2?odd:even);} BenchmarkResult result{"styled_dom_write",rows,cols,rows*cols}; result.seconds=measure([&]{wb.save(dataPath);}); result.bytes=std::filesystem::file_size(dataPath); writeBenchmarkWorkbook("93_performance_styled.xlsx",result,100.0,"cells_per_second"); std::cout<<"Saved: 93_performance_styled.xlsx\n";
+}

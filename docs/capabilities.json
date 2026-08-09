@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "release": "1.12.0",
+  "milestone": "P0Z-I",
+  "areas": {
+    "workbook_core": {"status": "supported"},
+    "styles": {"status": "supported_with_limitations"},
+    "tables": {"status": "supported"},
+    "advanced_autofilter": {"status": "supported", "since": "1.12.0"},
+    "data_validation": {"status": "supported"},
+    "conditional_formatting": {"status": "supported_with_limitations"},
+    "formula_calculation": {"status": "supported_with_limitations", "dirty_recalculation": true},
+    "charts": {"status": "supported_with_limitations"},
+    "pivot_non_olap": {"status": "supported_with_limitations"},
+    "pivot_calculated_fields_items": {"status": "unsupported"},
+    "pivot_charts": {"status": "unsupported"},
+    "slicers_timelines": {"status": "unsupported"},
+    "drawingml_smartart": {"status": "preservation_first"},
+    "vba_source_authoring": {"status": "supported_with_limitations"},
+    "vba_userforms_frx": {"status": "preservation_first"},
+    "encryption": {"status": "supported"},
+    "streaming": {"status": "supported"},
+    "external_data": {"status": "preservation_first", "inspection": true},
+    "power_query": {"status": "preservation_first", "inspection": true},
+    "data_model_olap": {"status": "preservation_first", "inspection": true},
+    "c_abi": {"status": "supported", "abi_version": 2},
+    "python": {"status": "supported_with_limitations"},
+    "csharp": {"status": "supported_with_limitations"},
+    "excel_desktop_interop": {"status": "experimental_external_gate"}
+  }
+}

@@ -7,8 +7,8 @@
     <AssemblyName>XLPP</AssemblyName>
     <RootNamespace>XLPP</RootNamespace>
     <PackageId>XLPP</PackageId>
-    <Version>1.0.0</Version>
-    <Description>XL++ C# binding — high-performance C++20 Excel .xlsx read/write library.</Description>
+    <Version>1.12.0</Version>
+    <Description>XL++ C# binding for the high-performance C++20 Excel .xlsx read/write library.</Description>
     <Authors>XL++ contributors</Authors>
     <Company>XL++</Company>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -16,6 +16,7 @@
     <RepositoryUrl>https://github.com/thang199801666/XLPP</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>excel;xlsx;spreadsheet;ooxml;xlpp</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
@@ -27,10 +28,14 @@
     <None Include="runtimes/**" Pack="true" PackagePath="runtimes/"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../LICENSE" Pack="true" PackagePath="LICENSE.txt" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The tests/ directory is a separate project; do not compile it here. -->
+    <!-- Program.cs is a top-level-statements smoke test; exclude it from the library.
+         The tests/ directory is a separate project; do not compile it here. -->
+    <Compile Remove="Program.cs" />
+    <None Remove="Program.cs" />
     <Compile Remove="tests/**" />
     <None Remove="tests/**" />
   </ItemGroup>

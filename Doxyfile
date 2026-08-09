@@ -1,12 +1,12 @@
 PROJECT_NAME           = "XL++"
 PROJECT_BRIEF          = "High-performance C++20 Excel XLSX read/write library"
-PROJECT_NUMBER         = 1.1.1
+PROJECT_NUMBER         = 1.0.0
 OUTPUT_DIRECTORY       = docs/doxygen
 CREATE_SUBDIRS         = NO
 OUTPUT_LANGUAGE        = English
 
-INPUT                  = include docs/doxygen-mainpage.md
-FILE_PATTERNS          = *.h
+INPUT                  = include docs/doxygen-mainpage.md docs/python.md
+FILE_PATTERNS          = *.h *.md
 RECURSIVE              = YES
 EXCLUDE                = third_party bindings
 
@@ -15,6 +15,7 @@ GENERATE_LATEX         = NO
 HTML_OUTPUT            = html
 USE_MDFILE_AS_MAINPAGE = docs/doxygen-mainpage.md
 MARKDOWN_SUPPORT       = YES
+EXTENSION_MAPPING      = md=Markdown
 
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = NO

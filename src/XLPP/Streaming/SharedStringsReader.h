@@ -1,5 +1,5 @@
 #pragma once
-#include "../Packaging/ZipArchiveReader.h"
+#include "Package/Zip/ZipArchiveReader.h"
 #include <cstddef>
 #include <mutex>
 #include <string>

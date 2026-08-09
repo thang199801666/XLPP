@@ -1,2 +1,4 @@
 include src/*.cpp
 include setup.py
+include pyproject.toml
+include VERSION

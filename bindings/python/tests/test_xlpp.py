@@ -119,6 +119,36 @@ def test_worksheet_not_found_raises():
         _ = wb["Missing"]
 
 
+def test_table_chart_and_rules_api(tmp_path):
+    wb = xlpp.Workbook()
+    ws = wb.add_worksheet("Data")
+    ws.append(["Q1", 10])
+    table = ws.add_table("Sales", "A1:B1")
+    table.display_name = "SalesDisplay"
+    table.show_header_row = True
+    table.show_totals_row = False
+    table.style_info.name = "TableStyleMedium4"
+    table.style_info.show_row_stripes = False
+    table.add_column("Value")
+
+    chart = xlpp.Chart(xlpp.ChartType.BAR)
+    chart.title = "Sales"
+    chart.x_axis_title = "Quarter"
+    chart.y_axis_title = "Units"
+    chart.grouping = xlpp.ChartGrouping.STACKED
+    chart.add_series(xlpp.ChartSeries("Units"))
+    chart.series[0].values_reference = "'Data'!$B$1:$B$1"
+    chart.series[0].categories_reference = "'Data'!$A$1:$A$1"
+    ws.add_chart(chart)
+
+    validation = ws.data_validations.add(xlpp.DataValidationType.LIST, "A1:A3")
+    validation.allow_blank = True
+    ws.conditional_formatting.add_rule("B1:B3", xlpp.ConditionalRuleType.FORMULA, "B1>0")
+    path = tmp_path / "binding_features.xlsx"
+    wb.save(str(path))
+    assert path.exists()
+
+
 def test_copy_worksheet():
     wb = xlpp.Workbook()
     src = wb.add_worksheet("Source")
@@ -184,7 +214,7 @@ def test_cell_coordinates_and_address():
     assert c.row == 5
     assert c.column == 3
     assert ws.cell((2, 1)).address == "A2"
-    with pytest.raises(ValueError):
+    with pytest.raises(IndexError):
         ws.cell(0, 1)
 
 
@@ -548,6 +578,39 @@ def test_roundtrip_values(tmp_path):
     assert ws2["D1"].value == datetime(2024, 1, 15)
     assert ws2["E1"].formula == "B1*2"
     assert wb2.properties.title == "Roundtrip"
+
+
+def test_write_read_file_with_library_features(tmp_path):
+    path = tmp_path / "library_features.xlsx"
+
+    workbook = xlpp.Workbook()
+    worksheet = workbook.add_worksheet("Report")
+    worksheet.append(["Product", "Quantity", "Price"])
+    worksheet.append(["Keyboard", 2, 25.5])
+    worksheet.append(["Mouse", 3, 12.0])
+    worksheet["D1"].value = "Total"
+    worksheet["D2"].set_formula("B2*C2")
+    worksheet["D3"].set_formula("B3*C3")
+    worksheet["A1"].font().bold = True
+    worksheet["D1"].font().bold = True
+    workbook.properties.title = "Sales report"
+
+    workbook.save(str(path))
+    assert path.exists()
+
+    loaded = xlpp.Workbook()
+    loaded.load(str(path))
+    report = loaded["Report"]
+
+    assert report.to_records(include_header=True) == [
+        ["Product", "Quantity", "Price", "Total"],
+        ["Keyboard", 2.0, 25.5, None],
+        ["Mouse", 3.0, 12.0, None],
+    ]
+    assert report["D2"].formula == "B2*C2"
+    assert report["D3"].formula == "B3*C3"
+    assert report["A1"].font().bold is True
+    assert loaded.properties.title == "Sales report"
 
 
 def test_roundtrip_styles(tmp_path):

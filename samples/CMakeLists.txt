@@ -1,22 +1,3 @@
-# Sample Programs
-
-add_executable(XLPP_Sample
-    XLPP.Sample/main.cpp
-)
-
-target_include_directories(XLPP_Sample PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/XLPP
-)
-
-target_link_libraries(XLPP_Sample PRIVATE xlpp_static)
-
-# Native benchmark
-add_executable(XLPP_Benchmark
-    ${CMAKE_CURRENT_SOURCE_DIR}/../benchmarks/bench_native.cpp
-)
-
-target_include_directories(XLPP_Benchmark PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/XLPP
-)
-
-target_link_libraries(XLPP_Benchmark PRIVATE xlpp_static)
+add_executable(xlpp_p0x_sample p0x_engine.cpp)
+target_link_libraries(xlpp_p0x_sample PRIVATE xlpp_static)
+target_compile_features(xlpp_p0x_sample PRIVATE cxx_std_20)

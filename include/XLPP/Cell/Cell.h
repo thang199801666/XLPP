@@ -5,6 +5,7 @@
 #include "Hyperlink.h"
 #include "Comment.h"
 #include "Formula.h"
+#include "RichText.h"
 #include <optional>
 #include <cstdint>
 #include <string>
@@ -34,23 +35,36 @@ public:
     std::size_t column() const noexcept { return column_; }
 
     const CellValue& value() const noexcept { return value_; }
-    void setValue(CellValue value) { value_ = std::move(value); }
-    void setValue(std::monostate value) { value_ = value; }
-    void setValue(double value) { value_ = value; }
-    void setValue(bool value) { value_ = value; }
-    void setValue(const std::string& value) { value_ = value; }
-    void setValue(std::string&& value) { value_ = std::move(value); }
-    void setValue(const char* value) { value_ = std::string(value ? value : ""); }
-    void setValue(std::string_view value) { value_ = std::string(value); }
-    void setValue(std::int64_t value) { value_ = static_cast<double>(value); }
-    void setValue(int value) { value_ = static_cast<double>(value); }
-    void setValue(DateTime value) { value_ = value; }
-    void setError(CellError value) { value_ = value; }
-    void setStringValue(const std::string& value) { value_ = value; }
-    void setStringValue(std::string&& value) { value_ = std::move(value); }
-    void setStringValue(const char* value) { value_ = std::string(value ? value : ""); }
-    void setNumericValue(double value) { value_ = value; }
-    void setBoolValue(bool value) { value_ = value; }
+    void setValue(CellValue value) { richText_.reset(); value_ = std::move(value); }
+    void setValue(std::monostate value) { richText_.reset(); value_ = value; }
+    void setValue(double value) { richText_.reset(); value_ = value; }
+    void setValue(bool value) { richText_.reset(); value_ = value; }
+    void setValue(const std::string& value) { richText_.reset(); value_ = value; }
+    void setValue(std::string&& value) { richText_.reset(); value_ = std::move(value); }
+    void setValue(const char* value) { richText_.reset(); value_ = std::string(value ? value : ""); }
+    void setValue(std::string_view value) { richText_.reset(); value_ = std::string(value); }
+    void setValue(std::int64_t value) { richText_.reset(); value_ = static_cast<double>(value); }
+    void setValue(int value) { richText_.reset(); value_ = static_cast<double>(value); }
+    void setValue(DateTime value) { richText_.reset(); value_ = value; }
+    void setError(CellError value) { richText_.reset(); value_ = value; }
+    void setStringValue(const std::string& value) { richText_.reset(); value_ = value; }
+    void setStringValue(std::string&& value) { richText_.reset(); value_ = std::move(value); }
+    void setStringValue(const char* value) { richText_.reset(); value_ = std::string(value ? value : ""); }
+    void setNumericValue(double value) { richText_.reset(); value_ = value; }
+    void setBoolValue(bool value) { richText_.reset(); value_ = value; }
+
+    bool hasRichText() const noexcept { return richText_.has_value(); }
+    RichText& richText() {
+        if (!richText_) richText_ = RichText::fromPlain(stringValueOr({}));
+        value_ = richText_->plainText();
+        return *richText_;
+    }
+    const std::optional<RichText>& richTextValue() const noexcept { return richText_; }
+    void setRichText(RichText value) {
+        value_ = value.plainText();
+        richText_ = std::move(value);
+    }
+    void clearRichText() noexcept { richText_.reset(); }
     double numericValueOr(double fallback) const noexcept {
         if (const auto* v = std::get_if<double>(&value_)) return *v;
         if (const auto* v = std::get_if<DateTime>(&value_)) return xlpp::toExcelSerial(*v, false);
@@ -58,7 +72,7 @@ public:
     }
     std::string stringValueOr(std::string fallback) const noexcept {
         if (const auto* v = std::get_if<std::string>(&value_)) return *v;
-        return std::move(fallback);
+        return fallback;
     }
     bool isError() const noexcept { return std::holds_alternative<CellError>(value_); }
     std::optional<CellError> error() const noexcept { if (const auto* value = std::get_if<CellError>(&value_)) return *value; return std::nullopt; }
@@ -70,17 +84,19 @@ public:
     // Sets a date/time value and applies a matching default number format when
     // the cell currently uses the "General" format.
     void setDate(const DateTime& value) {
+        richText_.reset();
         value_ = value;
         if (style_.numberFormat() == "General") style_.setNumberFormat("yyyy-mm-dd");
     }
     void setDate(int year, int month, int day) { setDate(DateTime{year, month, day}); }
     void setDateTime(const DateTime& value) {
+        richText_.reset();
         value_ = value;
         if (style_.numberFormat() == "General") style_.setNumberFormat("yyyy-mm-dd h:mm:ss");
     }
 
     bool empty() const noexcept { return std::holds_alternative<std::monostate>(value_) && formula_.empty(); }
-    void clear() noexcept { value_ = std::monostate{}; formula_.clear(); formulaMetadata_ = FormulaMetadata{}; namedStyle_.reset(); }
+    void clear() noexcept { value_ = std::monostate{}; richText_.reset(); formula_.clear(); formulaMetadata_ = FormulaMetadata{}; namedStyle_.reset(); }
 
     bool hasValue() const noexcept { return !std::holds_alternative<std::monostate>(value_); }
     bool isNumeric() const noexcept { return std::holds_alternative<double>(value_); }
@@ -176,6 +192,7 @@ private:
     Style style_;
     std::optional<Hyperlink> hyperlink_;
     std::optional<Comment> comment_;
+    std::optional<RichText> richText_;
     std::optional<std::string> namedStyle_;
     std::optional<std::size_t> styleIndex_;
 };

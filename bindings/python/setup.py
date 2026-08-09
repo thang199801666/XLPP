@@ -4,6 +4,9 @@ from pybind11.setup_helpers import Pybind11Extension, build_ext
 
 xlpp_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
+with open(os.path.join(xlpp_root, "VERSION"), encoding="utf-8") as version_file:
+    package_version = version_file.read().strip()
+
 debug = os.environ.get("XLPP_DEBUG", "0") == "1"
 config = "Debug" if debug else "Release"
 
@@ -15,7 +18,9 @@ else:
     extra_compile_args = ["-std=c++20", "-fPIC", "-DXLPP_STATIC"]
     extra_link_args = []
 
-library_dir = os.path.join(xlpp_root, "x64", config)
+library_dir = os.environ.get("XLPP_LIBRARY_DIR", os.path.join(xlpp_root, "x64", config))
+include_dir = os.environ.get("XLPP_INCLUDE_DIR", os.path.join(xlpp_root, "include"))
+zlib_include_dir = os.environ.get("XLPP_ZLIB_INCLUDE_DIR", os.path.join(xlpp_root, "third_party", "zlib"))
 if is_msvc:
     libraries = ["XLPP", "zlib"]
 else:
@@ -25,10 +30,7 @@ ext_modules = [
     Pybind11Extension(
         "xlpp",
         ["src/xlpp_bindings.cpp"],
-        include_dirs=[
-            os.path.join(xlpp_root, "include"),
-            os.path.join(xlpp_root, "third_party", "zlib"),
-        ],
+        include_dirs=[include_dir, zlib_include_dir],
         library_dirs=[
             library_dir,
         ],
@@ -52,7 +54,7 @@ except OSError:
 
 setup(
     name="xlpp",
-    version="1.1.1",
+    version=package_version,
     author="XL++ contributors",
     description="High-performance C++ Excel xlsx library for Python",
     long_description=long_description,

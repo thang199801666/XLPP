@@ -58,6 +58,8 @@ public:
     ~StreamingWorkbookWriter();
 
     StreamingWorksheetWriter& addWorksheet(std::string name);
+    std::size_t sheetCount() const noexcept { return sheets_.size(); }
+    StreamingWorksheetWriter& worksheet(std::size_t index) { return sheets_.at(index); }
     void close();
     bool closed() const noexcept { return closed_; }
 

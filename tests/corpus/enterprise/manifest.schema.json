@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["version", "workbooks"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 1},
+    "workbooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "class", "expected"],
+        "properties": {
+          "path": {"type": "string"},
+          "class": {"enum": ["small", "medium", "large", "formula-heavy", "chart-heavy", "pivot-heavy", "vba-heavy", "enterprise", "weird"]},
+          "expected": {
+            "type": "object",
+            "properties": {
+              "noop": {"type": "boolean"}, "edit-a1": {"type": "boolean"},
+              "add-sheet": {"type": "boolean"}, "copy-sheet": {"type": "boolean"}
+            }
+          },
+          "notes": {"type": "string"}
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,9 @@
 #pragma once
+#ifdef DocumentProperties
+#undef DocumentProperties
+#endif
 #include <string>
+#include <utility>
 namespace xlpp {
 class DocumentProperties {
 public:

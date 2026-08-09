@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "policy": {
+    "default_max_regression_percent": 15.0,
+    "notes": "Budgets compare normalized medians from the same runner/machine class; absolute timings are intentionally not committed."
+  },
+  "tracked_scenarios": [
+    "open_workbook",
+    "save_workbook",
+    "write_1m_cells",
+    "stream_1m_cells",
+    "formula_calculation",
+    "style_application",
+    "chart_generation",
+    "pivot_generation",
+    "encrypted_save"
+  ]
+}

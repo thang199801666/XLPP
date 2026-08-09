@@ -57,7 +57,9 @@ enum class CellError {
     Name,
     Number,
     NotAvailable,
-    GettingData
+    GettingData,
+    Spill,
+    Calculation
 };
 
 inline std::string toString(CellError error) {
@@ -70,6 +72,8 @@ inline std::string toString(CellError error) {
     case CellError::Number: return "#NUM!";
     case CellError::NotAvailable: return "#N/A";
     case CellError::GettingData: return "#GETTING_DATA";
+    case CellError::Spill: return "#SPILL!";
+    case CellError::Calculation: return "#CALC!";
     }
     return "#VALUE!";
 }
@@ -82,6 +86,8 @@ inline CellError cellErrorFromString(const std::string& value) {
     if (value == "#NUM!") return CellError::Number;
     if (value == "#N/A") return CellError::NotAvailable;
     if (value == "#GETTING_DATA") return CellError::GettingData;
+    if (value == "#SPILL!") return CellError::Spill;
+    if (value == "#CALC!") return CellError::Calculation;
     return CellError::Value;
 }
 

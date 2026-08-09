@@ -1,6 +1,7 @@
 #pragma once
 #include <XLPP/Cell/Cell.h>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <iterator>
@@ -18,6 +19,14 @@ struct StreamingCell {
     std::optional<std::size_t> styleIndex;
 };
 using StreamingRow = std::vector<StreamingCell>;
+
+struct StreamingReaderOptions {
+    std::uint64_t maxFileBytes{0};
+    std::uint64_t maxEntryBytes{0};
+    std::uint64_t maxTotalBytes{0};
+    std::size_t maxEntries{0};
+    bool validateCellReferences{true};
+};
 
 namespace internal {
 class WorksheetRowSource;
@@ -80,6 +89,7 @@ private:
 class StreamingWorkbookReader {
 public:
     explicit StreamingWorkbookReader(const std::filesystem::path& path);
+    StreamingWorkbookReader(const std::filesystem::path& path, const StreamingReaderOptions& options);
 
     std::vector<std::string> worksheetNames() const;
     StreamingWorksheetReader worksheet(const std::string& worksheetName) const;

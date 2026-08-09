@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "workbooks": [
+    {"path":"../../fixtures/openpyxl/image_chart.xlsx","class":"chart-heavy","expected":{"noop":true,"edit-a1":true,"add-sheet":true,"copy-sheet":true}},
+    {"path":"../../fixtures/openpyxl/combined_secondary_axes.xlsx","class":"chart-heavy","expected":{"noop":true,"edit-a1":true,"add-sheet":true,"copy-sheet":true}},
+    {"path":"../../fixtures/libreoffice/pivot.xlsx","class":"pivot-heavy","expected":{"noop":true,"edit-a1":true,"add-sheet":true,"copy-sheet":true}},
+    {"path":"../../fixtures/libreoffice/image_chart.xlsx","class":"enterprise","expected":{"noop":true,"edit-a1":true,"add-sheet":true,"copy-sheet":true}}
+  ]
+}

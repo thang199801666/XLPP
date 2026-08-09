@@ -23,3 +23,10 @@ install(TARGETS xlpp_capi
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
+
+if(XLPP_BUILD_TESTS)
+    add_executable(xlpp_capi_smoke capi_smoke.cpp)
+    target_link_libraries(xlpp_capi_smoke PRIVATE xlpp_capi)
+    target_include_directories(xlpp_capi_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME XLPP_CApiSmoke COMMAND xlpp_capi_smoke)
+endif()

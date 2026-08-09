@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DXLPP_BUILD_TESTS=ON -DXLPP_BUILD_CAPI=ON -DXLPP_BUILD_SAMPLES=ON -DXLPP_BUILD_TOOLS=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel 2
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+  bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install Python binding dependencies
+        run: python -m pip install --upgrade pip pybind11 pytest
+      - name: Configure native + Python binding
+        run: >-
+          cmake -S . -B build-bindings
+          -DXLPP_BUILD_TESTS=ON
+          -DXLPP_BUILD_CAPI=ON
+          -DXLPP_BUILD_BINDINGS=ON
+          -DXLPP_BUILD_SAMPLES=OFF
+          -DXLPP_BUILD_TOOLS=OFF
+          -Dpybind11_DIR=$(python -m pybind11 --cmakedir)
+      - name: Build native, C ABI and Python extension
+        run: cmake --build build-bindings --parallel 2 --target xlpp_capi xlpp
+      - name: Python binding tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/build-bindings/bindings/python
+        run: python -m pytest bindings/python/tests -q
+      - name: C ABI smoke
+        run: cmake --build build-bindings --parallel 2 --target xlpp_capi_smoke && ./build-bindings/bindings/c/xlpp_capi_smoke
+      - name: C# binding tests
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build-bindings/bindings/c
+        run: dotnet test bindings/csharp/tests/XlppNet.Tests/XlppNet.Tests.csproj --configuration Release
+

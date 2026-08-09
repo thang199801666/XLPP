@@ -37,8 +37,9 @@ wb.save(out);                               // save to stream
 
 ```cpp
 auto& sheet = wb.addWorksheet("Sheet1");    // create sheet
-wb.removeWorksheet("Sheet1");               // remove sheet, returns bool
+wb.removeWorksheet("Sheet1");               // remove; dependent local refs become #REF!
 wb.copyWorksheet(sheet, "Copy");            // copy existing sheet
+auto renamed = wb.renameWorksheet("Sheet1", "Input Data"); // dependency-aware rename
 
 auto* s = wb.worksheet("Sheet1");           // find by name, nullptr if missing
 auto& s2 = wb[0];                           // access by index (0-based)
@@ -61,6 +62,7 @@ wb.applyNamedStyle(sheet.cell("A1"), "Accent");            // apply to cell
 wb.addDefinedName({"Revenue", "'Sales'!$A$1:$A$100"});     // workbook-scoped name
 auto* dn = wb.definedName("Revenue");
 wb.addDefinedName({"SalesData", "'Sales'!$B$1:$B$50", 0}); // sheet-scoped (localSheetId=0)
+auto* local = wb.definedName("SalesData", 0);                 // scoped lookup
 ```
 
 ### Properties and protection
@@ -94,8 +96,23 @@ opts.parallelSheets = true;                     // parallel sheet serialization
 opts.parallelWorkers = 4;                       // thread count
 opts.compressionLevel = CompressionLevel::Best; // zlib level
 opts.compressionStrategy = CompressionStrategy::HuffmanOnly;
+opts.atomicWrite = true;                     // default: stage + atomic replace for path saves
+opts.durableWrite = true;                    // default: flush file + directory/write-through barrier
+opts.validateBeforeSave = true;              // default: validate modeled invariants
 wb.save("output.xlsx", opts);
 ```
+
+### Model validation
+
+```cpp
+auto validation = wb.validate();
+if (!validation.ok()) {
+    for (const auto& issue : validation.issues)
+        std::cerr << issue.code << ": " << issue.message << "\n";
+}
+```
+
+Path-based `load()` provides a strong exception guarantee: if parsing/decryption fails, the caller's existing workbook remains unchanged. Path-based `save()` uses same-directory staging and atomic replacement by default. `SaveOptions::durableWrite` also defaults to true, flushing the completed file and using a POSIX parent-directory `fsync` or Windows write-through replacement where applicable. Set either option to false only for an intentional performance/semantics tradeoff.
 
 ### Diagnostics and inspection
 
@@ -289,6 +306,229 @@ img.widthPixels();   // pixel dimensions
 img.heightPixels();
 ```
 
+Existing embedded images loaded from an XLSX expose package-origin metadata through
+`stableId()` and `anchorInfo()`. Use the selective mutation APIs below when editing
+those imported images so XL++ patches only the target DrawingML object instead of
+regenerating the complete drawing:
+
+```cpp
+const auto& imported = static_cast<const Worksheet&>(sheet).images().front();
+const std::string id = imported.stableId();
+
+sheet.moveImage(id, "H6");                 // one-cell / two-cell anchors
+sheet.resizeImage(id, 160.0, 90.0);         // pixels
+sheet.replaceImage(id, "updated-logo.png"); // keeps anchor and sibling objects
+sheet.removeImage(id);                       // removes relationship/media when unused
+
+// Absolute anchors are positioned directly in EMU.
+sheet.moveImageAbsolute(id, 250000, 500000);
+```
+
+`images()` mutable access still opts into full drawing regeneration. Prefer the
+selective APIs for imported images whenever sibling charts, shapes or unknown
+DrawingML must remain untouched. Selective stable-ID edits are routed to the
+image's original `sourceDrawingPart()`, so producer workbooks containing more
+than one preserved drawing relationship can be patched without rebuilding the
+other drawing parts.
+
+### Imported charts
+
+Charts discovered in existing DrawingML expose package-origin metadata through
+`stableId()`, `anchorInfo()`, `sourceDrawingPart()`, `sourceChartPart()` and
+`sourceRelationshipId()`. Read access is namespace-tolerant for common Excel,
+OpenPyXL and LibreOffice chart XML, including title, axis titles, series formulas,
+legend position and anchor geometry. Imported charts also expose native OOXML axis
+structure through `axes()` / `plots()`, including `axId`, `crossAx`, primary/secondary
+classification and combined-chart plot membership. Plot-level and series-level data labels,
+per-point `dLbl` overrides, series line/fill/marker formatting, series trendlines and X/Y
+error bars (including custom plus/minus formula ranges) are also exposed for imported charts.
+
+Use the stable-ID APIs to edit a controlled subset without regenerating the whole
+chart/drawing:
+
+```cpp
+const auto& importedChart = static_cast<const Worksheet&>(sheet).charts().front();
+const std::string chartId = importedChart.stableId();
+
+sheet.setChartTitle(chartId, "Updated title");
+sheet.setChartXAxisTitle(chartId, "Category");
+sheet.setChartYAxisTitle(chartId, "Amount");
+
+// Native-axis targeting is useful for combined/secondary-axis charts.
+if (const auto* axis = importedChart.axisById(200); axis && axis->secondary)
+    sheet.setChartAxisTitle(chartId, axis->id, "Secondary amount");
+
+sheet.setChartLegend(chartId, true, "b"); // l, r, t, b, tr
+sheet.setChartSeriesTitle(chartId, 0, "Revenue");
+sheet.setChartSeriesReferences(chartId, 0,
+                               "'Data'!$A$2:$A$20",
+                               "'Data'!$B$2:$B$20");
+
+// Preservation-aware labels / trendline / error-bar edits.
+auto labels = importedChart.plots().front().dataLabels;
+labels.showValue = true;
+labels.showCategoryName = true;
+sheet.setChartPlotDataLabels(chartId, 0, labels);
+
+auto trend = importedChart.series().front().trendlines().front();
+trend.type = ChartSeries::TrendlineType::Polynomial;
+trend.order = 3;
+sheet.setChartSeriesTrendline(chartId, 0, 0, trend);
+
+ChartSeries::ErrorBars bars;
+bars.direction = ChartSeries::ErrorBarDirection::Y;
+bars.valueType = ChartSeries::ErrorValueType::FixedValue;
+bars.value = 2.0;
+sheet.setChartSeriesErrorBars(chartId, 0, bars);
+
+// Per-point labels use the native zero-based c:idx value.
+ChartDataLabelPoint pointLabel;
+pointLabel.index = 3;
+pointLabel.showValue = true;
+pointLabel.position = "t";
+sheet.setChartSeriesDataLabelPoint(chartId, 0, pointLabel);
+
+// Custom error bars retain independent plus/minus formula ranges.
+ChartSeries::ErrorBars customBars;
+customBars.direction = ChartSeries::ErrorBarDirection::Y;
+customBars.valueType = ChartSeries::ErrorValueType::Custom;
+customBars.plusReference = "'Data'!$C$2:$C$20";
+customBars.minusReference = "'Data'!$D$2:$D$20";
+customBars.lineFormat.present = true;
+customBars.lineFormat.color = {ChartColor::Kind::SRgb, "404040"};
+customBars.lineFormat.widthPoints = 1.25;
+sheet.setChartSeriesErrorBars(chartId, 0, customBars);
+
+ChartLineFormat seriesLine;
+seriesLine.present = true;
+seriesLine.color = {ChartColor::Kind::SRgb, "1F4E78"};
+seriesLine.widthPoints = 2.0;
+seriesLine.dash = "dash";
+sheet.setChartSeriesLineFormat(chartId, 0, seriesLine);
+
+auto marker = importedChart.series().front().markerFormat();
+marker.symbol = "diamond";
+marker.size = 9;
+marker.fill.present = true;
+marker.fill.color = {ChartColor::Kind::SRgb, "70AD47"};
+sheet.setChartSeriesMarkerFormat(chartId, 0, marker);
+
+sheet.moveChart(chartId, "H6");
+sheet.resizeChart(chartId, 640.0, 360.0);
+
+// Absolute anchors use EMU coordinates.
+sheet.moveChartAbsolute(chartId, 250000, 500000);
+
+// Imported charts can also be removed selectively. If a loaded worksheet
+// already owns a preserved drawing, addChart() appends a new chart without
+// regenerating untouched sibling DrawingML.
+sheet.removeChart(chartId);
+sheet.addChart(replacementChart);
+```
+
+Selective title editing patches only the requested title subtree. Axis-title,
+legend and series-title edits patch their own ChartML regions; series-reference
+edits patch the selected `<ser>` formulas and discard only the corresponding
+stale category/value caches. Scatter and bubble charts map X/Y titles to their native first/second plot axis IDs instead
+of assuming a category axis. Combined charts retain each plot's type, grouping, series
+span and native axis IDs; `setChartXAxisTitle()` / `setChartYAxisTitle()` target the
+primary plot pair by `axId`, while `setChartAxisTitle()` can address a secondary axis
+directly. P0K adds namespace-tolerant read models and selective mutation for plot/series
+data labels, series trendlines and error bars. P0L extends that path with direct-child-safe
+aggregate label editing, per-point `dLbl` overrides, custom plus/minus error-bar formula ranges,
+and selective series line/fill/marker plus trendline/error-bar line formatting. P0M adds a
+preservation-aware `dPt` model, rich chart-title / per-point label text runs, gradient and pattern
+fills, scheme/RGB color transforms, line cap/compound/join metadata, and custom dash sequences.
+Selective mutations patch only the targeted `title`, `dLbl`, `dPt`, or `spPr` subtree. Newly
+appended trendlines and error bars also retain their requested line formatting. Unsupported
+ChartML formatting/extensions and sibling DrawingML remain untouched unless their specific
+selective API is invoked.
+P0M selective APIs include `setChartTitleRichText()`,
+`setChartSeriesDataLabelPointRichText()`, `setChartSeriesDataPointFormat()`, and
+`removeChartSeriesDataPointFormat()`. `ChartSeries::dataPoints()` / `dataPoint(idx)` expose
+imported `dPt` formatting without marking the drawing dirty. `ChartRichText` exposes styled
+DrawingML runs, while `ChartColor::transforms`, `ChartFillFormat::gradientStops` /
+`pattern`, and `ChartLineFormat::customDash` / `cap` / `compound` / `join` retain common
+advanced formatting metadata.
+
+
+P0N adds preservation-aware layout/axis/legend inspection and mutation. `Chart::plotAreaLayout()` and `Chart::legendFormat()` expose imported manual-layout geometry. Each `Chart::Axis` now retains `numFmt`, source-linked state, tick marks, tick-label position, major/minor units, crossing behavior, rich title text, axis line formatting and major/minor gridline line formatting. Selective APIs include:
+
+```cpp
+sheet.setChartAxisTitleRichText(chartId, axisId, richText);
+sheet.setChartAxisNumberFormat(chartId, axisId, "0.000", false);
+sheet.setChartAxisTicks(chartId, axisId, "out", "none", "nextTo");
+sheet.setChartAxisUnits(chartId, axisId, 5.0, 1.0);
+sheet.setChartAxisCrossing(chartId, axisId, "autoZero", "between");
+sheet.setChartAxisLineFormat(chartId, axisId, axisLine);
+sheet.setChartAxisGridlineFormat(chartId, axisId, true, majorGridline);
+sheet.setChartPlotAreaLayout(chartId, plotLayout);
+sheet.setChartLegendLayout(chartId, legendLayout);
+sheet.setChartLegendOverlay(chartId, false);
+sheet.setChartLegendLineFormat(chartId, legendLine);
+sheet.setChartLegendFillFormat(chartId, legendFill);
+```
+
+These operations patch only the matching axis, `layout`, legend `spPr`, or overlay node. Unsupported sibling ChartML remains preserved.
+
+P0O extends this model with axis scaling, crosses-at values, display units, gridline lifecycle, and chart/plot-area shape properties. Imported `Chart::Axis` instances now expose `scaling`, `hasCrossesAt` / `crossesAt`, `displayUnits`, and explicit major/minor-gridline presence. `Chart` also exposes chart-area and plot-area fill/line formatting. Example selective edits:
+
+```cpp
+ChartAxisScaling scaling;
+scaling.hasMinimum = true; scaling.minimum = 0.5;
+scaling.hasMaximum = true; scaling.maximum = 500.0;
+scaling.hasLogBase = true; scaling.logBase = 10.0;
+scaling.reverseOrder = false;
+sheet.setChartAxisScaling(chartId, axisId, scaling);
+
+sheet.setChartAxisCrossesAt(chartId, axisId, 5.5);
+sheet.clearChartAxisCrossesAt(chartId, axisId);
+
+ChartDisplayUnits units;
+units.present = true;
+units.hasCustomUnit = true;
+units.customUnit = 1000000.0;
+units.showLabel = true;
+sheet.setChartAxisDisplayUnits(chartId, valueAxisId, units);
+sheet.clearChartAxisDisplayUnits(chartId, valueAxisId);
+
+sheet.removeChartAxisGridlines(chartId, axisId, false); // remove minor gridlines
+sheet.setChartAreaLineFormat(chartId, chartAreaLine);
+sheet.setChartAreaFillFormat(chartId, chartAreaFill);
+sheet.setChartPlotAreaLineFormat(chartId, plotAreaLine);
+sheet.setChartPlotAreaFillFormat(chartId, plotAreaFill);
+```
+
+`setChartAxisCrossing()` removes an existing `crossesAt` when a categorical crossing mode is selected; `setChartAxisCrossesAt()` removes `crosses`. Display-unit mutation is currently restricted to value axes and accepts the OOXML built-in unit names or one positive custom unit. Scaling validation rejects inverted min/max ranges and invalid logarithmic bases.
+
+P0P adds inspection and selective mutation for common auxiliary ChartML objects. `Chart::dataTable()` exposes the plot-area data table, each `Chart::Plot` exposes `hasDropLines`, `dropLinesFormat`, `hasHighLowLines`, `highLowLinesFormat`, and `upDownBars`, while `ChartDataLabels` exposes explicit `leaderLines` presence and line formatting. Example:
+
+```cpp
+ChartDataTable table;
+table.showHorizontalBorder = true;
+table.showOutline = true;
+sheet.setChartDataTable(chartId, table);
+
+ChartLineFormat drop;
+drop.present = true;
+drop.color = {ChartColor::Kind::SRgb, "4472C4"};
+sheet.setChartPlotDropLines(chartId, 0, drop);
+sheet.removeChartPlotHighLowLines(chartId, 0);
+
+ChartUpDownBars bars;
+bars.gapWidth = 100;
+sheet.setChartPlotUpDownBars(chartId, 0, bars);
+
+sheet.setChartPlotLeaderLineFormat(chartId, 0, drop);
+sheet.setChartSeriesLeaderLineFormat(chartId, 0, drop);
+```
+
+Lifecycle APIs `removeChartDataTable()`, `removeChartPlotDropLines()`, `removeChartPlotHighLowLines()`, `removeChartPlotUpDownBars()`, `removeChartPlotLeaderLines()`, and `removeChartSeriesLeaderLines()` remove only the selected child nodes.
+
+`removeChart()` cleans the anchor/relationship and exclusively-owned dependency
+parts. `addChart()` uses an additive preserved-drawing path on loaded worksheets.
+Mutable `chart()` / `charts()` access still opts into full regeneration.
+
 ---
 
 ## Cell
@@ -378,6 +618,33 @@ cell.formulaMetadata().reference();
 cell.formulaMetadata().sharedIndex();
 cell.clearFormula();
 ```
+
+### In-process formula calculation (P0W)
+
+```cpp
+xlpp::CalculationOptions options;
+options.recursiveDependencies = true;
+options.updateCachedValues = true;
+options.evaluateVolatileFunctions = true;
+options.maxDepth = 512;
+
+auto report = workbook.calculateFormulas(options);
+report.formulaCellsEvaluated;
+report.cachedValuesUpdated;
+report.circularReferences;
+report.unsupportedFormulas;
+report.warnings;
+```
+
+`Workbook::calculateFormulas()` updates formula cached values but never rewrites
+formula text. The P0W engine covers common aggregate/statistical, logical/error,
+math/trigonometric, text, date/time, criteria, lookup and financial functions;
+it does not yet implement dynamic arrays/spill, structured references, external
+workbook references, `INDIRECT`/`OFFSET`, or iterative circular calculation.
+
+`SaveOptions::calculateFormulasBeforeSave = true` evaluates a private workbook
+copy before serialization. When chart-cache synchronization is also enabled,
+formula calculation runs first.
 
 ### Hyperlinks
 
@@ -571,7 +838,13 @@ writer.setParallelWorkers(4);
 ### Reading
 
 ```cpp
-xlpp::StreamingWorkbookReader reader("large.xlsx");
+xlpp::StreamingReaderOptions limits;
+limits.maxFileBytes = 8ull * 1024 * 1024 * 1024;
+limits.maxEntryBytes = 2ull * 1024 * 1024 * 1024;
+limits.maxTotalBytes = 16ull * 1024 * 1024 * 1024;
+limits.maxEntries = 100000;
+limits.validateCellReferences = true;
+xlpp::StreamingWorkbookReader reader("large.xlsx", limits);
 auto names = reader.worksheetNames();    // all sheet names
 auto logSheet = reader.worksheet("Log");
 
@@ -605,6 +878,53 @@ struct StreamingCell {
 ```
 
 ---
+
+## VBA / Macro Projects
+
+XL++ supports two VBA ownership modes: source projects generated by XL++, and opaque external `vbaProject.bin` projects that are preserved without destructive rewriting.
+
+```cpp
+Workbook wb;
+auto& ws = wb.addWorksheet("Data");
+ws.setVbaCodeName("DataSheet");
+
+VbaProjectProperties props;
+props.name = "MyMacros";
+props.description = "XL++ generated VBA";
+props.helpFile = "help.chm";
+props.helpContextId = 10;
+props.constants = "FeatureX = 1:DebugMode = 0";
+wb.setVbaProjectProperties(props);
+
+wb.setVbaModuleText("Utilities", "Public Sub Run()\nEnd Sub\n");
+wb.setVbaClassModuleText("Worker", "Public Function Value() As Long\nValue = 1\nEnd Function\n",
+                         true, true);
+wb.setVbaDocumentModuleText("ThisWorkbook",
+                            "Private Sub Workbook_Open()\nEnd Sub\n");
+wb.setVbaDocumentModuleText("DataSheet",
+                            "Private Sub Worksheet_Activate()\nEnd Sub\n");
+
+for (const auto& module : wb.vbaModules()) {
+    module.name;
+    module.source;
+    module.type;          // Standard / Document / Class
+    module.readOnly;
+    module.privateModule;
+}
+
+auto binary = wb.vbaProjectBytes();
+wb.saveVbaProject("vbaProject.bin");
+bool signedProject = wb.hasVbaSignature();
+bool editable = wb.vbaSourceEditable();
+```
+
+`Worksheet::vbaCodeName()` is independent from the worksheet display name and is serialized as `sheetPr/@codeName`. Generated code names are stable across normal workbook topology changes.
+
+`setVbaModuleText`, `setVbaClassModuleText`, `setVbaDocumentModuleText`, `setVbaModule`, `removeVbaModule` and `setVbaProjectProperties` rebuild the source-owned project. They reject externally supplied projects and projects carrying a VBA signature because rebuilding could discard or invalidate opaque VBA state.
+
+`addVbaProject()` and `setVbaProject()` intentionally establish external/binary ownership. The attached bytes can be inspected/exported and are preserved by unrelated workbook edits, but source mutation is not enabled.
+
+Current source generation does not create UserForms/FRX designer state, custom type-library references, VBA project passwords/locks or digital signatures.
 
 ## Package Preservation
 
@@ -745,6 +1065,234 @@ c.empty();              // true if argb_ is empty
 
 ---
 
+## P0Q — Stock Charts and Data-table Text
+
+P0Q adds first-class `Chart::Type::Stock` support for imported and newly generated high-low-close / open-high-low-close stock charts. Imported `<stockChart>` plots expose the same `Chart::Plot` auxiliary model used by line charts, including high-low lines and up/down bars. New stock charts require exactly three or four series and serialize numeric category references.
+
+For generation, use `Chart::primaryPlot()` to configure auxiliary objects before adding the chart to a worksheet:
+
+```cpp
+Chart stock(Chart::Type::Stock);
+// add 3 or 4 ChartSeries objects...
+auto& plot = stock.primaryPlot();
+plot.hasHighLowLines = true;
+plot.highLowLinesFormat.present = true;
+plot.upDownBars.present = true;
+plot.upDownBars.gapWidth = 100;
+```
+
+`ChartDataTable` also exposes `textStyle` (`ChartTextStyle`) for `dTable/txPr` default text properties: bold, italic, font size, typeface and color. `setChartDataTable()` selectively patches imported charts; generated charts serialize the same text style without rebuilding unrelated DrawingML.
+
+---
+
+## P0R — 3D and Surface Chart Preservation Foundation
+
+P0R extends `Chart::Type` with `Bar3D`, `Line3D`, `Area3D`, `Pie3D`, `Surface`, and `Surface3D`. Imported charts expose native plot/axis structure without flattening unsupported ChartML. `Chart::view3D()` exposes rotation, height/depth percentages, right-angle-axis mode and perspective. `floorFormat()`, `sideWallFormat()` and `backWallFormat()` expose wall thickness plus fill/line formatting.
+
+Selective imported-chart mutations use stable chart IDs and patch only the requested chart-level owner:
+
+```cpp
+auto view = chart.view3D();
+view.present = true;
+view.hasRotationX = true;
+view.rotationX = 30;
+sheet.setChartView3D(chart.stableId(), view);
+
+auto floor = chart.floorFormat();
+floor.present = true;
+floor.hasThickness = true;
+floor.thickness = 24;
+sheet.setChartFloorFormat(chart.stableId(), floor);
+```
+
+New `Bar3D` and `Surface3D` charts serialize three-axis structures (`catAx`, `valAx`, `serAx`). `Chart::primaryPlot()` also exposes `gapDepth`, `shape`, and `wireframe` metadata for supported 3D/surface plots. Direct OpenPyXL validation covers all six imported chart types plus generated Bar3D/Surface3D. LibreOffice preserves Bar3D/Line3D/Area3D/Pie3D but converts Surface/Surface3D to Bar3D when Calc re-saves the workbook; that conversion is a host normalization rather than an XL++ write-time loss.
+
+---
+
+## P0S — Projected Pie, Doughnut and Radar Expansion
+
+P0S adds first-class `Chart::Type::PieOfPie` and `Chart::Type::BarOfPie` while preserving existing enum values for previously published chart types. Both map to OOXML `ofPieChart`; the plot model distinguishes them through the native `ofPieType` value.
+
+`Chart::Plot` now exposes type-specific metadata for projected pie, doughnut/pie and radar charts:
+
+```cpp
+plot.projectedPie;        // gapWidth, splitType/splitPos, custSplit, secondPlotSize, serLines
+plot.hasFirstSliceAngle;
+plot.firstSliceAngle;
+plot.hasHoleSize;
+plot.holeSize;
+plot.radarStyle;          // standard / marker / filled
+```
+
+Selective edits on imported charts use the stable chart ID and plot index:
+
+```cpp
+sheet.setChartPlotProjectedPieOptions(chartId, 0, options);
+sheet.setChartPlotFirstSliceAngle(chartId, 0, 120);
+sheet.setChartPlotDoughnutHoleSize(chartId, 0, 70);
+sheet.setChartPlotRadarStyle(chartId, 0, "marker");
+```
+
+New Pie-of-Pie, Bar-of-Pie, Doughnut and Radar charts serialize the same type-specific metadata. Projected-pie validation accepts split types `auto`, `cust`, `percent`, `pos`, and `val`; first-slice angles are limited to 0–360 degrees and doughnut hole size to 10–90 percent. OpenPyXL 3.1.5 validates the direct XL++ output. LibreOffice Calc can normalize projected-pie split parameters and doughnut hole size when it re-saves the workbook, so those post-Calc values are recorded as host normalization rather than XL++ write-time loss.
+
+---
+
+
+## P0T — Chart Style, Theme and Series Cache Foundation
+
+P0T adds first-class chart style/theme/cache metadata without changing the preservation-first ChartML pipeline. `Chart` now exposes `style()`, `themePalette()` and `styleResources()`. `ChartThemePalette` contains the workbook theme color scheme and can resolve the base RGB value of a `ChartColor::Kind::Scheme` color while preserving its transform list. `ChartStyleResources` records chart-style and chart-color-style relationship targets so untouched style resources remain connected and byte-preserved.
+
+Each `ChartSeries` exposes cached data for its title, categories and values:
+
+```cpp
+series.titleCache();       // strCache
+series.categoriesCache();  // strCache or numCache
+series.valuesCache();      // numCache
+```
+
+`ChartSeriesCache` stores `present`, `numeric`, `formatCode`, `pointCount` and indexed cache points. Selective imported-chart mutations are available by stable chart ID:
+
+```cpp
+sheet.setChartStyle(chartId, "15");
+sheet.setChartSeriesTitleCache(chartId, 0, titleCache);
+sheet.setChartSeriesCategoryCache(chartId, 0, categoryCache);
+sheet.setChartSeriesValueCache(chartId, 0, valueCache);
+sheet.clearChartSeriesCaches(chartId, 0);
+```
+
+Cache setters validate explicit `pointCount` against the indexed points and reject inconsistent caches. Generated `ChartSeries` objects can use `setTitleCache()`, `setCategoriesCache()` and `setValuesCache()` before `addChart()`; the writer emits the corresponding `strCache` / `numCache` next to the formula reference.
+
+Direct OpenPyXL validation confirms cache/style metadata produced by XL++. LibreOffice Calc re-computes chart caches from worksheet formula references and removes chart-style/color-style relationship resources when it becomes the writer; this is documented as host normalization rather than an XL++ round-trip loss.
+
+---
+
+## P0U — Cache Synchronization & Theme Transform Engine
+
+P0U adds workbook-level synchronization of chart caches from worksheet A1 references. The synchronizer supports local or quoted cross-sheet single-cell and one-dimensional ranges, including sheet names containing escaped apostrophes. External-workbook references, unions, structured references and two-dimensional ranges are intentionally skipped and reported instead of guessed.
+
+```cpp
+ChartCacheSyncReport report = workbook.synchronizeChartCaches();
+
+// Typical report fields:
+report.chartsVisited;
+report.seriesVisited;
+report.cachesUpdated;
+report.cachesCleared;
+report.referencesSkipped;
+report.warnings;
+```
+
+Synchronization rebuilds title `strCache`, category `strCache`/`numCache`, and value `numCache` directly from the current worksheet cell values. Blank cells are represented as sparse cache indexes while `pointCount` remains equal to the referenced range length. Numeric caches inherit an existing cache format code when available, otherwise they use the first non-General source-cell number format.
+
+`ChartSeriesCache` now exposes validation/introspection helpers:
+
+```cpp
+cache.valid();
+cache.hasDuplicateIndexes();
+cache.ordered();
+cache.sparse();
+cache.effectivePointCount();
+```
+
+The chart theme model now also exposes theme font/effect metadata and a sequential DrawingML color-transform resolver:
+
+```cpp
+const auto& theme = chart.themePalette();
+theme.fontScheme.majorLatinTypeface;
+theme.fontScheme.minorLatinTypeface;
+theme.effectScheme.fillStyleCount;
+
+ChartResolvedColor resolved = chart.resolveThemeColor(color);
+std::string rgb = chart.resolveThemeFinalRgb(color);
+```
+
+Supported transform operations are `alpha`, `alphaMod`, `alphaOff`, `tint`, `shade`, `lumMod`, `lumOff`, `satMod`, and `satOff`. Direct SRGB and scheme colors are resolved while preserving the original `ChartColor` and transform sequence.
+
+LibreOffice Calc may recompute chart caches and normalize cache formatting when it re-saves a workbook; direct XL++ output retains sparse cache indexes and format codes verified by OpenPyXL.
+
+---
+
+## P0X — 90% General-purpose Editing Core
+
+### Dependency graph and structural transactions
+
+```cpp
+auto graph = workbook.dependencyGraph();
+auto users = graph.dependentsOf("Data!A1:A10");
+
+xlpp::StructuralEditOptions editOptions;
+editOptions.transactional = true;
+editOptions.failOnInvalidReference = true;
+auto edit = workbook.insertRows("Data", 3, 2, editOptions);
+```
+
+P0X structural transactions rewrite supported formula/name/table/filter/CF/DV/print/chart/Pivot/drawing/hyperlink dependencies and roll back when configured invalid references are introduced.
+
+### Modern formula semantics
+
+`CalculationOptions` now includes iterative calculation controls and an optional C++ external-reference resolver. Dynamic arrays/spills, structured table references, `LET`, `INDIRECT`, `OFFSET` and common array-shaping families are supported within the scope documented in `docs/P0X_90_PERCENT_ENGINE.md`.
+
+```cpp
+xlpp::CalculationOptions calc;
+calc.iterativeCalculation = true;
+calc.maxIterations = 100;
+calc.maxChange = 1e-9;
+auto report = workbook.calculateFormulas(calc);
+```
+
+### Standard or Agile password encryption
+
+```cpp
+xlpp::SaveOptions save;
+save.encryptionPassword = "secret";
+save.encryptionMode = xlpp::OfficeEncryptionMode::Standard;
+save.encryptionKeyBits = 256;
+workbook.save("secure.xlsx", save);
+```
+
+P0X supports Agile AES-256/SHA-512 read/write and Standard AES-128/192/256 + SHA-1 read/write. Certificate/private-key encryption and alternate Agile profiles remain outside the current core.
+
+### Pivot semantic editing
+
+Imported PivotTables remain byte-preserved while untouched. Mutable access opts into regeneration of the supported semantic model, including common source/location, fields, layout/style, cache lifecycle, data-field and report-filter properties.
+
+
+## P0Y — Core Reliability and Topology
+
+### Dependency-aware worksheet rename
+
+```cpp
+xlpp::WorksheetRenameOptions renameOptions;
+renameOptions.recalculateFormulas = false;
+renameOptions.synchronizeChartCaches = true;
+auto report = workbook.renameWorksheet("Raw Data", "Input Data", renameOptions);
+```
+
+Qualified formula/name/chart/Pivot/CF/DV/internal-hyperlink references are rewritten without altering formula string literals or external-workbook references. Removing a worksheet invalidates supported local dependencies to `#REF!` and compacts local defined-name scopes. Because worksheet storage is currently a `std::deque`, erasing a worksheet may invalidate existing worksheet handles; reacquire them after removal.
+
+### Core reliability build gates
+
+```bash
+cmake -S . -B build-asan -DXLPP_ENABLE_SANITIZERS=ON
+cmake --build build-asan
+ctest --test-dir build-asan --output-on-failure
+
+cmake -S . -B build-warn -DXLPP_ENABLE_STRICT_WARNINGS=ON
+cmake --build build-warn
+```
+
+Continuous parser/package fuzzing (Clang/libFuzzer):
+
+```bash
+CC=clang CXX=clang++ cmake -S . -B build-fuzz \
+  -DXLPP_BUILD_FUZZERS=ON -DXLPP_BUILD_TESTS=OFF \
+  -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_TOOLS=OFF
+cmake --build build-fuzz --target XLPP_WorkbookLoadFuzzer
+./build-fuzz/tests/fuzz/XLPP_WorkbookLoadFuzzer corpus/ -max_total_time=60
+```
+
+P0Z-G release validation builds the complete native core with this strict-warning profile at **0 warnings / 0 errors** on the release GCC toolchain; safety-critical diagnostics remain promoted to errors.
+
 ## Build
 
 Open `XL++.sln` with Visual Studio 2022+ (Platform Toolset v145), select x64
@@ -753,7 +1301,7 @@ Debug or Release, then build.
 ```bash
 # The solution builds:
 #   - XLPP.lib          (static library)
-#   - XLPP.UnitTests    (test runner, 55 suites)
+#   - XLPP.UnitTests    (test runner; current P0X suite count is recorded in PACKAGE_STATUS.md)
 #   - XLPP.Sample       (demo application)
 ```
 
@@ -808,3 +1356,170 @@ int main() {
     return 0;
 }
 ```
+
+
+---
+
+## P0V — Dependency-aware Chart Cache Synchronization
+
+P0V extends `Workbook::synchronizeChartCaches()` with exact source-dependency snapshots. A snapshot includes the normalized chart reference, source worksheet, cell coordinates, stored cell values, formula text, number format and workbook date epoch.
+
+```cpp
+xlpp::ChartCacheSyncOptions options;
+options.changedReferencesOnly = true;
+
+auto report = workbook.synchronizeChartCaches(options);
+report.referencesChecked;
+report.referencesUnchanged;
+report.dependenciesRegistered;
+report.dependenciesChanged;
+report.cachesUpdated;
+```
+
+The first changed-only synchronization has no prior snapshot, so all supported references are synchronized and registered. Later calls skip `strCache`/`numCache` rebuilds when the dependency snapshot is unchanged. Editing a cell outside every tracked chart range does not invalidate any chart dependency.
+
+```cpp
+workbook.trackedChartCacheDependencyCount();
+workbook.resetChartCacheDependencyTracking();
+```
+
+A save can opt into cache synchronization without mutating the caller workbook. XL++ creates a private copy, synchronizes that copy, and serializes it:
+
+```cpp
+xlpp::SaveOptions saveOptions;
+saveOptions.synchronizeChartCaches = true;
+saveOptions.synchronizeChangedChartCachesOnly = true;
+workbook.save("output.xlsx", saveOptions);
+```
+
+`SaveOptions::synchronizeChartCaches` defaults to `false`, preserving the P0U save behavior. Set `synchronizeChangedChartCachesOnly=false` to force a full supported-reference rebuild even when dependency snapshots are available.
+
+### P0V-A scope
+
+This batch tracks direct chart A1 dependencies. P0W subsequently added formula calculation, but the chart snapshot tracker is still not a general transitive dependency graph and structural row/column edits still do not rewrite every dependent reference. Those remain P1 work.
+
+---
+
+## P0W — Password-to-open OOXML Encryption
+
+```cpp
+xlpp::SaveOptions save;
+save.encryptionPassword = "secret";
+save.encryptionSpinCount = 100000;
+workbook.save("secure.xlsx", save);
+
+xlpp::LoadOptions load;
+load.password = "secret";
+load.verifyEncryptionIntegrity = true;
+workbook.load("secure.xlsx", load);
+
+auto info = xlpp::inspectOfficeEncryption("secure.xlsx");
+```
+
+XL++ writes Office Agile AES-256-CBC/SHA-512 encryption with HMAC integrity and reads both that profile and Standard AES/SHA-1 (128/192/256-bit key paths). The CFB implementation includes DataSpaces, miniFAT/FAT/DIFAT and large-file support. Saving a loaded encrypted workbook with a different password rotates the password; saving it without `encryptionPassword` removes file-open encryption. Standard-encryption output, alternate Agile profiles and certificate key encryptors remain unsupported.
+
+---
+
+## P0Z-I / v1.12.0 — Formula, Enterprise Inspection and Capability APIs
+
+### Dependency-driven recalculation
+
+```cpp
+xlpp::CalculationOptions options;
+options.changedCells.push_back({"Data", "A1"});
+auto report = workbook.calculateFormulas(options);
+
+std::cout << report.dirtyRoots << " roots\n";
+std::cout << report.dirtyFormulaCellsSelected << " formulas selected\n";
+```
+
+When `changedCells` is non-empty, XL++ selects formula cells transitively dependent on those roots instead of visiting every formula cell. An explicitly dirty formula cell is also selected as a calculation root.
+
+Typed workbook calculation mode:
+
+```cpp
+workbook.calcProperties().setCalculationMode(xlpp::CalculationMode::Automatic);
+workbook.calcProperties().setCalculationMode(xlpp::CalculationMode::AutomaticExceptDataTables);
+workbook.calcProperties().setCalculationMode(xlpp::CalculationMode::Manual);
+```
+
+### Advanced AutoFilter
+
+```cpp
+auto& column = sheet.autoFilter().column(0);
+
+xlpp::Top10Filter top;
+top.top = true;
+top.percent = false;
+top.value = 10;
+column.setTop10Filter(top);
+
+xlpp::DynamicFilter dynamic;
+dynamic.type = xlpp::DynamicFilterType::ThisMonth;
+sheet.autoFilter().column(1).setDynamicFilter(dynamic);
+
+xlpp::ColorFilter color;
+color.dxfId = 3;
+color.cellColor = true;
+sheet.autoFilter().column(2).setColorFilter(color);
+
+xlpp::IconFilter icon;
+icon.iconSet = "4Arrows";
+icon.iconId = 2;
+sheet.autoFilter().column(3).setIconFilter(icon);
+
+xlpp::DateGroupItem month;
+month.year = 2026;
+month.month = 8;
+month.grouping = xlpp::DateTimeGrouping::Month;
+sheet.autoFilter().column(4).addDateGroup(month);
+```
+
+### External Data inspection
+
+```cpp
+const auto external = workbook.inspectExternalData();
+for (const auto& connection : external.connections)
+    std::cout << connection.id << ": " << connection.name << "\n";
+
+for (const auto& query : external.queryTables)
+    std::cout << query.name << " -> connection " << query.connectionId << "\n";
+```
+
+The inspection model is deliberately preservation-first. Reading metadata does not imply that XL++ will regenerate opaque connection or Power Query payloads.
+
+### Data Model / OLAP inspection
+
+```cpp
+const auto model = workbook.inspectDataModel();
+if (model.present) {
+    std::cout << "model parts: " << model.modelParts.size() << "\n";
+    std::cout << "OLAP pivot caches: " << model.olapPivotCacheParts.size() << "\n";
+}
+```
+
+XL++ currently inventories these proprietary/enterprise parts and preserves them where possible; semantic Data Model authoring is not claimed.
+
+### Version and C ABI capability negotiation
+
+C++:
+
+```cpp
+#include <XLPP/Version.h>
+static_assert(xlpp::versionMajor == 1);
+std::cout << xlpp::versionString << "\n";
+std::cout << xlpp::cAbiVersion << "\n";
+```
+
+C:
+
+```c
+printf("XL++ %s, ABI %llu\n", xlpp_version(),
+       (unsigned long long)xlpp_c_abi_version());
+uint64_t caps = xlpp_capabilities();
+if (caps & XLPP_CAP_DIRTY_RECALC) {
+    /* runtime supports the v1.12 dirty-recalculation capability */
+}
+```
+
+C ABI feature bits are additive: existing bits do not change meaning in later compatible releases.

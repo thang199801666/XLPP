@@ -24,3 +24,8 @@ int main() {
 - Streaming APIs support large workbooks with bounded memory usage.
 
 The public headers are located in `include/XLPP`.
+
+## Python
+
+See the complete [Python guide](python.md) for installation, workbook usage,
+formatting, tables, charts, NumPy helpers, and troubleshooting.

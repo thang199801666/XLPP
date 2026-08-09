@@ -1,5 +1,8 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
+#include <string>
+#include <XLPP/Encryption/Encryption.h>
 
 namespace xlpp {
 
@@ -36,6 +39,41 @@ struct SaveOptions {
     // Emit ISO 29500 strict OOXML namespaces (purl.oclc.org URIs) instead of
     // the transitional schemas.openxmlformats.org URIs.
     bool strictNamespace{false};
+    // P0V opt-in save pipeline: synchronize chart title/category/value caches
+    // on a private workbook copy immediately before serialization. The caller
+    // workbook is not mutated. This is disabled by default for P0U compatibility.
+    bool synchronizeChartCaches{false};
+    // When synchronizeChartCaches is enabled, reuse dependency fingerprints to
+    // skip unchanged references. On a workbook without a prior snapshot, all
+    // supported references are synchronized and registered.
+    bool synchronizeChangedChartCachesOnly{true};
+    // Opt-in formula calculation pipeline. Formulas are evaluated on a private
+    // workbook copy before serialization, so save() remains logically const.
+    // When combined with chart synchronization, formulas are calculated first.
+    bool calculateFormulasBeforeSave{false};
+    // Write path-based saves through a same-directory temporary file and
+    // atomically replace the destination only after serialization succeeds.
+    // This prevents a failed save from truncating or partially overwriting an
+    // existing workbook. Stream saves are unaffected.
+    bool atomicWrite{true};
+    // Flush file data/metadata to stable storage around path-based saves.
+    // With atomicWrite enabled (the default), XL++ fsyncs/FlushFileBuffers the
+    // staging file before replace and fsyncs the containing directory on POSIX
+    // after rename. This closes the power-loss durability gap of rename-only
+    // atomic saves. Disable only when save latency matters more than durability.
+    bool durableWrite{true};
+    // Validate modeled workbook invariants before package serialization.
+    // Disable only when intentionally round-tripping a non-conforming source
+    // package that must be preserved for forensic/repair workflows.
+    bool validateBeforeSave{true};
+    // Password-based ECMA-376 encryption. A non-empty password wraps the
+    // generated OOXML ZIP package in an OLE/CFB encrypted container. Agile
+    // AES-256/SHA-512 remains the default; Standard AES/SHA-1 is available for
+    // interoperability with older Office-compatible producers/consumers.
+    std::string encryptionPassword{};
+    OfficeEncryptionMode encryptionMode{OfficeEncryptionMode::AgileAes256Sha512};
+    std::uint32_t encryptionSpinCount{100000};
+    std::uint32_t encryptionKeyBits{256}; // Standard mode: 128, 192 or 256.
 };
 
 } // namespace xlpp
