@@ -81,6 +81,22 @@ void testExternalDataAndDataModelInspection(TestContext& test) {
     wb.preservedParts().push_back({"xl/pivotCache/pivotCacheDefinition9.xml",
         "<pivotCacheDefinition><cacheSource type=\"external\"/><olapPr/></pivotCacheDefinition>",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml", "xml", "application/xml", true});
+    wb.preservedParts().push_back({"xl/charts/chart9.xml", "<c:chartSpace><c:chart><c:pivotSource><c:name>Pivot1</c:name></c:pivotSource></c:chart></c:chartSpace>",
+        "application/vnd.openxmlformats-officedocument.drawingml.chart+xml", "xml", "application/xml", true});
+    wb.preservedParts().push_back({"xl/slicerCaches/slicerCache1.xml",
+        "<x14:slicerCacheDefinition name=\"Sales Slicer\" pivotCacheId=\"9\"><x14:pivotTables><x14:pivotTable name=\"Pivot1\"/></x14:pivotTables></x14:slicerCacheDefinition>",
+        "application/vnd.ms-excel.slicerCache+xml", "xml", "application/xml", true});
+    wb.preservedParts().push_back({"xl/timelineCaches/timelineCache1.xml",
+        "<x15:timelineCacheDefinition name=\"Order Timeline\" pivotCacheId=\"9\"><x15:pivotTable name=\"Pivot1\"/></x15:timelineCacheDefinition>",
+        "application/vnd.ms-excel.timelineCache+xml", "xml", "application/xml", true});
+    wb.preservedParts().push_back({"xl/diagrams/data1.xml", "<dgm:dataModel/>",
+        "application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml", "xml", "application/xml", true});
+    wb.preservedParts().push_back({"xl/activeX/activeX1.bin", "CONTROL",
+        "application/vnd.ms-office.activeX", "bin", "application/octet-stream", true});
+    wb.preservedParts().push_back({"customXml/item1.xml", "<metadata>Power Query Mashup</metadata>",
+        "application/xml", "xml", "application/xml", true});
+    wb.preservedParts().push_back({"xl/forms/UserForm1.frx", "FORM",
+        "application/octet-stream", "frx", "application/octet-stream", true});
 
     const auto external = wb.inspectExternalData();
     test.checkEqual(external.connections.size(), std::size_t{1}, "Connections are inspectable without regeneration");
@@ -92,4 +108,47 @@ void testExternalDataAndDataModelInspection(TestContext& test) {
     test.checkTrue(model.present, "Data Model part is detected");
     test.checkTrue(model.hasOlapPivotCaches, "OLAP pivot cache is detected as preservation-only");
     test.checkEqual(model.modelParts.size(), std::size_t{1}, "Data Model part inventory");
+
+    const auto enterprise = wb.inspectEnterpriseFeatures();
+    test.checkEqual(enterprise.count(xlpp::EnterpriseFeatureKind::PivotChart), std::size_t{1}, "PivotChart package is semantically inventoried");
+    test.checkEqual(enterprise.count(xlpp::EnterpriseFeatureKind::SlicerCache), std::size_t{1}, "Slicer cache package is inventoried");
+    test.checkEqual(enterprise.count(xlpp::EnterpriseFeatureKind::TimelineCache), std::size_t{1}, "Timeline cache package is inventoried");
+    test.checkEqual(enterprise.count(xlpp::EnterpriseFeatureKind::SmartArt), std::size_t{1}, "SmartArt package is inventoried");
+    test.checkEqual(enterprise.count(xlpp::EnterpriseFeatureKind::ActiveX), std::size_t{1}, "ActiveX package is inventoried");
+    test.checkEqual(enterprise.count(xlpp::EnterpriseFeatureKind::VbaUserForm), std::size_t{1}, "VBA UserForm resource is inventoried");
+    test.checkEqual(enterprise.count(xlpp::EnterpriseFeatureKind::PowerQuery), std::size_t{1}, "Power Query metadata is inventoried");
+    const auto pivotChart = std::find_if(enterprise.features.begin(), enterprise.features.end(), [](const auto& feature) {
+        return feature.kind == xlpp::EnterpriseFeatureKind::PivotChart;
+    });
+    test.checkTrue(pivotChart != enterprise.features.end(), "PivotChart feature metadata is available");
+    test.checkEqual(pivotChart->sourceName, std::string("Pivot1"), "PivotChart source name is semantically inspected");
+    const auto slicerCache = std::find_if(enterprise.features.begin(), enterprise.features.end(), [](const auto& feature) {
+        return feature.kind == xlpp::EnterpriseFeatureKind::SlicerCache;
+    });
+    test.checkEqual(slicerCache->sourceName, std::string("Sales Slicer"), "Slicer-cache display name is inspected");
+    test.checkEqual(slicerCache->cacheId, std::string("9"), "Slicer-cache Pivot cache ID is inspected");
+    test.checkEqual(slicerCache->referencedPivotTables.size(), std::size_t{1}, "Slicer-cache PivotTable topology count");
+    test.checkEqual(slicerCache->referencedPivotTables.front(), std::string("Pivot1"), "Slicer-cache PivotTable topology is inspected");
+    const auto timelineCache = std::find_if(enterprise.features.begin(), enterprise.features.end(), [](const auto& feature) {
+        return feature.kind == xlpp::EnterpriseFeatureKind::TimelineCache;
+    });
+    test.checkEqual(timelineCache->referencedPivotTables.size(), std::size_t{1}, "Timeline-cache PivotTable topology count");
+    test.checkEqual(timelineCache->referencedPivotTables.front(), std::string("Pivot1"), "Timeline-cache PivotTable topology is inspected");
+
+    const auto connectionEdit = wb.setConnectionRefreshOnLoad("7", false);
+    const auto queryEdit = wb.setQueryTableRefreshOnLoad("Orders", false);
+    const auto olapEdit = wb.setOlapPivotCacheRefreshOnLoad("xl/pivotCache/pivotCacheDefinition9.xml", true);
+    const auto pivotChartEdit = wb.setPivotChartSourceName("xl/charts/chart9.xml", "Pivot & Sales");
+    test.checkTrue(connectionEdit.success() && connectionEdit.modified == 1, "Connection refresh policy is selectively editable");
+    test.checkTrue(queryEdit.success() && queryEdit.modified == 1, "Query-table refresh policy is selectively editable");
+    test.checkTrue(olapEdit.success() && olapEdit.modified == 1, "OLAP cache refresh policy is selectively editable");
+    test.checkTrue(pivotChartEdit.success() && pivotChartEdit.modified == 1, "PivotChart source metadata is selectively editable");
+    const auto editedExternal = wb.inspectExternalData();
+    test.checkTrue(!editedExternal.connections[0].refreshOnLoad, "Edited connection metadata is immediately inspectable");
+    test.checkTrue(!editedExternal.queryTables[0].refreshOnLoad, "Edited query-table metadata is immediately inspectable");
+    const auto editedEnterprise = wb.inspectEnterpriseFeatures();
+    const auto editedPivotChart = std::find_if(editedEnterprise.features.begin(), editedEnterprise.features.end(), [](const auto& feature) {
+        return feature.kind == xlpp::EnterpriseFeatureKind::PivotChart;
+    });
+    test.checkEqual(editedPivotChart->sourceName, std::string("Pivot & Sales"), "PivotChart source patch is XML-safe and immediately inspectable");
 }

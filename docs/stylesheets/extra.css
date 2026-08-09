@@ -1,0 +1,23 @@
+:root {
+  --md-primary-fg-color: #243b70;
+  --md-accent-fg-color: #1976d2;
+}
+
+.xlpp-hero {
+  padding: 1.5rem 0 1rem;
+}
+
+.xlpp-hero h1 {
+  margin-bottom: 0.4rem;
+  font-weight: 700;
+}
+
+.xlpp-hero p {
+  max-width: 52rem;
+  font-size: 1.05rem;
+}
+
+.grid.cards > ul > li {
+  border-radius: 0.5rem;
+}
+

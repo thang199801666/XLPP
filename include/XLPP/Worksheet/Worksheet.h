@@ -2,7 +2,9 @@
 #include <XLPP/Core/StableVector.h>
 #include <XLPP/Cell/Cell.h>
 #include "Range.h"
+#include "Row.h"
 #include "Dimensions.h"
+#include "StructuralEditing.h"
 #include "Filters.h"
 #include "ConditionalFormatting.h"
 #include "DataValidation.h"
@@ -13,7 +15,6 @@
 #include "SheetView.h"
 #include <XLPP/Chart/Chart.h>
 #include <XLPP/Pivot/PivotTable.h>
-#include <XLPP/Formula/ReferenceTranslator.h>
 #include <map>
 #include <cstdint>
 #include <optional>
@@ -24,40 +25,6 @@
 namespace xlpp {
 namespace internal { struct WorkbookDrawingAccess; }
 
-
-struct WorksheetStructuralEditReport {
-    std::size_t cellsMoved{0};
-    std::size_t cellsRemoved{0};
-    std::size_t formulasUpdated{0};
-    std::size_t formulaMetadataUpdated{0};
-    std::size_t worksheetReferencesUpdated{0};
-    std::size_t referencesInvalidated{0};
-    std::size_t drawingAnchorsUpdated{0};
-    std::size_t chartReferencesUpdated{0};
-    std::size_t pivotReferencesUpdated{0};
-    std::size_t hyperlinksUpdated{0};
-};
-
-struct WorksheetExtents {
-    std::size_t minRow{0};
-    std::size_t minColumn{0};
-    std::size_t maxRow{0};
-    std::size_t maxColumn{0};
-};
-
-class Row {
-public:
-    Row(class Worksheet& sheet, std::size_t rowNumber);
-    Cell& cell(std::size_t column);
-    const Cell* tryCell(std::size_t column) const noexcept;
-    std::size_t number() const noexcept { return rowNumber_; }
-    std::vector<Cell*> cells();
-    std::vector<CellValue> values() const;
-
-private:
-    class Worksheet* sheet_;
-    std::size_t rowNumber_;
-};
 
 class Worksheet {
 public:

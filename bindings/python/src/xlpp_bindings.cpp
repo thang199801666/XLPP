@@ -503,6 +503,7 @@ PYBIND11_MODULE(xlpp, m) {
             return static_cast<int>((d.second - static_cast<int>(d.second)) * 1000.0);
         })
         .def("to_iso8601_date", [](const DateTime& d) { return toIso8601Date(d); })
+        .def("to_iso8601", [](const DateTime& d) { return toIso8601(d); })
         .def("__eq__", [](const DateTime& a, const DateTime& b) { return a == b; })
         .def("__ne__", [](const DateTime& a, const DateTime& b) { return a != b; })
         .def("__str__", [](const DateTime& d) { return toIso8601(d); })
@@ -519,6 +520,14 @@ PYBIND11_MODULE(xlpp, m) {
     m.def("is_date_format_code", [](const std::string& format, int numFmtId) {
             return isDateFormatCode(format, numFmtId);
           }, py::arg("format"), py::arg("num_fmt_id") = -1);
+    m.def("days_from_civil", &daysFromCivil, py::arg("year"), py::arg("month"), py::arg("day"));
+    m.def("civil_from_days", [](long long days) {
+        DateTime value;
+        civilFromDays(days, value.year, value.month, value.day);
+        return value;
+    }, py::arg("days"));
+    m.def("to_iso8601_date", [](const DateTime& value) { return toIso8601Date(value); }, py::arg("value"));
+    m.def("to_iso8601", [](const DateTime& value) { return toIso8601(value); }, py::arg("value"));
 
     // === Formula metadata / CellError ===
     py::enum_<FormulaType>(m, "FormulaType")
@@ -858,11 +867,20 @@ PYBIND11_MODULE(xlpp, m) {
         .def_readwrite("height_emu", &DrawingAnchorInfo::heightEmu).def_readwrite("edit_as", &DrawingAnchorInfo::editAs);
     py::class_<Image>(m, "Image")
         .def(py::init<>())
+        .def(py::init([](std::string anchor, const py::bytes& bytes, std::string extension) {
+            const auto data = static_cast<std::string>(bytes);
+            return Image(std::move(anchor),
+                         std::vector<unsigned char>(data.begin(), data.end()),
+                         std::move(extension));
+        }), py::arg("anchor"), py::arg("bytes"), py::arg("extension"))
         .def(py::init<std::string, std::vector<unsigned char>, std::string>(),
              py::arg("anchor"), py::arg("bytes"), py::arg("extension"))
         .def_static("from_file", &Image::fromFile)
         .def_property("anchor", &Image::anchor, &Image::setAnchor)
-        .def_property_readonly("bytes", &Image::bytes)
+        .def_property_readonly("bytes", [](const Image& image) {
+            const auto& bytes = image.bytes();
+            return py::bytes(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        })
         .def_property_readonly("extension", &Image::extension)
         .def_property("width_pixels", &Image::widthPixels, &Image::setWidthPixels)
         .def_property("height_pixels", &Image::heightPixels, &Image::setHeightPixels)
@@ -1832,6 +1850,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def(py::init<>())
         .def(py::init<std::string>())
         .def_property("name", &Worksheet::name, &Worksheet::rename)
+        .def("rename", &Worksheet::rename, py::arg("name"))
         .def_property("vba_code_name", &Worksheet::vbaCodeName, &Worksheet::setVbaCodeName)
         .def("cell",
             [](Worksheet& ws, const py::object& key) -> Cell& {
@@ -1955,6 +1974,8 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property_readonly("print_area", &Worksheet::printArea)
         .def_property("print_titles_rows", &Worksheet::printTitlesRows, &Worksheet::setPrintTitlesRows)
         .def_property("print_titles_cols", &Worksheet::printTitlesCols, &Worksheet::setPrintTitlesCols)
+        .def("set_print_titles_rows", &Worksheet::setPrintTitlesRows, py::arg("value"))
+        .def("set_print_titles_cols", &Worksheet::setPrintTitlesCols, py::arg("value"))
         .def_property_readonly("max_row", &Worksheet::maxRow)
         .def_property_readonly("max_column", &Worksheet::maxColumn)
         .def("dimensions", &Worksheet::dimensions)
@@ -2062,6 +2083,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def("set_chart_plot_area_fill_format", &Worksheet::setChartPlotAreaFillFormat)
         .def("set_chart_plot_area_layout", &Worksheet::setChartPlotAreaLayout)
         .def("set_chart_view_3d", &Worksheet::setChartView3D)
+        .def("set_chart_view3_d", &Worksheet::setChartView3D)
         .def("set_chart_floor_format", &Worksheet::setChartFloorFormat)
         .def("set_chart_side_wall_format", &Worksheet::setChartSideWallFormat)
         .def("set_chart_back_wall_format", &Worksheet::setChartBackWallFormat)
@@ -2296,6 +2318,53 @@ PYBIND11_MODULE(xlpp, m) {
         .def_readwrite("present", &DataModelInspection::present).def_readwrite("has_olap_pivot_caches", &DataModelInspection::hasOlapPivotCaches)
         .def_readwrite("model_parts", &DataModelInspection::modelParts).def_readwrite("model_relationships", &DataModelInspection::modelRelationships)
         .def_readwrite("olap_pivot_cache_parts", &DataModelInspection::olapPivotCacheParts).def_readwrite("warnings", &DataModelInspection::warnings);
+    py::enum_<EnterpriseFeatureKind>(m, "EnterpriseFeatureKind")
+        .value("PIVOT_CHART", EnterpriseFeatureKind::PivotChart)
+        .value("SLICER", EnterpriseFeatureKind::Slicer)
+        .value("SLICER_CACHE", EnterpriseFeatureKind::SlicerCache)
+        .value("TIMELINE", EnterpriseFeatureKind::Timeline)
+        .value("TIMELINE_CACHE", EnterpriseFeatureKind::TimelineCache)
+        .value("OLAP_PIVOT_CACHE", EnterpriseFeatureKind::OlapPivotCache)
+        .value("DATA_MODEL", EnterpriseFeatureKind::DataModel)
+        .value("POWER_QUERY", EnterpriseFeatureKind::PowerQuery)
+        .value("SMART_ART", EnterpriseFeatureKind::SmartArt)
+        .value("ACTIVE_X", EnterpriseFeatureKind::ActiveX)
+        .value("VBA_USER_FORM", EnterpriseFeatureKind::VbaUserForm);
+    py::class_<EnterpriseFeatureRelationship>(m, "EnterpriseFeatureRelationship")
+        .def(py::init<>())
+        .def_readwrite("source_part", &EnterpriseFeatureRelationship::sourcePart)
+        .def_readwrite("id", &EnterpriseFeatureRelationship::id)
+        .def_readwrite("type", &EnterpriseFeatureRelationship::type)
+        .def_readwrite("target_mode", &EnterpriseFeatureRelationship::targetMode)
+        .def_readwrite("target_part", &EnterpriseFeatureRelationship::targetPart)
+        .def_readwrite("outgoing", &EnterpriseFeatureRelationship::outgoing);
+    py::class_<EnterpriseFeatureInfo>(m, "EnterpriseFeatureInfo")
+        .def(py::init<>())
+        .def_readwrite("kind", &EnterpriseFeatureInfo::kind)
+        .def_readwrite("part_name", &EnterpriseFeatureInfo::partName)
+        .def_readwrite("content_type", &EnterpriseFeatureInfo::contentType)
+        .def_readwrite("name", &EnterpriseFeatureInfo::name)
+        .def_readwrite("source_name", &EnterpriseFeatureInfo::sourceName)
+        .def_readwrite("connection_id", &EnterpriseFeatureInfo::connectionId)
+        .def_readwrite("cache_id", &EnterpriseFeatureInfo::cacheId)
+        .def_readwrite("referenced_pivot_tables", &EnterpriseFeatureInfo::referencedPivotTables)
+        .def_readwrite("relationships", &EnterpriseFeatureInfo::relationships)
+        .def_readwrite("binary", &EnterpriseFeatureInfo::binary)
+        .def_readwrite("semantic_editable", &EnterpriseFeatureInfo::semanticEditable)
+        .def_readwrite("has_refresh_on_load", &EnterpriseFeatureInfo::hasRefreshOnLoad)
+        .def_readwrite("refresh_on_load", &EnterpriseFeatureInfo::refreshOnLoad);
+    py::class_<EnterpriseFeatureInspection>(m, "EnterpriseFeatureInspection")
+        .def(py::init<>())
+        .def_readwrite("features", &EnterpriseFeatureInspection::features)
+        .def_readwrite("warnings", &EnterpriseFeatureInspection::warnings)
+        .def("count", &EnterpriseFeatureInspection::count)
+        .def("has", &EnterpriseFeatureInspection::has);
+    py::class_<EnterpriseEditReport>(m, "EnterpriseEditReport")
+        .def(py::init<>())
+        .def_readwrite("matched", &EnterpriseEditReport::matched)
+        .def_readwrite("modified", &EnterpriseEditReport::modified)
+        .def_readwrite("warnings", &EnterpriseEditReport::warnings)
+        .def_property_readonly("success", &EnterpriseEditReport::success);
 
     // === Workbook ===
     py::class_<Workbook>(m, "Workbook")
@@ -2397,6 +2466,11 @@ PYBIND11_MODULE(xlpp, m) {
         .def("validate", &Workbook::validate, py::arg("options") = WorkbookValidationOptions{})
         .def("inspect_external_data", &Workbook::inspectExternalData)
         .def("inspect_data_model", &Workbook::inspectDataModel)
+        .def("inspect_enterprise_features", &Workbook::inspectEnterpriseFeatures)
+        .def("set_connection_refresh_on_load", &Workbook::setConnectionRefreshOnLoad, py::arg("connection_id"), py::arg("enabled"))
+        .def("set_query_table_refresh_on_load", &Workbook::setQueryTableRefreshOnLoad, py::arg("query_name"), py::arg("enabled"))
+        .def("set_olap_pivot_cache_refresh_on_load", &Workbook::setOlapPivotCacheRefreshOnLoad, py::arg("part_name"), py::arg("enabled"))
+        .def("set_pivot_chart_source_name", &Workbook::setPivotChartSourceName, py::arg("part_name"), py::arg("source_name"))
         .def("add_vba_project", [](Workbook& wb, const std::string& path) { wb.addVbaProject(std::filesystem::path(path)); }, py::arg("path"))
         .def("set_vba_project", [](Workbook& wb, const py::bytes& data) {
             const std::string raw = data.cast<std::string>();
@@ -2470,4 +2544,6 @@ PYBIND11_MODULE(xlpp, m) {
           py::arg("expression"), py::arg("old_worksheet_name"), py::arg("new_worksheet_name"));
     m.def("invalidate_worksheet_references", &xlpp::invalidateWorksheetReferences,
           py::arg("expression"), py::arg("removed_worksheet_name"));
+    m.def("build_formula_dependency_graph", &xlpp::buildFormulaDependencyGraph,
+          py::arg("workbook"));
 }

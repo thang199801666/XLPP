@@ -204,35 +204,6 @@ const Table* Worksheet::table(const std::string& name) const noexcept {
     return it == tables_.end() ? nullptr : &*it;
 }
 
-Row::Row(Worksheet& sheet, std::size_t rowNumber) : sheet_(&sheet), rowNumber_(rowNumber) {
-    if (rowNumber == 0) throw std::invalid_argument("Row number is 1-based");
-    if (rowNumber > MaxExcelRows) throw std::out_of_range("Row number exceeds Excel's 1,048,576-row limit");
-}
-
-Cell& Row::cell(std::size_t column) { return sheet_->cell(rowNumber_, column); }
-
-const Cell* Row::tryCell(std::size_t column) const noexcept { return sheet_->tryCell(rowNumber_, column); }
-
-std::vector<Cell*> Row::cells() {
-    std::vector<Cell*> result;
-    const auto e = sheet_->extents();
-    for (std::size_t col = e.minColumn; col <= e.maxColumn; ++col) {
-        auto* c = &sheet_->cell(rowNumber_, col);
-        if (!c->empty()) result.push_back(c);
-    }
-    return result;
-}
-
-std::vector<CellValue> Row::values() const {
-    std::vector<CellValue> result;
-    const auto e = sheet_->extents();
-    for (std::size_t col = e.minColumn; col <= e.maxColumn; ++col) {
-        auto* c = sheet_->tryCell(rowNumber_, col);
-        result.push_back(c ? c->value() : CellValue{});
-    }
-    return result;
-}
-
 std::vector<Row> Worksheet::rows() {
     std::vector<Row> result;
     result.reserve(rowCount());

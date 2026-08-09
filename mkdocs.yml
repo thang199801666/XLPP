@@ -1,0 +1,110 @@
+site_name: XL++ Documentation
+site_description: Native C++20 Excel workbook engine with Python and C# bindings
+site_url: https://thang199801666.github.io/XLPP/
+repo_url: https://github.com/thang199801666/XLPP
+repo_name: thang199801666/XLPP
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; XL++ contributors — MIT License
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.share
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: light-blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Python:
+      - Overview: python/index.md
+      - Quick start: quickstart-python.md
+      - Install and compatibility: python/installation.md
+      - Workbook and worksheets: python/workbooks-and-worksheets.md
+      - Cells, ranges, and rows: python/cells-ranges-rows.md
+      - Styles and layout: python/styles-and-layout.md
+      - Tables, filters, validation: python/data-features.md
+      - Charts and drawings: python/charts-and-drawings.md
+      - Pivot tables: python/pivot-tables.md
+      - Formulas and calculation: python/formulas.md
+      - Streaming and performance: python/streaming-and-performance.md
+      - VBA, encryption, enterprise: python/vba-encryption-enterprise.md
+      - Cookbook and tips: python/cookbook.md
+      - Migrate from openpyxl: python/openpyxl-migration.md
+      - Feature/API coverage: python/api-coverage.md
+      - Troubleshooting: python/troubleshooting.md
+      - Single-page guide: python.md
+  - C++:
+      - Quick start: quickstart-cpp.md
+      - API reference: https://github.com/thang199801666/XLPP/blob/main/API_REFERENCE.md
+      - Building: https://github.com/thang199801666/XLPP/blob/main/BUILDING.md
+  - C#:
+      - Quick start: quickstart-csharp.md
+  - Capabilities:
+      - Current capabilities: CURRENT_CAPABILITIES.md
+      - Compatibility matrix: COMPATIBILITY_MATRIX.md
+      - Preservation core: PRESERVATION_CORE.md
+      - Missing features and roadmap: MISSING_FEATURES_AND_DEVELOPMENT_ROADMAP.md
+      - Performance: performance.md
+  - Engineering:
+      - Architecture: architecture.md
+      - Dependency tracking: P0V_DEPENDENCY_TRACKING.md
+      - Formula and encryption: P0W_FORMULA_ENCRYPTION.md
+      - Editing core: P0X_90_PERCENT_ENGINE.md
+      - Core hardening: P0Y_CORE_HARDENING.md
+      - Core architecture: P0Z_CORE_ARCHITECTURE.md
+      - Core decomposition: P0ZB_CORE_DECOMPOSITION.md
+      - Fine-grained decomposition: P0ZC_CORE_DECOMPOSITION.md
+      - Binding parity milestone: P0ZD_BINDING_PARITY_AND_FORMULA_DECOMPOSITION.md
+      - Stable handles: P0ZE_STABLE_HANDLES_AND_BINDING_MANIFEST.md
+      - Pivot and chart families: P0ZF_PIVOT_AND_COMPLETE_CHART_FAMILIES.md
+      - Technical debt hardening: P0ZG_TECHNICAL_DEBT_HARDENING.md
+      - VBA authoring: P0ZH_VBA_AUTHORING_AND_PRESERVATION.md
+      - Refinement status: P0ZI_PHASE28_TO_37_REFINEMENT.md

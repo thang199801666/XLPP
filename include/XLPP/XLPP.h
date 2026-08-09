@@ -40,3 +40,4 @@
 
 #include <XLPP/ExternalData.h>
 #include <XLPP/DataModel.h>
+#include <XLPP/EnterpriseFeatures.h>

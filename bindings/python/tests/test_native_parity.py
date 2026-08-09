@@ -58,6 +58,13 @@ def test_structural_rename_validation_chart_tracking_and_vba():
     assert external.has_external_workbooks is False
     assert external.has_connections is False
     assert external.has_query_tables is False
+    enterprise = wb.inspect_enterprise_features()
+    assert enterprise.features == []
+    assert enterprise.count(xlpp.EnterpriseFeatureKind.PIVOT_CHART) == 0
+    assert not enterprise.has(xlpp.EnterpriseFeatureKind.DATA_MODEL)
+    missing_edit = wb.set_pivot_chart_source_name("xl/charts/chart1.xml", "Pivot1")
+    assert missing_edit.matched == 0 and not missing_edit.success
+    assert missing_edit.warnings
 
     ws = wb.get_worksheet("Input")
     ws.vba_code_name = "InputSheet"
@@ -162,7 +169,9 @@ def test_python_exposes_remaining_worksheet_native_api():
     added = ws.add_loaded_pivot_table(pivot)
     assert added.name == "Imported"
     assert ws.loaded_pivot_count == 1
-    assert ws.generated_pivot_start == 1
+    # A newly authored worksheet is already pivot-dirty; generatedPivotStart()
+    # therefore follows the native C++ contract and starts at zero.
+    assert ws.generated_pivot_start == 0
 
     assert ws.remove_chart_axis_gridlines("missing", 1, True) is False
     assert ws.remove_chart_data_table("missing") is False
@@ -275,7 +284,7 @@ def test_python_exposes_cell_rich_text_and_row_cells():
     rich.add_run(run)
     cell.set_rich_text(rich)
     assert cell.has_rich_text
-    assert cell.rich_text_value.plain_text == "Hello"
+    assert cell.rich_text_value.plain_text() == "Hello"
     assert len(ws.row(1).cells) >= 1
 
 
@@ -300,15 +309,36 @@ def test_python_exposes_reference_and_datetime_helpers():
     assert xlpp.MAX_EXCEL_ROWS == 1048576
     assert xlpp.legacy_protection_password_hash("secret")
     renamed = xlpp.rename_worksheet_references("=Sheet!A1", "Sheet", "Input")
-    assert renamed.changed and "Input!A1" in renamed.value
+    assert renamed.changed and "'Input'!A1" in renamed.value
     invalidated = xlpp.invalidate_worksheet_references("=Sheet!A1", "Sheet")
     assert invalidated.changed and "#REF!" in invalidated.value
     value = xlpp.DateTime(2026, 8, 9, 10, 11, 12.5)
     assert value.to_iso8601_date() == "2026-08-09"
+    assert value.to_iso8601() == "2026-08-09T10:11:12.500"
+    assert xlpp.to_iso8601_date(value) == "2026-08-09"
+    assert xlpp.to_iso8601(value) == "2026-08-09T10:11:12.500"
+    civil_day = xlpp.days_from_civil(2026, 8, 9)
+    restored = xlpp.civil_from_days(civil_day)
+    assert (restored.year, restored.month, restored.day) == (2026, 8, 9)
     assert value == xlpp.DateTime(2026, 8, 9, 10, 11, 12.5)
     assert value != xlpp.DateTime(2026, 8, 9)
     value.hour = 12
     assert value.hour == 12
+
+
+def test_python_native_method_aliases_and_dependency_builder():
+    wb = xlpp.Workbook()
+    ws = wb.add_worksheet("Before")
+    ws.rename("After")
+    ws.set_print_titles_rows("1:2")
+    ws.set_print_titles_cols("A:B")
+    assert ws.name == "After"
+    assert ws.print_titles_rows == "1:2"
+    assert ws.print_titles_cols == "A:B"
+    assert ws.set_chart_view3_d("missing", xlpp.ChartView3D()) is False
+    ws["A1"].set_formula("=1+1")
+    graph = xlpp.build_formula_dependency_graph(wb)
+    assert graph.report.formula_cells == 1
 
 
 def test_python_exposes_cell_position_and_date_overloads():
@@ -356,7 +386,7 @@ def test_python_exposes_native_report_and_inspection_constructors():
     dependency = xlpp.FormulaDependency()
     dependency.symbol = "A1"
     assert dependency.symbol == "A1"
-    assert xlpp.FormulaDependencyReport().formula_cells == []
+    assert xlpp.FormulaDependencyReport().formula_cells == 0
     assert xlpp.FormulaDependencyGraph().edges == []
     extents = xlpp.WorksheetExtents()
     extents.max_row = 10

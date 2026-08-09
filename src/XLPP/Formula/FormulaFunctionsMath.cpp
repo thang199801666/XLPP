@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 namespace xlpp::internal::formula {
     FormulaFunctionResult evaluateMathStatFinancialFunctions(FormulaFunctionCall& call, const std::string& name) {
         auto& engine = call.engine;
@@ -143,6 +144,176 @@ namespace xlpp::internal::formula {
             else if (name == "ROUNDUP") rounded = scaled >= 0 ? std::ceil(scaled) : std::floor(scaled);
             else rounded = scaled >= 0 ? std::floor(scaled) : std::ceil(scaled);
             return EvalValue::fromScalar(rounded / scale);
+        }
+        if(name=="TRUNC") {
+            auto n=numArg(0),digitsValue=args.size()>=2?numArg(1):std::optional<double>{0.0};
+            if(!n||!digitsValue)return EvalValue::fromScalar(CellError::Value);
+            const int digits=static_cast<int>(*digitsValue);
+            const double scale=std::pow(10.0,digits);
+            if(!std::isfinite(scale)||scale==0.0)return EvalValue::fromScalar(CellError::Number);
+            return EvalValue::fromScalar(std::trunc(*n*scale)/scale);
+        }
+        if(name=="QUOTIENT") {
+            auto numerator=numArg(0),denominator=numArg(1);
+            if(!numerator||!denominator)return EvalValue::fromScalar(CellError::Value);
+            if(*denominator==0.0)return EvalValue::fromScalar(CellError::DivisionByZero);
+            return EvalValue::fromScalar(std::trunc(*numerator / *denominator));
+        }
+        if(name=="EVEN"||name=="ODD") {
+            auto n=numArg(0);
+            if(!n)return EvalValue::fromScalar(CellError::Value);
+            const auto magnitude=static_cast<long long>(std::ceil(std::fabs(*n)));
+            long long rounded=magnitude;
+            if(name=="EVEN"?(rounded%2!=0):(rounded%2==0))++rounded;
+            return EvalValue::fromScalar(static_cast<double>(*n<0?-rounded:rounded));
+        }
+        if(name=="GCD"||name=="LCM") {
+            long long result=name=="GCD"?0:1;
+            for(double value:numericValues()) {
+                if(value<0||!std::isfinite(value))return EvalValue::fromScalar(CellError::Number);
+                const auto integer=static_cast<long long>(std::trunc(value));
+                if(name=="GCD")result=std::gcd(result,integer);
+                else {
+                    if(integer==0){result=0;continue;}
+                    const auto divisor=std::gcd(result,integer);
+                    if(result>std::numeric_limits<long long>::max()/(integer/divisor))return EvalValue::fromScalar(CellError::Number);
+                    result*=integer/divisor;
+                }
+            }
+            return EvalValue::fromScalar(static_cast<double>(result));
+        }
+        if(name=="MROUND") {
+            auto n=numArg(0),multiple=numArg(1);
+            if(!n||!multiple)return EvalValue::fromScalar(CellError::Value);
+            if(*multiple==0.0)return EvalValue::fromScalar(0.0);
+            if((*n<0)!=( *multiple<0))return EvalValue::fromScalar(CellError::Number);
+            const auto step=std::fabs(*multiple);
+            const auto rounded=std::floor(std::fabs(*n)/step+0.5)*step;
+            return EvalValue::fromScalar(*n<0?-rounded:rounded);
+        }
+        if(name=="RANK.EQ"||name=="RANK"||name=="RANK.AVG") {
+            if(args.size()<2)return EvalValue::fromScalar(CellError::Value);
+            auto target=numArg(0),order=args.size()>=3?numArg(2):std::optional<double>{0.0};
+            if(!target||!order)return EvalValue::fromScalar(CellError::Value);
+            std::vector<double> values;
+            for(const auto& value:(args[1].isRange?args[1].range:std::vector<Scalar>{args[1].scalar}))
+                if(auto number=numberValue(value,engine.date1904()))values.push_back(*number);
+            if(std::find(values.begin(),values.end(),*target)==values.end())return EvalValue::fromScalar(CellError::NotAvailable);
+            const bool ascending=*order!=0.0;
+            const auto before=static_cast<std::size_t>(std::count_if(values.begin(),values.end(),[&](double value){
+                return ascending?value<*target:value>*target;
+            }));
+            if(name=="RANK.AVG") {
+                const auto ties=static_cast<std::size_t>(std::count(values.begin(),values.end(),*target));
+                return EvalValue::fromScalar(static_cast<double>(before+1)+(static_cast<double>(ties)-1.0)/2.0);
+            }
+            return EvalValue::fromScalar(static_cast<double>(before+1));
+        }
+        if(name=="MODE"||name=="MODE.SNGL") {
+            if(auto e=err())return EvalValue::fromScalar(*e);
+            auto values=numericValues();
+            if(values.empty())return EvalValue::fromScalar(CellError::NotAvailable);
+            std::sort(values.begin(),values.end());
+            std::size_t bestCount=1,currentCount=1;
+            double bestValue=values.front();
+            for(std::size_t i=1;i<values.size();++i) {
+                if(values[i]==values[i-1])++currentCount;
+                else currentCount=1;
+                if(currentCount>bestCount) {
+                    bestCount=currentCount;
+                    bestValue=values[i];
+                }
+            }
+            return EvalValue::fromScalar(bestCount<2?Scalar{CellError::NotAvailable}:Scalar{bestValue});
+        }
+        if(name=="PERCENTILE"||name=="PERCENTILE.INC"||name=="PERCENTILE.EXC"||
+           name=="QUARTILE"||name=="QUARTILE.INC"||name=="QUARTILE.EXC") {
+            if(args.size()<2)return EvalValue::fromScalar(CellError::Value);
+            std::vector<double> values;
+            for(const auto& value:(args[0].isRange?args[0].range:std::vector<Scalar>{args[0].scalar}))
+                if(auto number=numberValue(value,engine.date1904()))values.push_back(*number);
+            auto parameter=numArg(1);
+            if(!parameter||values.empty())return EvalValue::fromScalar(CellError::Number);
+            const bool quartile=name.rfind("QUARTILE",0)==0;
+            double k=quartile?*parameter/4.0:*parameter;
+            if(quartile&&(*parameter<0.0||*parameter>4.0||std::trunc(*parameter)!=*parameter))
+                return EvalValue::fromScalar(CellError::Number);
+            std::sort(values.begin(),values.end());
+            const bool exclusive=name.ends_with(".EXC");
+            if(exclusive) {
+                if(k<=0.0||k>=1.0)return EvalValue::fromScalar(CellError::Number);
+                const double rank=(static_cast<double>(values.size())+1.0)*k;
+                if(rank<1.0||rank>static_cast<double>(values.size()))return EvalValue::fromScalar(CellError::Number);
+                const auto lower=static_cast<std::size_t>(std::floor(rank));
+                const double fraction=rank-static_cast<double>(lower);
+                if(fraction==0.0)return EvalValue::fromScalar(values[lower-1]);
+                return EvalValue::fromScalar(values[lower-1]+fraction*(values[lower]-values[lower-1]));
+            }
+            if(k<0.0||k>1.0)return EvalValue::fromScalar(CellError::Number);
+            const double index=(static_cast<double>(values.size())-1.0)*k;
+            const auto lower=static_cast<std::size_t>(std::floor(index));
+            const auto upper=static_cast<std::size_t>(std::ceil(index));
+            return EvalValue::fromScalar(values[lower]+(index-static_cast<double>(lower))*(values[upper]-values[lower]));
+        }
+        if(name=="GEOMEAN"||name=="HARMEAN") {
+            if(auto e=err())return EvalValue::fromScalar(*e);
+            const auto values=numericValues();
+            if(values.empty())return EvalValue::fromScalar(CellError::Number);
+            double aggregate=0.0;
+            for(double value:values) {
+                if(value<=0.0)return EvalValue::fromScalar(CellError::Number);
+                aggregate+=name=="GEOMEAN"?std::log(value):1.0/value;
+            }
+            return EvalValue::fromScalar(name=="GEOMEAN"
+                ?std::exp(aggregate/static_cast<double>(values.size()))
+                :static_cast<double>(values.size())/aggregate);
+        }
+        if(name=="CORREL"||name=="PEARSON"||name=="COVARIANCE.P"||name=="COVARIANCE.S"||
+           name=="COVAR"||name=="RSQ"||name=="SLOPE"||name=="INTERCEPT"||
+           name=="FORECAST"||name=="FORECAST.LINEAR") {
+            const bool forecast=name=="FORECAST"||name=="FORECAST.LINEAR";
+            const std::size_t yIndex=forecast?1:0;
+            const std::size_t xIndex=forecast?2:1;
+            if(args.size()<=xIndex)return EvalValue::fromScalar(CellError::Value);
+            const auto yValues=args[yIndex].isRange?args[yIndex].range:std::vector<Scalar>{args[yIndex].scalar};
+            const auto xValues=args[xIndex].isRange?args[xIndex].range:std::vector<Scalar>{args[xIndex].scalar};
+            if(yValues.size()!=xValues.size())return EvalValue::fromScalar(CellError::NotAvailable);
+            std::vector<std::pair<double,double>> pairs;
+            for(std::size_t index=0;index<yValues.size();++index) {
+                const auto y=numberValue(yValues[index],engine.date1904());
+                const auto x=numberValue(xValues[index],engine.date1904());
+                if(y&&x)pairs.emplace_back(*x,*y);
+            }
+            if(pairs.empty())return EvalValue::fromScalar(CellError::DivisionByZero);
+            double meanX=0.0,meanY=0.0;
+            for(const auto& [x,y]:pairs) {meanX+=x;meanY+=y;}
+            meanX/=static_cast<double>(pairs.size());
+            meanY/=static_cast<double>(pairs.size());
+            double sumXX=0.0,sumYY=0.0,sumXY=0.0;
+            for(const auto& [x,y]:pairs) {
+                const auto dx=x-meanX,dy=y-meanY;
+                sumXX+=dx*dx;
+                sumYY+=dy*dy;
+                sumXY+=dx*dy;
+            }
+            if(name=="COVARIANCE.P"||name=="COVAR")
+                return EvalValue::fromScalar(sumXY/static_cast<double>(pairs.size()));
+            if(name=="COVARIANCE.S")
+                return pairs.size()<2?EvalValue::fromScalar(CellError::DivisionByZero)
+                                     :EvalValue::fromScalar(sumXY/static_cast<double>(pairs.size()-1));
+            if(name=="CORREL"||name=="PEARSON"||name=="RSQ") {
+                if(sumXX==0.0||sumYY==0.0)return EvalValue::fromScalar(CellError::DivisionByZero);
+                const auto correlation=sumXY/std::sqrt(sumXX*sumYY);
+                return EvalValue::fromScalar(name=="RSQ"?correlation*correlation:correlation);
+            }
+            if(sumXX==0.0)return EvalValue::fromScalar(CellError::DivisionByZero);
+            const auto slope=sumXY/sumXX;
+            if(name=="SLOPE")return EvalValue::fromScalar(slope);
+            const auto intercept=meanY-slope*meanX;
+            if(name=="INTERCEPT")return EvalValue::fromScalar(intercept);
+            auto target=numArg(0);
+            return target?EvalValue::fromScalar(intercept+slope * *target)
+                         :EvalValue::fromScalar(CellError::Value);
         }
         if(name=="SIGN"||name=="EXP"||name=="LN"||name=="LOG10") {
             auto n=numArg(0);

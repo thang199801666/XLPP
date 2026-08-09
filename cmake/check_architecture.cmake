@@ -19,6 +19,18 @@ function(xlpp_assert_no_include root description)
     endforeach()
 endfunction()
 
+function(xlpp_assert_file_not_contains file description)
+    file(READ "${file}" content)
+    foreach(pattern IN LISTS ARGN)
+        string(FIND "${content}" "${pattern}" hit)
+        if(NOT hit EQUAL -1)
+            file(RELATIVE_PATH relative "${XLPP_SOURCE_DIR}" "${file}")
+            message(FATAL_ERROR
+                "Architecture facade violation (${description}): ${relative} contains '${pattern}'")
+        endif()
+    endforeach()
+endfunction()
+
 # Bytes/package primitives must stay independent of the semantic workbook model.
 xlpp_assert_no_include(
     "${XLPP_SOURCE_DIR}/src/XLPP/Package"
@@ -52,5 +64,25 @@ foreach(domain Formula Dependencies Validation)
         "#include <XLPP/Package/"
     )
 endforeach()
+
+# Keep facade headers focused on composition and public behavior. Domain option,
+# report and row types have dedicated headers so they remain independently
+# includable and do not drift back into the aggregate Workbook/Worksheet files.
+xlpp_assert_file_not_contains(
+    "${XLPP_SOURCE_DIR}/include/XLPP/Workbook/Workbook.h"
+    "Workbook facade ownership"
+    "struct LoadOptions"
+    "struct LoadDiagnostics"
+    "struct ChartCacheSyncOptions"
+    "struct ChartCacheSyncReport"
+    "void clear() {"
+)
+xlpp_assert_file_not_contains(
+    "${XLPP_SOURCE_DIR}/include/XLPP/Worksheet/Worksheet.h"
+    "Worksheet facade ownership"
+    "struct WorksheetStructuralEditReport"
+    "struct WorksheetExtents"
+    "class Row {"
+)
 
 message(STATUS "XLPP architecture boundary checks passed")
