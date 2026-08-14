@@ -89,8 +89,6 @@ namespace XlppNet.Tests
             Assert.False(wb.HasVbaSignature);
             Assert.True(wb.RemoveVbaModule("Module1"));
         }
-    }
-
         [Fact]
         public void ScopedDefinedNamesTrackNativeSemantics()
         {
@@ -106,4 +104,5 @@ namespace XlppNet.Tests
             Assert.Equal("S1!$A$1", n1.Value);
             Assert.Equal("S2!$A$1", n2.Value);
         }
+    }
 }

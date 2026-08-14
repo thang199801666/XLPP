@@ -3,6 +3,7 @@
 #include "Fill.h"
 #include "Border.h"
 #include "Alignment.h"
+#include <XLPP/Detail/CompactString.h>
 #include <string>
 #include <cstddef>
 #include <functional>
@@ -18,8 +19,8 @@ public:
     const Border& border() const noexcept { return border_; }
     Alignment& alignment() noexcept { return alignment_; }
     const Alignment& alignment() const noexcept { return alignment_; }
-    const std::string& numberFormat() const noexcept { return numberFormat_; }
-    void setNumberFormat(std::string value) { numberFormat_ = std::move(value); }
+    const std::string& numberFormat() const noexcept { return numberFormat_.get(defaultNumberFormat()); }
+    void setNumberFormat(std::string value) { numberFormat_.set(std::move(value), defaultNumberFormat()); }
     int numFmtId() const noexcept { return numFmtId_; }
     void setNumFmtId(int value) noexcept { numFmtId_ = value; }
     bool locked() const noexcept { return locked_; }
@@ -27,7 +28,10 @@ public:
     bool hidden() const noexcept { return hidden_; }
     void setHidden(bool value) noexcept { hidden_ = value; }
 
-    bool isDefault() const noexcept { return *this == Style{}; }
+    bool isDefault() const noexcept {
+        return font_.isDefault() && fill_.isDefault() && border_.isDefault() && alignment_.isDefault() &&
+               numberFormat_.isDefault() && numFmtId_ == 0 && locked_ && !hidden_;
+    }
     friend bool operator==(const Style&, const Style&) = default;
 
     std::size_t hash() const noexcept {
@@ -39,18 +43,22 @@ public:
         combine(h, fill_.hash());
         combine(h, border_.hash());
         combine(h, alignment_.hash());
-        combine(h, numberFormat_);
+        combine(h, numberFormat());
         combine(h, numFmtId_);
         combine(h, locked_);
         combine(h, hidden_);
         return h;
     }
 private:
+    static const std::string& defaultNumberFormat() noexcept {
+        static const std::string value{"General"};
+        return value;
+    }
     Font font_;
     Fill fill_;
     Border border_;
     Alignment alignment_;
-    std::string numberFormat_{"General"};
+    internal::CompactString numberFormat_;
     int numFmtId_{0};
     bool locked_{true};
     bool hidden_{false};

@@ -65,7 +65,6 @@ nav:
   - Home: index.md
   - Python:
       - Overview: python/index.md
-      - Quick start: quickstart-python.md
       - Install and compatibility: python/installation.md
       - Workbook and worksheets: python/workbooks-and-worksheets.md
       - Cells, ranges, and rows: python/cells-ranges-rows.md
@@ -80,7 +79,6 @@ nav:
       - Migrate from openpyxl: python/openpyxl-migration.md
       - Feature/API coverage: python/api-coverage.md
       - Troubleshooting: python/troubleshooting.md
-      - Single-page guide: python.md
   - C++:
       - Quick start: quickstart-cpp.md
       - API reference: https://github.com/thang199801666/XLPP/blob/main/API_REFERENCE.md
@@ -91,20 +89,7 @@ nav:
       - Current capabilities: CURRENT_CAPABILITIES.md
       - Compatibility matrix: COMPATIBILITY_MATRIX.md
       - Preservation core: PRESERVATION_CORE.md
-      - Missing features and roadmap: MISSING_FEATURES_AND_DEVELOPMENT_ROADMAP.md
+      - Roadmap: https://github.com/thang199801666/XLPP/blob/main/ROADMAP.md
       - Performance: performance.md
   - Engineering:
       - Architecture: architecture.md
-      - Dependency tracking: P0V_DEPENDENCY_TRACKING.md
-      - Formula and encryption: P0W_FORMULA_ENCRYPTION.md
-      - Editing core: P0X_90_PERCENT_ENGINE.md
-      - Core hardening: P0Y_CORE_HARDENING.md
-      - Core architecture: P0Z_CORE_ARCHITECTURE.md
-      - Core decomposition: P0ZB_CORE_DECOMPOSITION.md
-      - Fine-grained decomposition: P0ZC_CORE_DECOMPOSITION.md
-      - Binding parity milestone: P0ZD_BINDING_PARITY_AND_FORMULA_DECOMPOSITION.md
-      - Stable handles: P0ZE_STABLE_HANDLES_AND_BINDING_MANIFEST.md
-      - Pivot and chart families: P0ZF_PIVOT_AND_COMPLETE_CHART_FAMILIES.md
-      - Technical debt hardening: P0ZG_TECHNICAL_DEBT_HARDENING.md
-      - VBA authoring: P0ZH_VBA_AUTHORING_AND_PRESERVATION.md
-      - Refinement status: P0ZI_PHASE28_TO_37_REFINEMENT.md

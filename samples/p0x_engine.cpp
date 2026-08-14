@@ -19,11 +19,9 @@ int main(int argc, char** argv) {
         sheet.cell("A2").setValue("Inserted");
         sheet.cell("B2").setValue(5.0);
 
-        auto calculation = workbook.calculateFormulas();
         workbook.save(output);
-        std::cout << "Saved " << output << " with calculated D1="
-                  << sheet.cell("D1").numericValueOr(0.0)
-                  << ", formula evaluations=" << calculation.formulaCellsEvaluated << '\n';
+        std::cout << "Saved " << output << " with D1 formula preserved"
+                  << sheet.cell("D1").formula() << '\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

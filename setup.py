@@ -54,7 +54,7 @@ is_msvc = os.name == "nt"
 
 if is_msvc:
     compile_args = ["/std:c++20", "/EHsc", "/bigobj", "/DXLPP_STATIC"]
-    link_args = ["bcrypt.lib"]
+    link_args = []
 else:
     compile_args = ["-std=c++20", "-fPIC", "-DXLPP_STATIC"]
     link_args = []
@@ -65,7 +65,7 @@ def xlpp_sources():
     out = []
     for dirpath, _dirnames, filenames in os.walk(os.path.join("src", "XLPP")):
         for name in sorted(filenames):
-            if name.endswith(".cpp") and name != "WorkbookCodec.cpp":
+            if name.endswith(".cpp"):
                 out.append(os.path.join(dirpath, name))
     return out
 

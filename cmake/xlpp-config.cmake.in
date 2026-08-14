@@ -1,6 +1,9 @@
 @PACKAGE_INIT@
 
 include(CMakeFindDependencyMacro)
+if(NOT WIN32)
+    find_dependency(OpenSSL COMPONENTS Crypto)
+endif()
 
 # XLPP::XLPP links against zlib. When the bundled copy was used it is
 # installed alongside us; otherwise resolve the system package.

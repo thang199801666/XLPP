@@ -118,5 +118,5 @@ NumPy paths, native report models, lifetime behavior, and public parity aliases.
 - Complete ActiveX and UserForms authoring
 - Excel application automation, rendering, refresh, and recalculation behavior
 
-See [Known gaps and development roadmap](../MISSING_FEATURES_AND_DEVELOPMENT_ROADMAP.md)
+See the active [development roadmap](https://github.com/thang199801666/XLPP/blob/main/ROADMAP.md)
 for the detailed backlog.

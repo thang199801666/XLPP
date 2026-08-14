@@ -48,9 +48,37 @@ namespace XlppNet.Tests
             using var wb = new Workbook();
             wb.AddWorksheet("Keep");
             wb.AddWorksheet("Drop");
-            Assert.True(wb.RemoveWorksheet("Drop"));
+            Assert.True(wb.RenameWorksheet("drop", "Renamed"));
+            Assert.NotNull(wb.GetWorksheet("RENAMED"));
+            Assert.True(wb.RemoveWorksheet("renamed"));
             Assert.False(wb.RemoveWorksheet("Missing"));
+            Assert.False(wb.RemoveWorksheet("Keep")); // last-sheet invariant stays inside the C ABI
             Assert.Equal(1, wb.SheetCount);
+        }
+
+        [Fact]
+        public void PasswordEncryption_RoundTrips()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"xlpp-p1g-{Guid.NewGuid():N}.xlsx");
+            try
+            {
+                using (var wb = new Workbook())
+                {
+                    var ws = wb.AddWorksheet("Secret");
+                    ws["A1"].Value = "classified";
+                    Assert.True(wb.SaveEncrypted(path, "P@ssw0rd✓", 1000));
+                }
+                Assert.True(Workbook.IsPasswordEncryptedFile(path));
+                using var reopened = new Workbook();
+                Assert.True(reopened.Load(path, "P@ssw0rd✓"));
+                Assert.Equal("classified", reopened[0]["A1"].Value);
+                using var wrong = new Workbook();
+                Assert.False(wrong.Load(path, "wrong"));
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
         }
     }
 

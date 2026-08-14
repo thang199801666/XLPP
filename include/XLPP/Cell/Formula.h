@@ -1,6 +1,8 @@
 #pragma once
 #include <optional>
+#include <XLPP/Detail/CompactString.h>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace xlpp {
@@ -21,9 +23,9 @@ public:
     FormulaType type() const noexcept { return type_; }
     void setType(FormulaType value) noexcept { type_ = value; }
 
-    const std::string& reference() const noexcept { return reference_; }
-    void setReference(std::string value) { reference_ = std::move(value); }
-    void clearReference() noexcept { reference_.clear(); }
+    const std::string& reference() const noexcept { return reference_.get(defaultReference()); }
+    void setReference(std::string value) { reference_.set(std::move(value), defaultReference()); }
+    void clearReference() noexcept { reference_ = internal::CompactString{}; }
 
     const std::optional<unsigned>& sharedIndex() const noexcept { return sharedIndex_; }
     void setSharedIndex(unsigned value) noexcept { sharedIndex_ = value; }
@@ -36,14 +38,15 @@ public:
     void setCalculateOnLoad(bool value) noexcept { calculateOnLoad_ = value; }
 
     bool empty() const noexcept {
-        return type_ == FormulaType::Normal && reference_.empty() &&
+        return type_ == FormulaType::Normal && reference_.isDefault() &&
                !sharedIndex_.has_value() && !alwaysCalculateArray_ &&
                !calculateOnLoad_;
     }
 
 private:
+    static const std::string& defaultReference() noexcept { static const std::string value; return value; }
     FormulaType type_{FormulaType::Normal};
-    std::string reference_;
+    internal::CompactString reference_;
     std::optional<unsigned> sharedIndex_;
     bool alwaysCalculateArray_{false};
     bool calculateOnLoad_{false};
@@ -57,9 +60,7 @@ enum class CellError {
     Name,
     Number,
     NotAvailable,
-    GettingData,
-    Spill,
-    Calculation
+    GettingData
 };
 
 inline std::string toString(CellError error) {
@@ -72,13 +73,11 @@ inline std::string toString(CellError error) {
     case CellError::Number: return "#NUM!";
     case CellError::NotAvailable: return "#N/A";
     case CellError::GettingData: return "#GETTING_DATA";
-    case CellError::Spill: return "#SPILL!";
-    case CellError::Calculation: return "#CALC!";
     }
     return "#VALUE!";
 }
 
-inline CellError cellErrorFromString(const std::string& value) {
+inline CellError cellErrorFromString(std::string_view value) {
     if (value == "#NULL!") return CellError::Null;
     if (value == "#DIV/0!") return CellError::DivisionByZero;
     if (value == "#REF!") return CellError::Reference;
@@ -86,8 +85,6 @@ inline CellError cellErrorFromString(const std::string& value) {
     if (value == "#NUM!") return CellError::Number;
     if (value == "#N/A") return CellError::NotAvailable;
     if (value == "#GETTING_DATA") return CellError::GettingData;
-    if (value == "#SPILL!") return CellError::Spill;
-    if (value == "#CALC!") return CellError::Calculation;
     return CellError::Value;
 }
 

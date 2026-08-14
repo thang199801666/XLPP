@@ -4,7 +4,6 @@ x64/
 *.vcxproj.filters
 .vs/
 build/
-/site/
 out/
 build-*/
 *.obj

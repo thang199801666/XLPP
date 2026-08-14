@@ -1,5 +1,5 @@
-#include "Package/Opc/RelationshipGraph.h"
-#include "Package/Zip/ZipArchive.h"
+#include "Packaging/RelationshipGraph.h"
+#include "Packaging/ZipArchive.h"
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
@@ -27,6 +27,9 @@ void printValidation(const xlpp::internal::RelationshipValidationReport& report)
 void printInventory(const xlpp::internal::PackageObjectInventory& inventory) {
     std::cout << "Reachable object inventory\n"
               << "  Worksheets: " << inventory.worksheets << '\n'
+              << "  Chartsheets: " << inventory.chartsheets << '\n'
+              << "  Header/footer drawings: " << inventory.headerFooterDrawings << '\n'
+              << "  Printer settings: " << inventory.printerSettings << '\n'
               << "  Drawings: " << inventory.drawings << '\n'
               << "  Images: " << inventory.images << '\n'
               << "  Charts: " << inventory.charts << '\n'
@@ -77,6 +80,9 @@ void jsonStringArray(std::ostream& out, const std::vector<std::string>& values) 
 void jsonInventory(std::ostream& out, const xlpp::internal::PackageObjectInventory& inventory) {
     out << '{'
         << "\"worksheets\":" << inventory.worksheets << ','
+        << "\"chartsheets\":" << inventory.chartsheets << ','
+        << "\"headerFooterDrawings\":" << inventory.headerFooterDrawings << ','
+        << "\"printerSettings\":" << inventory.printerSettings << ','
         << "\"drawings\":" << inventory.drawings << ','
         << "\"images\":" << inventory.images << ','
         << "\"charts\":" << inventory.charts << ','

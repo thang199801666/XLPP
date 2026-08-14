@@ -5,64 +5,27 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
-using Microsoft.Win32.SafeHandles;
 
 namespace XLPP
 {
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct NativeCalculationReport
+    public enum PackageEncryptionMode { Agile = 0, Standard = 1 }
+    public enum PackageEncryptionHash { Sha1 = 0, Sha256 = 1, Sha384 = 2, Sha512 = 3 }
+    public enum PackageEncryptionFormat { None = 0, Agile = 1, Standard = 2, Unsupported = 3 }
+
+    public sealed class PackageEncryptionInfo
     {
-        public ulong FormulaCellsVisited, FormulaCellsEvaluated, CachedValuesUpdated, DependencyEvaluations;
-        public ulong DefinedNamesResolved, CircularReferences, UnsupportedFormulas, EvaluationErrors;
-        public ulong DynamicArraysSpilled, SpillCellsUpdated, SpillConflicts, StructuredReferencesResolved;
-        public ulong IterativeIterations, IterativeConvergenceFailures, ExternalReferencesResolved, UnresolvedExternalReferences;
-        public int Success;
+        public PackageEncryptionFormat Format { get; internal set; }
+        public uint KeyBits { get; internal set; }
+        public PackageEncryptionHash HashAlgorithm { get; internal set; }
+        public ulong SpinCount { get; internal set; }
+        public bool HasDataIntegrity { get; internal set; }
+        public ulong KeyEncryptorCount { get; internal set; }
+        public ulong PasswordKeyEncryptorCount { get; internal set; }
+        public ulong CertificateKeyEncryptorCount { get; internal set; }
     }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct NativeExternalDataSummary
-    {
-        public ulong ExternalWorkbooks, Connections, QueryTables, PowerQueryParts, WebQueryParts, UnknownConnectionParts;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct NativeDataModelSummary
-    {
-        public int Present, HasOlapPivotCaches;
-        public ulong ModelParts, ModelRelationships, OlapPivotCacheParts, Warnings;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct NativeStructuralReport
-    {
-        public ulong WorksheetsVisited, CellsMoved, CellsRemoved, FormulasUpdated, FormulaMetadataUpdated;
-        public ulong WorksheetReferencesUpdated, DefinedNamesUpdated, ChartReferencesUpdated, PivotReferencesUpdated;
-        public ulong DrawingAnchorsUpdated, HyperlinksUpdated, ReferencesInvalidated, FormulasCalculated, ChartCachesUpdated;
-        public int Success;
-    }
-
-    public readonly record struct CalculationReport(ulong FormulaCellsVisited, ulong FormulaCellsEvaluated,
-        ulong CachedValuesUpdated, ulong DependencyEvaluations, ulong DefinedNamesResolved,
-        ulong CircularReferences, ulong UnsupportedFormulas, ulong EvaluationErrors, ulong DynamicArraysSpilled,
-        ulong SpillCellsUpdated, ulong SpillConflicts, ulong StructuredReferencesResolved, ulong IterativeIterations,
-        ulong IterativeConvergenceFailures, ulong ExternalReferencesResolved, ulong UnresolvedExternalReferences, bool Success);
-
-    public readonly record struct ExternalDataInspection(ulong ExternalWorkbooks, ulong Connections, ulong QueryTables,
-        ulong PowerQueryParts, ulong WebQueryParts, ulong UnknownConnectionParts);
-
-    public readonly record struct DataModelInspection(bool Present, bool HasOlapPivotCaches, ulong ModelParts,
-        ulong ModelRelationships, ulong OlapPivotCacheParts, ulong Warnings);
-
-    public readonly record struct StructuralEditReport(ulong WorksheetsVisited, ulong CellsMoved, ulong CellsRemoved,
-        ulong FormulasUpdated, ulong FormulaMetadataUpdated, ulong WorksheetReferencesUpdated, ulong DefinedNamesUpdated,
-        ulong ChartReferencesUpdated, ulong PivotReferencesUpdated, ulong DrawingAnchorsUpdated, ulong HyperlinksUpdated,
-        ulong ReferencesInvalidated, ulong FormulasCalculated, ulong ChartCachesUpdated, bool Success);
-
-    public enum StructuralEditKind { InsertRows = 0, DeleteRows = 1, InsertColumns = 2, DeleteColumns = 3 }
-    public enum OfficeEncryptionMode { AgileAes256Sha512 = 1, StandardAesSha1 = 2 }
 
     // === Native interop ===
-    internal static partial class Native
+    internal static class Native
     {
         private const string Dll = "xlpp_capi";
 
@@ -101,10 +64,6 @@ namespace XLPP
 
         // Workbook
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern ulong xlpp_c_abi_version();
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern ulong xlpp_capabilities();
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_workbook_create();
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlpp_workbook_destroy(IntPtr wb);
@@ -119,6 +78,8 @@ namespace XLPP
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern int xlpp_workbook_remove_sheet(IntPtr wb, string name);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int xlpp_workbook_rename_sheet(IntPtr wb, string oldName, string newName);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern IntPtr xlpp_workbook_copy_sheet(IntPtr wb, IntPtr src, string newName);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlpp_workbook_sheet_index(IntPtr wb, IntPtr ws);
@@ -131,19 +92,19 @@ namespace XLPP
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern int xlpp_workbook_save(IntPtr wb, string path);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int xlpp_workbook_save_durable(IntPtr wb, string path, int durableWrite);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int xlpp_workbook_load_password(IntPtr wb, string path, string password, int verifyIntegrity);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int xlpp_workbook_save_encrypted(IntPtr wb, string path, string password, ulong spinCount, int calculateFormulas);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int xlpp_workbook_save_encrypted_ex(IntPtr wb, string path, string password, int encryptionMode, ulong keyBits, ulong spinCount, int calculateFormulas);
+        public static extern int xlpp_workbook_load_password(IntPtr wb, string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string passwordUtf8);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_calculate(IntPtr wb, out NativeCalculationReport report);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_calculate_ex(IntPtr wb, int iterative, ulong maxIterations, double maxChange, out NativeCalculationReport report);
+        public static extern int xlpp_workbook_load_password_ex(IntPtr wb, string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string passwordUtf8, ulong maxSpinCount, ulong maxDecryptedPackageBytes, int allowStandardEncryption, int requireAgileDataIntegrity, ulong maxEncryptionInfoBytes);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int xlpp_workbook_structural_edit(IntPtr wb, string sheetName, int kind, ulong index, ulong amount, int failOnInvalidReference, out NativeStructuralReport report);
+        public static extern int xlpp_workbook_save_password(IntPtr wb, string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string passwordUtf8, ulong spinCount);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int xlpp_workbook_save_password_ex(IntPtr wb, string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string passwordUtf8, int mode, uint keyBits, int hashAlgorithm, ulong spinCount);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int xlpp_workbook_is_password_encrypted_file(string path);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int xlpp_workbook_encryption_profile(string path, out int format, out uint keyBits, out int hashAlgorithm, out ulong spinCount, out int hasDataIntegrity);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_workbook_encryption_key_encryptor_counts(string path, out ulong totalKeyEncryptors, out ulong passwordKeyEncryptors, out ulong certificateKeyEncryptors);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlpp_workbook_set_date1904(IntPtr wb, int v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -152,10 +113,6 @@ namespace XLPP
         public static extern void xlpp_workbook_clear(IntPtr wb);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlpp_workbook_strict_namespaces(IntPtr wb);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_inspect_external_data(IntPtr wb, out NativeExternalDataSummary summary);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_inspect_data_model(IntPtr wb, out NativeDataModelSummary summary);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_workbook_properties(IntPtr wb);
@@ -180,35 +137,11 @@ namespace XLPP
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern IntPtr xlpp_workbook_add_defined_name(IntPtr wb, string name, string value, out int ok);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern IntPtr xlpp_workbook_add_defined_name_scoped(IntPtr wb, string name, string value, ulong localSheetId, out int ok);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern IntPtr xlpp_workbook_defined_name(IntPtr wb, string name);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern IntPtr xlpp_workbook_defined_name_scoped(IntPtr wb, string name, int hasLocalSheetId, ulong localSheetId);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlpp_workbook_defined_names_count(IntPtr wb);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_workbook_defined_name_at(IntPtr wb, int index);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_preserved_relationships_count(IntPtr wb);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_preserved_relationship_source_part(IntPtr wb, int index, IntPtr output, int size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_preserved_relationship_id(IntPtr wb, int index, IntPtr output, int size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_preserved_relationship_type(IntPtr wb, int index, IntPtr output, int size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_preserved_relationship_target(IntPtr wb, int index, IntPtr output, int size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_workbook_preserved_relationship_target_mode(IntPtr wb, int index, IntPtr output, int size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern int xlpp_workbook_preserved_parts_count(IntPtr wb);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern int xlpp_workbook_preserved_part_name(IntPtr wb, int index, IntPtr output, int size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern ulong xlpp_workbook_preserved_part_data_size(IntPtr wb, int index);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern ulong xlpp_workbook_preserved_part_data(IntPtr wb, int index, IntPtr output, ulong size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern int xlpp_workbook_preserved_part_override_type(IntPtr wb, int index, IntPtr output, int size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern int xlpp_workbook_preserved_part_extension(IntPtr wb, int index, IntPtr output, int size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern int xlpp_workbook_preserved_part_default_type(IntPtr wb, int index, IntPtr output, int size);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern int xlpp_workbook_preserved_part_compress(IntPtr wb, int index);
 
         // Properties
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
@@ -285,10 +218,6 @@ namespace XLPP
         public static extern ulong xlpp_sheet_max_col(IntPtr ws);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern IntPtr xlpp_sheet_name(IntPtr ws);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_sheet_vba_code_name(IntPtr ws, IntPtr output, int outputSize);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int xlpp_sheet_set_vba_code_name(IntPtr ws, string codeName);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern void xlpp_sheet_rename(IntPtr ws, string name);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -540,8 +469,6 @@ namespace XLPP
         public static extern void xlpp_definedname_clear_local_sheet_id(IntPtr d);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlpp_definedname_has_local_sheet_id(IntPtr d);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern ulong xlpp_definedname_local_sheet_id(IntPtr d, out int hasValue);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlpp_definedname_set_hidden(IntPtr d, int v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -1119,30 +1046,6 @@ namespace XLPP
         public static extern IntPtr xlpp_chart_series_at(IntPtr c, int index);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern IntPtr xlpp_chart_add_series(IntPtr c, string title);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_chart_type(IntPtr c);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_chart_is_modern(IntPtr c);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_chart_plot_count(IntPtr c);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_chart_add_plot(IntPtr c, int type, ulong firstSeries, ulong seriesCount, int secondaryAxes);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chart_plot_set_grouping(IntPtr c, int plotIndex, int grouping);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chart_plot_set_bar_direction(IntPtr c, int plotIndex, int direction);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chart_plot_set_scatter_style(IntPtr c, int plotIndex, int style);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chart_plot_set_bubble_options(IntPtr c, int plotIndex, int scale, int showNegative, int sizeRepresents, int bubble3d);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chart_plot_set_histogram_bins(IntPtr c, int plotIndex, double binWidth, int binCount, int automaticBins);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chart_plot_set_histogram_bounds(IntPtr c, int plotIndex, int hasUnderflow, double underflow, int hasOverflow, double overflow);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chart_plot_set_box_whisker_options(IntPtr c, int plotIndex, int innerPoints, int outliers, int meanLine, int meanMarker, int quartileInclusive);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chart_plot_set_waterfall_connector_lines(IntPtr c, int plotIndex, int enabled);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern void xlpp_chartseries_set_title(IntPtr s, string v);
@@ -1150,12 +1053,6 @@ namespace XLPP
         public static extern void xlpp_chartseries_set_values_reference(IntPtr s, string v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern void xlpp_chartseries_set_categories_reference(IntPtr s, string v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern void xlpp_chartseries_set_bubble_size_reference(IntPtr s, string v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chartseries_set_smooth(IntPtr s, int v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_chartseries_clear_smooth(IntPtr s);
 
         // Pivot
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
@@ -1176,38 +1073,6 @@ namespace XLPP
         public static extern void xlpp_pivottable_add_page_field(IntPtr p, string name);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlpp_pivottable_add_data_field(IntPtr p);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern void xlpp_pivottable_add_data_field_named(IntPtr p, string name, string subtotal);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_pivottable_set_layout(IntPtr p, int layout);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_pivottable_layout(IntPtr p);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_pivottable_set_flags(IntPtr p, int showEmptyRow, int showEmptyColumn, int showDrill, int enableDrill, int multipleFieldFilters, int showValuesRow, int subtotalHiddenItems);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_pivottable_set_page_layout(IntPtr p, int pageWrap, int overThenDown);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern void xlpp_pivottable_set_style(IntPtr p, string styleName, string dataCaption);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void xlpp_pivottable_set_display_options(IntPtr p, int rowGrandTotals, int columnGrandTotals, int preserveFormatting, int useAutoFormatting, int showRowHeaders, int showColumnHeaders, int showRowStripes, int showColumnStripes, int showLastColumn);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_pivottable_data_field_count(IntPtr p);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern void xlpp_pivottable_configure_data_field(IntPtr p, int index, string subtotal, string caption, uint numberFormatId, string showDataAs, int baseField, int baseItem);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_pivottable_row_field_count(IntPtr p);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_pivottable_column_field_count(IntPtr p);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlpp_pivottable_page_field_count(IntPtr p);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern IntPtr xlpp_pivottable_row_field_at(IntPtr p, int index);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern IntPtr xlpp_pivottable_column_field_at(IntPtr p, int index);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern IntPtr xlpp_pivottable_page_field_at(IntPtr p, int index);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern void xlpp_pivottable_add_filter(IntPtr p, string type, int fieldIndex, int measureFieldIndex, string value1, string value2, double top10Value, int top10Percent, int top10Top);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlpp_pivotcache_set_cache_id(IntPtr c, int v);
@@ -1217,22 +1082,6 @@ namespace XLPP
         public static extern void xlpp_pivotcache_set_source_data(IntPtr c, string v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlpp_pivotcache_source_data(IntPtr c, IntPtr outPtr, int outSize);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotcache_set_refresh_on_load(IntPtr c, int v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotcache_set_save_data(IntPtr c, int v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotcache_set_enable_refresh(IntPtr c, int v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotcache_set_missing_items_limit(IntPtr c, int v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotcache_set_advanced_flags(IntPtr c, int backgroundQuery, int optimizeMemory, int upgradeOnRefresh, int supportSubquery, int supportAdvancedDrill);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)] public static extern void xlpp_pivotcache_set_refreshed_by(IntPtr c, string v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotfield_set_repeat_item_labels(IntPtr f, int v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotfield_set_compact(IntPtr f, int v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotfield_set_outline(IntPtr f, int v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotfield_set_show_dropdowns(IntPtr f, int v);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotfield_set_behavior(IntPtr f, int showAll, int sortType, int subtotalTop, int insertBlankRow, int includeNewItemsInFilter, int multipleItemSelectionAllowed, int selectedItemIndex, int insertPageBreak, int defaultSubtotal);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)] public static extern void xlpp_pivotfield_add_subtotal(IntPtr f, string subtotal);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotfield_set_item_hidden(IntPtr f, int itemIndex, int hidden);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotfield_set_numeric_grouping(IntPtr f, int autoStart, int autoEnd, double start, double end, double interval);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)] public static extern void xlpp_pivotfield_set_date_grouping(IntPtr f, int datePart, int autoStart, int autoEnd, string startDate, string endDate);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] public static extern void xlpp_pivotfield_clear_grouping(IntPtr f);
 
         // Image
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
@@ -1389,19 +1238,14 @@ namespace XLPP
 
     // === Value types ===
     public enum CellValueType { Empty = 0, Bool = 1, Number = 2, String = 3, Error = 4, Date = 5 }
-    public enum CellError { Null = 0, DivisionByZero = 1, Value = 2, Reference = 3, Name = 4, Number = 5, NotAvailable = 6, GettingData = 7, Spill = 8, Calculation = 9 }
+    public enum CellError { Null = 0, DivisionByZero = 1, Value = 2, Reference = 3, Name = 4, Number = 5, NotAvailable = 6, GettingData = 7 }
     public enum CompressionLevel { Store = 0, Fastest = 1, Default = 2, Best = 3 }
     public enum PageOrientation { Default = 0, Portrait = 1, Landscape = 2 }
     public enum PaperSize { Default = 0, Letter = 1, Legal = 5, A4 = 9, A3 = 8 }
     public enum DataValidationType { None = 0, Whole = 1, Decimal = 2, List = 3, Date = 4, Time = 5, TextLength = 6, Custom = 7 }
     public enum DataValidationOperator { Between = 0, NotBetween = 1, Equal = 2, NotEqual = 3, LessThan = 4, LessThanOrEqual = 5, GreaterThan = 6, GreaterThanOrEqual = 7 }
     public enum DataValidationErrorStyle { Stop = 0, Warning = 1, Information = 2 }
-    public enum ChartType { Bar = 0, Line = 1, Pie = 2, Scatter = 3, Doughnut = 4, Radar = 5, Area = 6, Bubble = 7, Stock = 8, Bar3D = 9, Line3D = 10, Area3D = 11, Pie3D = 12, Surface = 13, Surface3D = 14, PieOfPie = 15, BarOfPie = 16, HorizontalBar = 17, Histogram = 18, Pareto = 19, BoxWhisker = 20, Waterfall = 21, Funnel = 22, Treemap = 23, Sunburst = 24, FilledMap = 25 }
-    public enum ChartBarDirection { Column = 0, Bar = 1 }
-    public enum ChartScatterStyle { None = 0, Line = 1, LineMarker = 2, Marker = 3, Smooth = 4, SmoothMarker = 5 }
-    public enum ChartBubbleSizeRepresents { Area = 0, Width = 1 }
-    public enum PivotLayout { Compact = 0, Outline = 1, Tabular = 2 }
-    public enum PivotDatePart { Seconds = 0, Minutes = 1, Hours = 2, Days = 3, Months = 4, Quarters = 5, Years = 6 }
+    public enum ChartType { Bar = 0, Line = 1, Pie = 2, Scatter = 3, Doughnut = 4, Radar = 5, Area = 6, Bubble = 7 }
     public enum ChartGrouping { Standard = 0, Stacked = 1, PercentStacked = 2, Clustered = 3 }
     public enum ConditionalRuleType { Formula = 0, CellIs = 1, DataBar = 2, ColorScale = 3, IconSet = 4 }
     public enum ConditionalOperator { Equal = 0, NotEqual = 1, LessThan = 2, LessThanOrEqual = 3, GreaterThan = 4, GreaterThanOrEqual = 5, Between = 6, NotBetween = 7 }
@@ -1727,16 +1571,6 @@ namespace XLPP
         public string Name => MarshalHelper.PtrToString(Native.xlpp_definedname_name(_handle));
         public string Value { get => MarshalHelper.PtrToString(Native.xlpp_definedname_value(_handle)); set => Native.xlpp_definedname_set_value(_handle, value); }
         public bool HasLocalSheetId => Native.xlpp_definedname_has_local_sheet_id(_handle) != 0;
-        public ulong? LocalSheetId {
-            get {
-                var value = Native.xlpp_definedname_local_sheet_id(_handle, out var hasValue);
-                return hasValue != 0 ? value : null;
-            }
-            set {
-                if (value.HasValue) Native.xlpp_definedname_set_local_sheet_id(_handle, value.Value);
-                else Native.xlpp_definedname_clear_local_sheet_id(_handle);
-            }
-        }
         public void SetLocalSheetId(ulong v) => Native.xlpp_definedname_set_local_sheet_id(_handle, v);
         public void ClearLocalSheetId() => Native.xlpp_definedname_clear_local_sheet_id(_handle);
         public bool Hidden { get => Native.xlpp_definedname_hidden(_handle) != 0; set => Native.xlpp_definedname_set_hidden(_handle, value ? 1 : 0); }
@@ -1816,9 +1650,6 @@ namespace XLPP
         public string Title { set => Native.xlpp_chartseries_set_title(_handle, value); }
         public string ValuesReference { set => Native.xlpp_chartseries_set_values_reference(_handle, value); }
         public string CategoriesReference { set => Native.xlpp_chartseries_set_categories_reference(_handle, value); }
-        public string BubbleSizeReference { set => Native.xlpp_chartseries_set_bubble_size_reference(_handle, value); }
-        public bool Smooth { set => Native.xlpp_chartseries_set_smooth(_handle, value ? 1 : 0); }
-        public void ClearSmooth() => Native.xlpp_chartseries_clear_smooth(_handle);
     }
 
     public class Chart
@@ -1826,18 +1657,6 @@ namespace XLPP
         internal IntPtr _handle;
         internal Chart(IntPtr h) => _handle = h;
         public ChartGrouping Grouping { get => (ChartGrouping)Native.xlpp_chart_grouping(_handle); set => Native.xlpp_chart_set_grouping(_handle, (int)value); }
-        public ChartType Type => (ChartType)Native.xlpp_chart_type(_handle);
-        public bool IsModern => Native.xlpp_chart_is_modern(_handle) != 0;
-        public int PlotCount => Native.xlpp_chart_plot_count(_handle);
-        public int AddPlot(ChartType type, ulong firstSeries, ulong seriesCount, bool secondaryAxes = false) => Native.xlpp_chart_add_plot(_handle, (int)type, firstSeries, seriesCount, secondaryAxes ? 1 : 0);
-        public void SetPlotGrouping(int plotIndex, ChartGrouping grouping) => Native.xlpp_chart_plot_set_grouping(_handle, plotIndex, (int)grouping);
-        public void SetBarDirection(int plotIndex, ChartBarDirection direction) => Native.xlpp_chart_plot_set_bar_direction(_handle, plotIndex, (int)direction);
-        public void SetScatterStyle(int plotIndex, ChartScatterStyle style) => Native.xlpp_chart_plot_set_scatter_style(_handle, plotIndex, (int)style);
-        public void SetBubbleOptions(int plotIndex, int scale = 100, bool showNegative = false, ChartBubbleSizeRepresents sizeRepresents = ChartBubbleSizeRepresents.Area, bool bubble3D = false) => Native.xlpp_chart_plot_set_bubble_options(_handle, plotIndex, scale, showNegative ? 1 : 0, (int)sizeRepresents, bubble3D ? 1 : 0);
-        public void SetHistogramBins(int plotIndex, double binWidth = 0, int binCount = 0, bool automatic = true) => Native.xlpp_chart_plot_set_histogram_bins(_handle, plotIndex, binWidth, binCount, automatic ? 1 : 0);
-        public void SetHistogramBounds(int plotIndex, double? underflow = null, double? overflow = null) => Native.xlpp_chart_plot_set_histogram_bounds(_handle, plotIndex, underflow.HasValue ? 1 : 0, underflow ?? 0, overflow.HasValue ? 1 : 0, overflow ?? 0);
-        public void SetBoxWhiskerOptions(int plotIndex, bool innerPoints = true, bool outliers = true, bool meanLine = false, bool meanMarker = true, bool quartileInclusive = false) => Native.xlpp_chart_plot_set_box_whisker_options(_handle, plotIndex, innerPoints ? 1 : 0, outliers ? 1 : 0, meanLine ? 1 : 0, meanMarker ? 1 : 0, quartileInclusive ? 1 : 0);
-        public void SetWaterfallConnectorLines(int plotIndex, bool enabled) => Native.xlpp_chart_plot_set_waterfall_connector_lines(_handle, plotIndex, enabled ? 1 : 0);
         public string Title { get => MarshalHelper.FromBuffer((b, n) => Native.xlpp_chart_title(_handle, b, n)); set => Native.xlpp_chart_set_title(_handle, value); }
         public void SetXAxisTitle(string v) => Native.xlpp_chart_set_x_axis_title(_handle, v);
         public void SetYAxisTitle(string v) => Native.xlpp_chart_set_y_axis_title(_handle, v);
@@ -1857,28 +1676,6 @@ namespace XLPP
         internal PivotCache(IntPtr h) => _handle = h;
         public int CacheId { get => Native.xlpp_pivotcache_cache_id(_handle); set => Native.xlpp_pivotcache_set_cache_id(_handle, value); }
         public string SourceData { get => MarshalHelper.FromBuffer((b, n) => Native.xlpp_pivotcache_source_data(_handle, b, n)); set => Native.xlpp_pivotcache_set_source_data(_handle, value); }
-        public bool RefreshOnLoad { set => Native.xlpp_pivotcache_set_refresh_on_load(_handle, value ? 1 : 0); }
-        public bool SaveData { set => Native.xlpp_pivotcache_set_save_data(_handle, value ? 1 : 0); }
-        public bool EnableRefresh { set => Native.xlpp_pivotcache_set_enable_refresh(_handle, value ? 1 : 0); }
-        public int MissingItemsLimit { set => Native.xlpp_pivotcache_set_missing_items_limit(_handle, value); }
-        public string RefreshedBy { set => Native.xlpp_pivotcache_set_refreshed_by(_handle, value); }
-        public void SetAdvancedFlags(bool backgroundQuery = false, bool optimizeMemory = false, bool upgradeOnRefresh = false, bool supportSubquery = true, bool supportAdvancedDrill = true) => Native.xlpp_pivotcache_set_advanced_flags(_handle, backgroundQuery ? 1 : 0, optimizeMemory ? 1 : 0, upgradeOnRefresh ? 1 : 0, supportSubquery ? 1 : 0, supportAdvancedDrill ? 1 : 0);
-    }
-
-    public class PivotField
-    {
-        internal IntPtr _handle;
-        internal PivotField(IntPtr h) => _handle = h;
-        public bool RepeatItemLabels { set => Native.xlpp_pivotfield_set_repeat_item_labels(_handle, value ? 1 : 0); }
-        public bool Compact { set => Native.xlpp_pivotfield_set_compact(_handle, value ? 1 : 0); }
-        public bool Outline { set => Native.xlpp_pivotfield_set_outline(_handle, value ? 1 : 0); }
-        public bool ShowDropDowns { set => Native.xlpp_pivotfield_set_show_dropdowns(_handle, value ? 1 : 0); }
-        public void SetBehavior(bool showAll = false, int sortType = 0, bool subtotalTop = true, bool insertBlankRow = false, bool includeNewItemsInFilter = false, bool multipleItemSelectionAllowed = false, int selectedItemIndex = -1, bool insertPageBreak = false, bool defaultSubtotal = false) => Native.xlpp_pivotfield_set_behavior(_handle, showAll ? 1 : 0, sortType, subtotalTop ? 1 : 0, insertBlankRow ? 1 : 0, includeNewItemsInFilter ? 1 : 0, multipleItemSelectionAllowed ? 1 : 0, selectedItemIndex, insertPageBreak ? 1 : 0, defaultSubtotal ? 1 : 0);
-        public void AddSubtotal(string subtotal) => Native.xlpp_pivotfield_add_subtotal(_handle, subtotal);
-        public void SetItemHidden(int itemIndex, bool hidden = true) => Native.xlpp_pivotfield_set_item_hidden(_handle, itemIndex, hidden ? 1 : 0);
-        public void SetNumericGrouping(double start, double end, double interval = 1, bool autoStart = false, bool autoEnd = false) => Native.xlpp_pivotfield_set_numeric_grouping(_handle, autoStart ? 1 : 0, autoEnd ? 1 : 0, start, end, interval);
-        public void SetDateGrouping(PivotDatePart part, string startDate = "", string endDate = "", bool autoStart = true, bool autoEnd = true) => Native.xlpp_pivotfield_set_date_grouping(_handle, (int)part, autoStart ? 1 : 0, autoEnd ? 1 : 0, startDate, endDate);
-        public void ClearGrouping() => Native.xlpp_pivotfield_clear_grouping(_handle);
     }
 
     public class PivotTable
@@ -1887,26 +1684,11 @@ namespace XLPP
         internal PivotTable(IntPtr h) => _handle = h;
         public string Name { get => MarshalHelper.FromBuffer((b, n) => Native.xlpp_pivottable_name(_handle, b, n)); set => Native.xlpp_pivottable_set_name(_handle, value); }
         public string Location { get => MarshalHelper.FromBuffer((b, n) => Native.xlpp_pivottable_location(_handle, b, n)); set => Native.xlpp_pivottable_set_location(_handle, value); }
-        public PivotLayout Layout { get => (PivotLayout)Native.xlpp_pivottable_layout(_handle); set => Native.xlpp_pivottable_set_layout(_handle, (int)value); }
         public PivotCache Cache => new(Native.xlpp_pivottable_cache(_handle));
         public void AddRowField(string name) => Native.xlpp_pivottable_add_row_field(_handle, name);
         public void AddColumnField(string name) => Native.xlpp_pivottable_add_column_field(_handle, name);
         public void AddPageField(string name) => Native.xlpp_pivottable_add_page_field(_handle, name);
         public void AddDataField() => Native.xlpp_pivottable_add_data_field(_handle);
-        public void AddDataField(string name, string subtotal = "sum") => Native.xlpp_pivottable_add_data_field_named(_handle, name, subtotal);
-        public int RowFieldCount => Native.xlpp_pivottable_row_field_count(_handle);
-        public int ColumnFieldCount => Native.xlpp_pivottable_column_field_count(_handle);
-        public int PageFieldCount => Native.xlpp_pivottable_page_field_count(_handle);
-        public int DataFieldCount => Native.xlpp_pivottable_data_field_count(_handle);
-        public PivotField RowFieldAt(int index) => new(Native.xlpp_pivottable_row_field_at(_handle, index));
-        public PivotField ColumnFieldAt(int index) => new(Native.xlpp_pivottable_column_field_at(_handle, index));
-        public PivotField PageFieldAt(int index) => new(Native.xlpp_pivottable_page_field_at(_handle, index));
-        public void SetBehaviorFlags(bool showEmptyRow = false, bool showEmptyColumn = false, bool showDrill = true, bool enableDrill = true, bool multipleFieldFilters = false, bool showValuesRow = false, bool subtotalHiddenItems = false) => Native.xlpp_pivottable_set_flags(_handle, showEmptyRow ? 1 : 0, showEmptyColumn ? 1 : 0, showDrill ? 1 : 0, enableDrill ? 1 : 0, multipleFieldFilters ? 1 : 0, showValuesRow ? 1 : 0, subtotalHiddenItems ? 1 : 0);
-        public void SetPageLayout(int pageWrap, bool overThenDown = false) => Native.xlpp_pivottable_set_page_layout(_handle, pageWrap, overThenDown ? 1 : 0);
-        public void SetStyle(string styleName = "PivotStyleLight16", string dataCaption = "Values") => Native.xlpp_pivottable_set_style(_handle, styleName, dataCaption);
-        public void SetDisplayOptions(bool rowGrandTotals = true, bool columnGrandTotals = true, bool preserveFormatting = true, bool useAutoFormatting = true, bool showRowHeaders = true, bool showColumnHeaders = true, bool showRowStripes = false, bool showColumnStripes = false, bool showLastColumn = true) => Native.xlpp_pivottable_set_display_options(_handle, rowGrandTotals ? 1 : 0, columnGrandTotals ? 1 : 0, preserveFormatting ? 1 : 0, useAutoFormatting ? 1 : 0, showRowHeaders ? 1 : 0, showColumnHeaders ? 1 : 0, showRowStripes ? 1 : 0, showColumnStripes ? 1 : 0, showLastColumn ? 1 : 0);
-        public void ConfigureDataField(int index, string subtotal = "sum", string caption = "", uint numberFormatId = 0, string showDataAs = "normal", int baseField = 0, int baseItem = 0) => Native.xlpp_pivottable_configure_data_field(_handle, index, subtotal, caption, numberFormatId, showDataAs, baseField, baseItem);
-        public void AddFilter(string type, int fieldIndex, int measureFieldIndex = -1, string value1 = "", string value2 = "", double top10Value = 10, bool top10Percent = false, bool top10Top = true) => Native.xlpp_pivottable_add_filter(_handle, type, fieldIndex, measureFieldIndex, value1, value2, top10Value, top10Percent ? 1 : 0, top10Top ? 1 : 0);
     }
 
     public class Image
@@ -2137,15 +1919,6 @@ namespace XLPP
         internal Worksheet(IntPtr h) => _handle = h;
 
         public string Name => MarshalHelper.PtrToString(Native.xlpp_sheet_name(_handle));
-        public string VbaCodeName
-        {
-            get => MarshalHelper.FromBuffer((b, n) => Native.xlpp_sheet_vba_code_name(_handle, b, n));
-            set
-            {
-                if (Native.xlpp_sheet_set_vba_code_name(_handle, value) == 0)
-                    throw new ArgumentException("Invalid or duplicate VBA worksheet code name", nameof(value));
-            }
-        }
         public void Rename(string name) => Native.xlpp_sheet_rename(_handle, name);
 
         public Cell this[string address] => new(Native.xlpp_sheet_cell(_handle, address));
@@ -2166,7 +1939,6 @@ namespace XLPP
         public bool IsMerged(string cell) => Native.xlpp_sheet_is_merged(_handle, cell) != 0;
         public int MergedCount => Native.xlpp_sheet_merged_count(_handle);
         public string MergedAt(int index) => MarshalHelper.FromBuffer((b, n) => Native.xlpp_sheet_merged_at(_handle, index, b, n));
-        public IReadOnlyList<string> MergedRanges { get { var r = new List<string>(); for (var i = 0; i < MergedCount; ++i) r.Add(MergedAt(i)); return r; } }
         public void FreezePanes(string cell) => Native.xlpp_sheet_freeze_panes(_handle, cell);
         public void ClearFreezePanes() => Native.xlpp_sheet_clear_freeze_panes(_handle);
         public string FrozenPane => MarshalHelper.FromBuffer((b, n) => Native.xlpp_sheet_frozen_pane(_handle, b, n));
@@ -2210,7 +1982,6 @@ namespace XLPP
         }
         public int TableCount => Native.xlpp_sheet_table_count(_handle);
         public Table TableAt(int index) => new(Native.xlpp_sheet_table_at(_handle, index));
-        public IReadOnlyList<Table> Tables { get { var r = new List<Table>(); for (var i = 0; i < TableCount; ++i) r.Add(TableAt(i)); return r; } }
 
         public Image AddImage(string path, string anchor)
         {
@@ -2219,7 +1990,6 @@ namespace XLPP
         }
         public int ImageCount => Native.xlpp_sheet_image_count(_handle);
         public Image ImageAt(int index) => new(Native.xlpp_sheet_image_at(_handle, index));
-        public IReadOnlyList<Image> Images { get { var r = new List<Image>(); for (var i = 0; i < ImageCount; ++i) r.Add(ImageAt(i)); return r; } }
 
         public Chart AddChart(ChartType type)
         {
@@ -2228,7 +1998,6 @@ namespace XLPP
         }
         public int ChartCount => Native.xlpp_sheet_chart_count(_handle);
         public Chart ChartAt(int index) => new(Native.xlpp_sheet_chart_at(_handle, index));
-        public IReadOnlyList<Chart> Charts { get { var r = new List<Chart>(); for (var i = 0; i < ChartCount; ++i) r.Add(ChartAt(i)); return r; } }
 
         public PivotTable AddPivotTable(string name, string location)
         {
@@ -2237,38 +2006,29 @@ namespace XLPP
         }
         public int PivotCount => Native.xlpp_sheet_pivot_count(_handle);
         public PivotTable PivotAt(int index) => new(Native.xlpp_sheet_pivot_at(_handle, index));
-        public IReadOnlyList<PivotTable> PivotTables { get { var r = new List<PivotTable>(); for (var i = 0; i < PivotCount; ++i) r.Add(PivotAt(i)); return r; } }
     }
 
-    internal sealed class WorkbookSafeHandle : SafeHandleZeroOrMinusOneIsInvalid
+    public class Workbook : IDisposable
     {
-        private WorkbookSafeHandle() : base(true) { }
-        internal WorkbookSafeHandle(IntPtr value) : base(true) => SetHandle(value);
-        protected override bool ReleaseHandle()
-        {
-            Native.xlpp_workbook_destroy(handle);
-            return true;
-        }
-    }
-
-    public partial class Workbook : IDisposable
-    {
-        private readonly WorkbookSafeHandle _safeHandle;
-        internal IntPtr _handle => _safeHandle.DangerousGetHandle();
+        internal IntPtr _handle;
 
         public static string Version => MarshalHelper.PtrToString(Native.xlpp_version());
-        public static ulong CAbiVersion => Native.xlpp_c_abi_version();
-        public static ulong Capabilities => Native.xlpp_capabilities();
 
         public Workbook()
         {
-            var handle = Native.xlpp_workbook_create();
-            if (handle == IntPtr.Zero)
+            _handle = Native.xlpp_workbook_create();
+            if (_handle == IntPtr.Zero)
                 throw new InvalidOperationException("Failed to create XL++ Workbook");
-            _safeHandle = new WorkbookSafeHandle(handle);
         }
 
-        public void Dispose() => _safeHandle.Dispose();
+        public void Dispose()
+        {
+            if (_handle != IntPtr.Zero)
+            {
+                Native.xlpp_workbook_destroy(_handle);
+                _handle = IntPtr.Zero;
+            }
+        }
 
         public Worksheet AddWorksheet(string name)
         {
@@ -2315,6 +2075,7 @@ namespace XLPP
 
         public int SheetCount => Native.xlpp_workbook_sheet_count(_handle);
         public bool RemoveWorksheet(string name) => Native.xlpp_workbook_remove_sheet(_handle, name) != 0;
+        public bool RenameWorksheet(string oldName, string newName) => Native.xlpp_workbook_rename_sheet(_handle, oldName, newName) != 0;
         public int IndexOf(Worksheet ws) => Native.xlpp_workbook_sheet_index(_handle, ws._handle);
 
         public List<string> SheetNames
@@ -2330,66 +2091,29 @@ namespace XLPP
         }
 
         public bool Load(string path) => Native.xlpp_workbook_load(_handle, path) != 0;
-        public ExternalDataInspection InspectExternalData()
-        {
-            if (Native.xlpp_workbook_inspect_external_data(_handle, out var r) == 0)
-                throw new InvalidOperationException("External-data inspection failed");
-            return new ExternalDataInspection(r.ExternalWorkbooks, r.Connections, r.QueryTables, r.PowerQueryParts,
-                r.WebQueryParts, r.UnknownConnectionParts);
-        }
-
-        public DataModelInspection InspectDataModel()
-        {
-            if (Native.xlpp_workbook_inspect_data_model(_handle, out var r) == 0)
-                throw new InvalidOperationException("Data-model inspection failed");
-            return new DataModelInspection(r.Present != 0, r.HasOlapPivotCaches != 0, r.ModelParts,
-                r.ModelRelationships, r.OlapPivotCacheParts, r.Warnings);
-        }
-
+        public bool Load(string path, string password) => Native.xlpp_workbook_load_password(_handle, path, password) != 0;
+        public bool LoadEncrypted(string path, string password, ulong maxSpinCount = 1000000, ulong maxDecryptedPackageBytes = 0,
+                                  bool allowStandardEncryption = true, bool requireAgileDataIntegrity = false,
+                                  ulong maxEncryptionInfoBytes = 1024 * 1024) =>
+            Native.xlpp_workbook_load_password_ex(_handle, path, password, maxSpinCount, maxDecryptedPackageBytes,
+                allowStandardEncryption ? 1 : 0, requireAgileDataIntegrity ? 1 : 0, maxEncryptionInfoBytes) != 0;
         public bool Save(string path) => Native.xlpp_workbook_save(_handle, path) != 0;
-        public bool Save(string path, bool durableWrite) => Native.xlpp_workbook_save_durable(_handle, path, durableWrite ? 1 : 0) != 0;
-        public bool Load(string path, string password, bool verifyIntegrity = true) => Native.xlpp_workbook_load_password(_handle, path, password, verifyIntegrity ? 1 : 0) != 0;
-        public bool SaveEncrypted(string path, string password, ulong spinCount = 100000, bool calculateFormulas = false) =>
-            Native.xlpp_workbook_save_encrypted(_handle, path, password, spinCount, calculateFormulas ? 1 : 0) != 0;
-        public bool SaveEncrypted(string path, string password, OfficeEncryptionMode mode, ulong keyBits = 256, ulong spinCount = 100000, bool calculateFormulas = false) =>
-            Native.xlpp_workbook_save_encrypted_ex(_handle, path, password, (int)mode, keyBits, spinCount, calculateFormulas ? 1 : 0) != 0;
-
-        public CalculationReport CalculateFormulas()
+        public bool SaveEncrypted(string path, string password, ulong spinCount = 100000) =>
+            Native.xlpp_workbook_save_password(_handle, path, password, spinCount) != 0;
+        public bool SaveEncrypted(string path, string password, PackageEncryptionMode mode, uint keyBits = 256,
+                                  PackageEncryptionHash hashAlgorithm = PackageEncryptionHash.Sha512, ulong spinCount = 100000) =>
+            Native.xlpp_workbook_save_password_ex(_handle, path, password, (int)mode, keyBits, (int)hashAlgorithm, spinCount) != 0;
+        public static bool IsPasswordEncryptedFile(string path) =>
+            Native.xlpp_workbook_is_password_encrypted_file(path) != 0;
+        public static PackageEncryptionInfo InspectPasswordEncryptionFile(string path)
         {
-            if (Native.xlpp_workbook_calculate(_handle, out var r) == 0)
-                throw new InvalidOperationException("Formula calculation failed");
-            return new CalculationReport(r.FormulaCellsVisited, r.FormulaCellsEvaluated, r.CachedValuesUpdated,
-                r.DependencyEvaluations, r.DefinedNamesResolved, r.CircularReferences, r.UnsupportedFormulas,
-                r.EvaluationErrors, r.DynamicArraysSpilled, r.SpillCellsUpdated, r.SpillConflicts,
-                r.StructuredReferencesResolved, r.IterativeIterations, r.IterativeConvergenceFailures,
-                r.ExternalReferencesResolved, r.UnresolvedExternalReferences, r.Success != 0);
+            if (Native.xlpp_workbook_encryption_profile(path, out var format, out var keyBits, out var hash, out var spins, out var integrity) == 0)
+                throw new InvalidOperationException("Unable to inspect workbook encryption profile");
+            Native.xlpp_workbook_encryption_key_encryptor_counts(path, out var totalKeys, out var passwordKeys, out var certificateKeys);
+            return new PackageEncryptionInfo { Format = (PackageEncryptionFormat)format, KeyBits = keyBits,
+                HashAlgorithm = (PackageEncryptionHash)hash, SpinCount = spins, HasDataIntegrity = integrity != 0,
+                KeyEncryptorCount = totalKeys, PasswordKeyEncryptorCount = passwordKeys, CertificateKeyEncryptorCount = certificateKeys };
         }
-
-        public CalculationReport CalculateFormulasIterative(ulong maxIterations = 100, double maxChange = 0.001)
-        {
-            if (Native.xlpp_workbook_calculate_ex(_handle, 1, maxIterations, maxChange, out var r) == 0)
-                throw new InvalidOperationException("Iterative formula calculation failed");
-            return new CalculationReport(r.FormulaCellsVisited, r.FormulaCellsEvaluated, r.CachedValuesUpdated,
-                r.DependencyEvaluations, r.DefinedNamesResolved, r.CircularReferences, r.UnsupportedFormulas,
-                r.EvaluationErrors, r.DynamicArraysSpilled, r.SpillCellsUpdated, r.SpillConflicts,
-                r.StructuredReferencesResolved, r.IterativeIterations, r.IterativeConvergenceFailures,
-                r.ExternalReferencesResolved, r.UnresolvedExternalReferences, r.Success != 0);
-        }
-
-        public StructuralEditReport ApplyStructuralEdit(string sheetName, StructuralEditKind kind, ulong index, ulong amount = 1, bool failOnInvalidReference = false)
-        {
-            var ok = Native.xlpp_workbook_structural_edit(_handle, sheetName, (int)kind, index, amount, failOnInvalidReference ? 1 : 0, out var r);
-            if (ok == 0 && r.Success == 0)
-                throw new InvalidOperationException("Structural edit failed");
-            return new StructuralEditReport(r.WorksheetsVisited, r.CellsMoved, r.CellsRemoved, r.FormulasUpdated,
-                r.FormulaMetadataUpdated, r.WorksheetReferencesUpdated, r.DefinedNamesUpdated, r.ChartReferencesUpdated,
-                r.PivotReferencesUpdated, r.DrawingAnchorsUpdated, r.HyperlinksUpdated, r.ReferencesInvalidated,
-                r.FormulasCalculated, r.ChartCachesUpdated, r.Success != 0);
-        }
-        public StructuralEditReport InsertRows(string sheetName, ulong index, ulong amount = 1) => ApplyStructuralEdit(sheetName, StructuralEditKind.InsertRows, index, amount);
-        public StructuralEditReport DeleteRows(string sheetName, ulong index, ulong amount = 1, bool failOnInvalidReference = false) => ApplyStructuralEdit(sheetName, StructuralEditKind.DeleteRows, index, amount, failOnInvalidReference);
-        public StructuralEditReport InsertColumns(string sheetName, ulong index, ulong amount = 1) => ApplyStructuralEdit(sheetName, StructuralEditKind.InsertColumns, index, amount);
-        public StructuralEditReport DeleteColumns(string sheetName, ulong index, ulong amount = 1, bool failOnInvalidReference = false) => ApplyStructuralEdit(sheetName, StructuralEditKind.DeleteColumns, index, amount, failOnInvalidReference);
         public bool Date1904 { get => Native.xlpp_workbook_date1904(_handle) != 0; set => Native.xlpp_workbook_set_date1904(_handle, value ? 1 : 0); }
         public bool StrictNamespaces => Native.xlpp_workbook_strict_namespaces(_handle) != 0;
         public void Clear() => Native.xlpp_workbook_clear(_handle);
@@ -2429,71 +2153,15 @@ namespace XLPP
             return ok != 0 && h != IntPtr.Zero ? new DefinedName(h) : throw new ArgumentException($"Failed to add defined name '{name}'");
         }
 
-        public DefinedName AddDefinedName(string name, string value, ulong localSheetId)
-        {
-            var h = Native.xlpp_workbook_add_defined_name_scoped(_handle, name, value, localSheetId, out var ok);
-            return ok != 0 && h != IntPtr.Zero ? new DefinedName(h) : throw new ArgumentException($"Failed to add scoped defined name '{name}'");
-        }
-
         public DefinedName? GetDefinedName(string name)
         {
             var h = Native.xlpp_workbook_defined_name(_handle, name);
             return h == IntPtr.Zero ? null : new DefinedName(h);
         }
 
-        public DefinedName? GetDefinedName(string name, ulong? localSheetId)
-        {
-            var h = Native.xlpp_workbook_defined_name_scoped(_handle, name, localSheetId.HasValue ? 1 : 0, localSheetId.GetValueOrDefault());
-            return h == IntPtr.Zero ? null : new DefinedName(h);
-        }
-
         public int DefinedNameCount => Native.xlpp_workbook_defined_names_count(_handle);
         public DefinedName DefinedNameAt(int index) => new(Native.xlpp_workbook_defined_name_at(_handle, index));
-        public IReadOnlyList<Worksheet> Worksheets { get { var r = new List<Worksheet>(); for (var i = 0; i < SheetCount; ++i) r.Add(this[i]); return r; } }
-        public IReadOnlyList<NamedStyle> NamedStyles { get { var r = new List<NamedStyle>(); for (var i = 0; i < NamedStyleCount; ++i) r.Add(NamedStyleAt(i)); return r; } }
-        public IReadOnlyList<DefinedName> DefinedNames { get { var r = new List<DefinedName>(); for (var i = 0; i < DefinedNameCount; ++i) r.Add(DefinedNameAt(i)); return r; } }
-        public int Index(Worksheet worksheet) => IndexOf(worksheet);
-        public IReadOnlyList<PreservedRelationship> PreservedRelationships
-        {
-            get
-            {
-                var r = new List<PreservedRelationship>();
-                var count = Native.xlpp_workbook_preserved_relationships_count(_handle);
-                for (var i = 0; i < count; ++i)
-                    r.Add(new PreservedRelationship(
-                        MarshalHelper.FromBuffer((b, n) => Native.xlpp_workbook_preserved_relationship_source_part(_handle, i, b, n)),
-                        MarshalHelper.FromBuffer((b, n) => Native.xlpp_workbook_preserved_relationship_id(_handle, i, b, n)),
-                        MarshalHelper.FromBuffer((b, n) => Native.xlpp_workbook_preserved_relationship_type(_handle, i, b, n)),
-                        MarshalHelper.FromBuffer((b, n) => Native.xlpp_workbook_preserved_relationship_target(_handle, i, b, n)),
-                        MarshalHelper.FromBuffer((b, n) => Native.xlpp_workbook_preserved_relationship_target_mode(_handle, i, b, n))));
-                return r;
-            }
-        }
-        public IReadOnlyList<PreservedPart> PreservedParts
-        {
-            get
-            {
-                var r = new List<PreservedPart>();
-                var count = Native.xlpp_workbook_preserved_parts_count(_handle);
-                for (var i = 0; i < count; ++i)
-                {
-                    var size = Native.xlpp_workbook_preserved_part_data_size(_handle, i);
-                    var data = new byte[checked((int)size)];
-                    if (size != 0) { var handle = GCHandle.Alloc(data, GCHandleType.Pinned); try { Native.xlpp_workbook_preserved_part_data(_handle, i, handle.AddrOfPinnedObject(), size); } finally { handle.Free(); } }
-                    r.Add(new PreservedPart(
-                        MarshalHelper.FromBuffer((b, n) => Native.xlpp_workbook_preserved_part_name(_handle, i, b, n)), data,
-                        MarshalHelper.FromBuffer((b, n) => Native.xlpp_workbook_preserved_part_override_type(_handle, i, b, n)),
-                        MarshalHelper.FromBuffer((b, n) => Native.xlpp_workbook_preserved_part_extension(_handle, i, b, n)),
-                        MarshalHelper.FromBuffer((b, n) => Native.xlpp_workbook_preserved_part_default_type(_handle, i, b, n)),
-                        Native.xlpp_workbook_preserved_part_compress(_handle, i) != 0));
-                }
-                return r;
-            }
-        }
     }
-
-    public sealed record PreservedRelationship(string SourcePart, string Id, string Type, string Target, string TargetMode);
-    public sealed record PreservedPart(string Name, byte[] Data, string OverrideType, string Extension, string DefaultType, bool Compress);
 
     public sealed class StreamingWorkbookWriter : IDisposable
     {

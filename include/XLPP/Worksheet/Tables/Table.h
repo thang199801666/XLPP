@@ -1,5 +1,4 @@
 #pragma once
-#include <XLPP/Core/StableVector.h>
 #include <string>
 #include <vector>
 #include <stdexcept>
@@ -52,8 +51,8 @@ public:
     void setShowHeaderRow(bool value) noexcept { showHeaderRow_ = value; }
     bool showTotalsRow() const noexcept { return showTotalsRow_; }
     void setShowTotalsRow(bool value) noexcept { showTotalsRow_ = value; }
-    StableVector<TableColumn>& columns() noexcept { return columns_; }
-    const StableVector<TableColumn>& columns() const noexcept { return columns_; }
+    std::vector<TableColumn>& columns() noexcept { return columns_; }
+    const std::vector<TableColumn>& columns() const noexcept { return columns_; }
     TableColumn& addColumn(std::string name) { columns_.emplace_back(columns_.size()+1, std::move(name)); return columns_.back(); }
     TableStyleInfo& styleInfo() noexcept { return styleInfo_; }
     const TableStyleInfo& styleInfo() const noexcept { return styleInfo_; }
@@ -63,7 +62,7 @@ private:
     std::string reference_;
     bool showHeaderRow_ = true;
     bool showTotalsRow_ = false;
-    StableVector<TableColumn> columns_;
+    std::vector<TableColumn> columns_;
     TableStyleInfo styleInfo_;
 };
 }

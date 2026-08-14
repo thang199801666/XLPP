@@ -10,13 +10,6 @@
 
 namespace xlpp {
 
-inline constexpr std::size_t MaxExcelRows = 1'048'576;
-inline constexpr std::size_t MaxExcelColumns = 16'384;
-
-inline constexpr bool isValidCellCoordinate(std::size_t row, std::size_t column) noexcept {
-    return row >= 1 && row <= MaxExcelRows && column >= 1 && column <= MaxExcelColumns;
-}
-
 namespace detail {
 // Precomputed powers of 26: 26^0, 26^1, 26^2, ...
 // Max Excel column is XFD (16,384) which fits in 3 chars.
@@ -37,19 +30,23 @@ inline constexpr unsigned char base26Lookup(unsigned char c) noexcept {
 
 // Compact cell key: (row << 20) | column. Max row 1,048,576 (20 bits), max col 16,384 (14 bits).
 // std::map with this key yields row-major ordering naturally.
-inline constexpr std::uint64_t makeCellKey(std::size_t row, std::size_t column) {
-    if (!isValidCellCoordinate(row, column))
-        throw std::out_of_range("Cell coordinate exceeds Excel worksheet bounds");
+inline constexpr std::uint64_t makeCellKey(std::size_t row, std::size_t column) noexcept {
     return (static_cast<std::uint64_t>(row) << 20) | column;
 }
 
 struct CellReference {
+    static constexpr std::size_t MaxRow = 1048576;
+    static constexpr std::size_t MaxColumn = 16384;
+
     std::size_t row{1};
     std::size_t column{1};
 
+    static constexpr bool validGridPosition(std::size_t row, std::size_t column) noexcept {
+        return row >= 1 && row <= MaxRow && column >= 1 && column <= MaxColumn;
+    }
+
     static std::string columnName(std::size_t column) {
-        if (column == 0) throw std::invalid_argument("Column index is 1-based");
-        if (column > MaxExcelColumns) throw std::out_of_range("Column index exceeds Excel's 16,384-column limit");
+        if (column == 0 || column > MaxColumn) throw std::invalid_argument("Column index must be between 1 and 16384");
         char buffer[16];
         int pos = 15;
         buffer[pos] = '\0';
@@ -71,52 +68,51 @@ struct CellReference {
                 throw std::overflow_error("Column index overflow");
             value = value * 26 + digit;
         }
-        if (value > MaxExcelColumns) throw std::out_of_range("Column index exceeds Excel's 16,384-column limit");
+        if (value > MaxColumn) throw std::invalid_argument("Column name exceeds Excel limit XFD");
         return value;
     }
 
     static CellReference parse(std::string_view address) {
         if (address.empty()) throw std::invalid_argument("Cell address cannot be empty");
-
-        const auto invalid = [&]() -> std::invalid_argument {
-            return std::invalid_argument("Invalid cell address: " + std::string(address));
-        };
-
-        std::size_t i = 0;
-        if (address[i] == '$') {
-            ++i;
-            if (i == address.size()) throw invalid();
-        }
-
         std::size_t columnValue = 0;
-        const std::size_t columnStart = i;
-        while (i < address.size()) {
-            const auto digit = detail::base26Lookup(static_cast<unsigned char>(address[i]));
-            if (digit == 0) break;
-            if (columnValue > (std::numeric_limits<std::size_t>::max() - digit) / 26)
-                throw std::overflow_error("Column index overflow");
-            columnValue = columnValue * 26 + digit;
-            ++i;
+        std::size_t digitStart = 0;
+        bool readingRow = false;
+        bool hasColumn = false;
+
+        for (std::size_t i = 0; i < address.size(); ++i) {
+            const unsigned char ch = static_cast<unsigned char>(address[i]);
+            if (ch == '$') continue;
+            if (!readingRow) {
+                const auto d = detail::base26Lookup(ch);
+                if (d != 0) {
+                    hasColumn = true;
+                    if (columnValue > (std::numeric_limits<std::size_t>::max() - d) / 26)
+                        throw std::overflow_error("Column index overflow");
+                    columnValue = columnValue * 26 + d;
+                    continue;
+                }
+            }
+            if (ch >= '0' && ch <= '9') {
+                if (!readingRow) { readingRow = true; digitStart = i; }
+            } else {
+                throw std::invalid_argument("Invalid cell address: " + std::string(address));
+            }
         }
-        if (i == columnStart) throw invalid();
-
-        if (i < address.size() && address[i] == '$') ++i;
-        const std::size_t rowStart = i;
-        if (rowStart == address.size()) throw invalid();
-        while (i < address.size() && address[i] >= '0' && address[i] <= '9') ++i;
-        if (i != address.size() || i == rowStart) throw invalid();
-
+        if (!hasColumn || !readingRow)
+            throw std::invalid_argument("Invalid cell address: " + std::string(address));
         std::size_t parsedRow = 0;
-        const auto* data = address.data() + rowStart;
+        const auto* data = address.data() + digitStart;
         const auto* end = address.data() + address.size();
         const auto result = std::from_chars(data, end, parsedRow);
-        if (result.ec != std::errc{} || result.ptr != end || parsedRow == 0)
-            throw invalid();
-        if (parsedRow > MaxExcelRows || columnValue > MaxExcelColumns)
-            throw std::out_of_range("Cell address exceeds Excel worksheet bounds: " + std::string(address));
+        if (result.ec != std::errc{} || parsedRow == 0 ||
+            parsedRow > MaxRow || columnValue > MaxColumn)
+            throw std::invalid_argument("Cell address is outside the Excel grid: " + std::string(address));
         return {parsedRow, columnValue};
     }
 
-    std::string address() const { return columnName(column) + std::to_string(row); }
+    std::string address() const {
+        if (!validGridPosition(row, column)) throw std::invalid_argument("Cell reference is outside the Excel grid");
+        return columnName(column) + std::to_string(row);
+    }
 };
 }

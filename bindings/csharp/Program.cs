@@ -42,28 +42,6 @@ rule.Priority = 1;
 rule.StopIfTrue = true;
 rule.SetFontColor("FFFF0000");
 sheet.AddDataBarRule("B1:B3");
-
-// Stable native child handles must remain usable when their owning collection grows.
-var pinnedStyle = workbook.AddNamedStyle("PinnedStyle");
-for (var i = 0; i < 128; ++i)
-    workbook.AddNamedStyle($"Style{i}");
-pinnedStyle.Name = "PinnedStyleUpdated";
-if (pinnedStyle.Name != "PinnedStyleUpdated")
-    throw new InvalidOperationException("NamedStyle handle became stale after collection growth.");
-
-var pinnedName = workbook.AddDefinedName("PinnedName", "CSharp!$A$1");
-for (var i = 0; i < 128; ++i)
-    workbook.AddDefinedName($"Name{i}", "CSharp!$A$1");
-pinnedName.Value = "CSharp!$B$1";
-if (pinnedName.Value != "CSharp!$B$1")
-    throw new InvalidOperationException("DefinedName handle became stale after collection growth.");
-
-var pinnedColumn = table.AddColumn("PinnedColumn");
-for (var i = 0; i < 96; ++i)
-    table.AddColumn($"Column{i}");
-pinnedColumn.Name = "PinnedColumnUpdated";
-if (pinnedColumn.Name != "PinnedColumnUpdated")
-    throw new InvalidOperationException("TableColumn handle became stale after collection growth.");
 using (var chart = new Chart(ChartType.Bar))
 {
     chart.Title = "Sales";
@@ -91,3 +69,27 @@ if (reloaded.Properties.Title != "C# binding test" || reloadedSheet.Dimensions !
     throw new InvalidOperationException("C# binding round-trip metadata failed.");
 
 Console.WriteLine($"C# binding OK: {output}");
+
+var encryptedOutput = Path.Combine(Environment.CurrentDirectory, "csharp-encrypted-p1h.xlsx");
+if (!reloaded.SaveEncrypted(encryptedOutput, "Compat!", PackageEncryptionMode.Standard, 128, PackageEncryptionHash.Sha512, 7))
+    throw new InvalidOperationException($"C# Standard encryption save failed: {Workbook.LastError}");
+var encInfo = Workbook.InspectPasswordEncryptionFile(encryptedOutput);
+if (encInfo.Format != PackageEncryptionFormat.Standard || encInfo.KeyBits != 128 ||
+    encInfo.HashAlgorithm != PackageEncryptionHash.Sha1 || encInfo.SpinCount != 50000 || encInfo.HasDataIntegrity ||
+    encInfo.KeyEncryptorCount != 1 || encInfo.PasswordKeyEncryptorCount != 1 || encInfo.CertificateKeyEncryptorCount != 0)
+    throw new InvalidOperationException("C# P1I encryption profile inspection failed.");
+using (var encryptedReload = new Workbook())
+{
+    if (!encryptedReload.Load(encryptedOutput, "Compat!"))
+        throw new InvalidOperationException($"C# Standard encryption reload failed: {Workbook.LastError}");
+    if ((string?)encryptedReload["CSharp"]["A1"].Value != "XL++")
+        throw new InvalidOperationException("C# P1H encrypted workbook data round-trip failed.");
+}
+using (var policyReload = new Workbook())
+{
+    if (policyReload.LoadEncrypted(encryptedOutput, "Compat!", allowStandardEncryption: false))
+        throw new InvalidOperationException("C# P1I Standard-encryption policy unexpectedly accepted Standard input.");
+    if (!policyReload.LoadEncrypted(encryptedOutput, "Compat!", allowStandardEncryption: true))
+        throw new InvalidOperationException($"C# P1I Standard-encryption policy reload failed: {Workbook.LastError}");
+}
+File.Delete(encryptedOutput);

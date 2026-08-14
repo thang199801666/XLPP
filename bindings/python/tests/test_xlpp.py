@@ -108,9 +108,13 @@ def test_remove_worksheet():
     wb = xlpp.Workbook()
     wb.add_worksheet("First")
     wb.add_worksheet("Second")
-    assert wb.remove_worksheet("First") is True
+    assert wb.rename_worksheet("first", "Renamed") is True
+    assert wb["RENAMED"].name == "Renamed"
+    assert wb.remove_worksheet("renamed") is True
     assert wb.sheet_names == ["Second"]
     assert wb.remove_worksheet("Nope") is False
+    with pytest.raises(RuntimeError):
+        wb.remove_worksheet("Second")
 
 
 def test_worksheet_not_found_raises():
@@ -214,7 +218,7 @@ def test_cell_coordinates_and_address():
     assert c.row == 5
     assert c.column == 3
     assert ws.cell((2, 1)).address == "A2"
-    with pytest.raises(IndexError):
+    with pytest.raises(ValueError):
         ws.cell(0, 1)
 
 
@@ -925,3 +929,108 @@ def test_extreme_number_roundtrip(tmp_path):
     assert wb2["N"]["A1"].value == -123456789012345.0
     assert wb2["N"]["A2"].value == 1e-12
     assert wb2["N"]["A3"].value == 1e21
+
+
+def test_password_to_open_encryption_p1g(tmp_path):
+    path = tmp_path / "protected.xlsx"
+    wb = xlpp.Workbook()
+    ws = wb.add_worksheet("Secret")
+    ws["A1"].value = "classified"
+
+    options = xlpp.SaveOptions()
+    options.encryption.enabled = True
+    options.encryption.password = "P@ssw0rd✓"
+    options.encryption.spin_count = 1000
+    wb.save(str(path), options)
+
+    assert xlpp.Workbook.is_password_encrypted_file(str(path))
+    load = xlpp.LoadOptions()
+    load.password_to_open = "P@ssw0rd✓"
+    reopened = xlpp.Workbook()
+    reopened.load(str(path), load)
+    assert reopened["Secret"]["A1"].value == "classified"
+
+    wrong = xlpp.LoadOptions()
+    wrong.password_to_open = "wrong"
+    with pytest.raises((ValueError, RuntimeError)):
+        xlpp.Workbook().load(str(path), wrong)
+
+
+
+def test_password_encryption_profiles_p1h(tmp_path):
+    agile_path = tmp_path / "agile128.xlsx"
+    standard_path = tmp_path / "standard128.xlsx"
+    wb = xlpp.Workbook()
+    wb.add_worksheet("Secret")["A1"].value = "profile"
+
+    agile = xlpp.SaveOptions()
+    agile.encryption.enabled = True
+    agile.encryption.password = "Agile✓"
+    agile.encryption.mode = xlpp.PackageEncryptionMode.AGILE
+    agile.encryption.key_bits = 128
+    agile.encryption.hash_algorithm = xlpp.PackageEncryptionHash.SHA256
+    agile.encryption.spin_count = 64
+    wb.save(str(agile_path), agile)
+    info = xlpp.Workbook.inspect_password_encryption_file(str(agile_path))
+    assert info.format == xlpp.PackageEncryptionFormat.AGILE
+    assert info.key_bits == 128
+    assert info.hash_algorithm == xlpp.PackageEncryptionHash.SHA256
+    assert info.spin_count == 64
+    assert info.has_data_integrity
+
+    standard = xlpp.SaveOptions()
+    standard.encryption.enabled = True
+    standard.encryption.password = "Compat✓"
+    standard.encryption.mode = xlpp.PackageEncryptionMode.STANDARD
+    standard.encryption.key_bits = 128
+    wb.save(str(standard_path), standard)
+    info = xlpp.Workbook.inspect_password_encryption_file(str(standard_path))
+    assert info.format == xlpp.PackageEncryptionFormat.STANDARD
+    assert info.key_bits == 128
+    assert info.hash_algorithm == xlpp.PackageEncryptionHash.SHA1
+    assert info.spin_count == 50000
+    assert not info.has_data_integrity
+
+    guarded = xlpp.LoadOptions()
+    guarded.password_to_open = "Agile✓"
+    guarded.max_encryption_spin_count = 32
+    with pytest.raises(RuntimeError):
+        xlpp.Workbook().load(str(agile_path), guarded)
+
+
+def test_password_encryption_policies_p1i(tmp_path):
+    agile_path = tmp_path / "agile-p1i.xlsx"
+    standard_path = tmp_path / "standard-p1i.xlsx"
+    wb = xlpp.Workbook()
+    wb.add_worksheet("Secret")["A1"].value = "policy"
+
+    agile = xlpp.SaveOptions()
+    agile.encryption.enabled = True
+    agile.encryption.password = "Policy✓"
+    agile.encryption.spin_count = 64
+    wb.save(str(agile_path), agile)
+    info = xlpp.Workbook.inspect_password_encryption_file(str(agile_path))
+    assert info.key_encryptor_count == 1
+    assert info.password_key_encryptor_count == 1
+    assert len(info.certificate_key_encryptors) == 0
+
+    strict = xlpp.LoadOptions()
+    strict.password_to_open = "Policy✓"
+    strict.require_agile_data_integrity = True
+    strict.max_encryption_info_bytes = 1024 * 1024
+    reopened = xlpp.Workbook()
+    reopened.load(str(agile_path), strict)
+    assert reopened["Secret"]["A1"].value == "policy"
+
+    standard = xlpp.SaveOptions()
+    standard.encryption.enabled = True
+    standard.encryption.password = "Compat✓"
+    standard.encryption.mode = xlpp.PackageEncryptionMode.STANDARD
+    standard.encryption.key_bits = 128
+    wb.save(str(standard_path), standard)
+
+    reject_standard = xlpp.LoadOptions()
+    reject_standard.password_to_open = "Compat✓"
+    reject_standard.allow_standard_encryption = False
+    with pytest.raises(RuntimeError):
+        xlpp.Workbook().load(str(standard_path), reject_standard)

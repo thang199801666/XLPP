@@ -30,7 +30,7 @@ This document is the active capability summary. Historical gap lists and milesto
 | C++ API | Supported | Primary API, C++20 |
 | C ABI | Supported | ABI version 2 with additive capability negotiation |
 | Python binding | Supported with limitations | Source surface and wheel workflow present; release-host binary verification requires pybind11/toolchain |
-| C# binding | Supported with limitations | SafeHandle ownership and NuGet workflow present; release-host binary verification requires .NET SDK |
+| C# binding | Supported | SafeHandle ownership, complete stable C ABI projection (869/869 exports), typed Chart/Pivot/Formula/Drawing/Streaming models, NuGet workflow, and Windows binary tests |
 | Excel Desktop interoperability | Experimental/external gate | Automation/corpus infrastructure belongs on a Windows host with Microsoft Excel installed |
 
 ## Reliability baseline
@@ -41,4 +41,7 @@ This document is the active capability summary. Historical gap lists and milesto
 - Clang 17 libFuzzer load/validate/resave smoke: 1,000 runs from 16 third-party fixture seeds with no finding.
 - Enterprise preservation corpus foundation: 16/16 scenarios, 0 unexpected removed parts.
 
-For release-specific details, see `docs/P0ZI_PHASE28_TO_37_REFINEMENT.md` and `PACKAGE_STATUS.md`.
+For planned work, see the active
+[roadmap](https://github.com/thang199801666/XLPP/blob/main/ROADMAP.md). Automated
+verification is summarized in the repository's
+[feature coverage](https://github.com/thang199801666/XLPP/blob/main/tests/FEATURE_COVERAGE.md).

@@ -36,7 +36,7 @@ set(_csharp_all "${_csharp_base}\n${_csharp_advanced}")
 string(REGEX MATCHALL "extern[^;\n]+xlpp_[A-Za-z0-9_]+" _extern_matches "${_csharp_all}")
 set(_extern_symbols "")
 foreach(_match IN LISTS _extern_matches)
-    string(REGEX MATCH "xlpp_[A-Za-z0-9_]+" _symbol "${_match}")
+    string(REGEX MATCH "xlpp_[A-Za-z0-9_]+$" _symbol "${_match}")
     list(APPEND _extern_symbols "${_symbol}")
     string(FIND "${_capi_header}" "${_symbol}" _header_pos)
     if(_header_pos EQUAL -1)
@@ -44,6 +44,19 @@ foreach(_match IN LISTS _extern_matches)
     endif()
 endforeach()
 list(REMOVE_DUPLICATES _extern_symbols)
+
+# C# is the managed projection of the stable C ABI. Require every exported C
+# function to have a P/Invoke declaration so additive native APIs cannot be
+# silently omitted from the managed package.
+string(REGEX MATCHALL "XLPP_API[^;\n]+xlpp_[A-Za-z0-9_]+[ \t]*\\(" _capi_export_matches "${_capi_header}")
+foreach(_match IN LISTS _capi_export_matches)
+    string(REGEX MATCH "xlpp_[A-Za-z0-9_]+[ \t]*\\($" _symbol_with_paren "${_match}")
+    string(REGEX MATCH "xlpp_[A-Za-z0-9_]+" _symbol "${_symbol_with_paren}")
+    list(FIND _extern_symbols "${_symbol}" _extern_index)
+    if(_extern_index EQUAL -1)
+        message(FATAL_ERROR "Binding parity failure: C ABI export '${_symbol}' has no C# P/Invoke declaration")
+    endif()
+endforeach()
 
 string(REGEX MATCHALL "Native\\.xlpp_[A-Za-z0-9_]+" _native_call_matches "${_csharp_all}")
 foreach(_match IN LISTS _native_call_matches)

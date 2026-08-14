@@ -1,7 +1,7 @@
 # XL++ API Reference
 
 XL++ is a dependency-light C++20 `.xlsx` read/write library inspired by openpyxl.
-It uses the C++ standard library and zlib only.
+It uses the C++ standard library, zlib, and a platform crypto backend (Windows CNG/BCrypt or OpenSSL Crypto on non-Windows builds).
 
 ```cpp
 #include <XLPP/XLPP.h>
@@ -33,13 +33,101 @@ std::ofstream out("data.xlsx", std::ios::binary);
 wb.save(out);                               // save to stream
 ```
 
+### Workbook templates (P1S)
+
+XL++ now models template identity independently from VBA identity, allowing `.xltx` and `.xltm` packages to round-trip with the correct workbook content type.
+
+```cpp
+xlpp::Workbook wb;
+wb.setTemplate(true);
+wb.addWorksheet("TemplateData");
+wb.save("model.xltx");
+
+xlpp::Workbook loaded;
+loaded.load("model.xltx");
+if (loaded.isTemplate()) {
+    // Template identity came from the package content type.
+}
+```
+
+For a macro-enabled template, set the template flag and attach/generate a VBA project before saving to `.xltm`.
+
+### Chartsheet printer settings and auxiliary ownership (P1W)
+
+Chartsheets can own the opaque binary printer-settings payload referenced by top-level `pageSetup`. XL++ preserves the bytes as a package object; it does not decode operating-system printer structures.
+
+```cpp
+xlpp::Workbook wb;
+wb.load("template.xltx");
+auto& cs = wb.chartsheet("Dashboard");
+
+cs.setPrinterSettingsData(std::string("\\x01\\x00\\x02", 3));
+wb.save("template-with-printer-settings.xltx");
+
+if (cs.hasPrinterSettings()) {
+    const std::string& raw = *cs.printerSettingsData();
+}
+
+cs.clearPrinterSettings();
+```
+
+Imported header/footer-picture ownership (`legacyDrawingHF` plus its VML relationship/part) is preservation-safe across Chartsheet metadata edits and chart regeneration. Regeneration replaces the chart drawing closure but keeps unrelated Chartsheet auxiliary relationships unless the caller explicitly replaces/clears them.
+
+The C ABI exposes equivalent length-based binary APIs: `xlpp_chartsheet_set_printer_settings`, `xlpp_chartsheet_printer_settings_size`, `xlpp_chartsheet_copy_printer_settings`, and `xlpp_chartsheet_clear_printer_settings`.
+
+### Password-to-open encryption
+
+Password-to-open encryption is package encryption, not worksheet/workbook protection. P1I keeps the configurable P1H Agile/Standard profiles and adds an in-memory inner-ZIP boundary, certificate key-encryptor inspection/tolerance for mixed Agile descriptors, and stricter load policies for untrusted encrypted files.
+
+```cpp
+xlpp::SaveOptions saveOptions;
+saveOptions.encryption.enabled = true;
+saveOptions.encryption.password = "P@ssw0rd\xE2\x9C\x93"; // UTF-8
+saveOptions.encryption.mode = xlpp::PackageEncryptionMode::Agile;
+saveOptions.encryption.keyBits = 256;                        // 128 / 192 / 256
+saveOptions.encryption.hashAlgorithm = xlpp::PackageEncryptionHash::Sha512;
+saveOptions.encryption.spinCount = 100000;
+wb.save("protected.xlsx", saveOptions);
+
+// Standard CryptoAPI/AES compatibility writer.
+saveOptions.encryption.mode = xlpp::PackageEncryptionMode::Standard;
+saveOptions.encryption.keyBits = 128; // 128 / 192 / 256
+wb.save("protected-standard.xlsx", saveOptions);
+
+const auto profile = xlpp::Workbook::inspectPasswordEncryptionFile("protected.xlsx");
+// profile.format / keyBits / hashAlgorithm / spinCount / hasDataIntegrity
+
+xlpp::LoadOptions loadOptions;
+loadOptions.passwordToOpen = "P@ssw0rd\xE2\x9C\x93";
+loadOptions.maxEncryptionSpinCount = 1'000'000;  // 0 accepts spec maximum
+loadOptions.maxDecryptedPackageBytes = 512u * 1024u * 1024u;
+loadOptions.maxEncryptionInfoBytes = 1024u * 1024u;
+loadOptions.allowStandardEncryption = true;
+loadOptions.requireAgileDataIntegrity = true;
+xlpp::Workbook protectedBook;
+protectedBook.load("protected.xlsx", loadOptions);
+```
+
+`save(std::ostream&, SaveOptions)` and `load(std::istream&, LoadOptions)` support the same password options. Wrong passwords are rejected before OOXML parsing. Agile `DataIntegrity` HMAC is verified before decrypted package bytes are accepted.
+
+**P1H Agile read/write profiles:** AES-128/192/256-CBC with SHA-1, SHA-256, SHA-384 or SHA-512. Default: AES-256/SHA-512 with `spinCount=100000`.
+
+**P1H Standard read/write profiles:** CryptoAPI AES-128/192/256 + SHA-1. Standard derivation is fixed to 50,000 iterations; `PackageEncryptionOptions::spinCount` and `hashAlgorithm` are intentionally ignored for Standard writes.
+
+Profile inspection does not require the password and returns `PackageEncryptionInfo`, including format/version, cipher/hash, key bits, block/hash size, spin count, data-integrity presence and current read/write support. P1I also reports total/password key-encryptor counts and decoded metadata for certificate key-encryptors. Certificate metadata inspection does **not** validate a certificate chain and does not implement private-key decryption.
+
+P1I encrypted file load/save serializes/parses the inner OOXML ZIP directly in memory; it no longer writes a plaintext temporary inner `.xlsx` while wrapping/unwrapping the encrypted CFB package. Stream APIs still use their existing outer temporary-file bridge, but encrypted streams no longer create a plaintext inner workbook on disk.
+
+C API adds `xlpp_workbook_save_password_ex` and `xlpp_workbook_encryption_profile` alongside the P1G password APIs. C# exposes the configurable `SaveEncrypted(...)` overload plus `InspectPasswordEncryptionFile`. Python exposes `PackageEncryptionMode`, `PackageEncryptionHash`, `PackageEncryptionFormat`, `PackageEncryptionInfo`, and the new resource guards.
+
+Agile descriptors may contain certificate key-encryptors alongside the required single password key-encryptor; XL++ P1I selects the password descriptor by URI and exposes certificate metadata during inspection. Certificate-only decryption/writing, RC4 and Extensible Encryption remain unsupported and fail explicitly rather than being guessed.
+
 ### Worksheets
 
 ```cpp
 auto& sheet = wb.addWorksheet("Sheet1");    // create sheet
-wb.removeWorksheet("Sheet1");               // remove; dependent local refs become #REF!
+wb.removeWorksheet("Sheet1");               // remove sheet, returns bool
 wb.copyWorksheet(sheet, "Copy");            // copy existing sheet
-auto renamed = wb.renameWorksheet("Sheet1", "Input Data"); // dependency-aware rename
 
 auto* s = wb.worksheet("Sheet1");           // find by name, nullptr if missing
 auto& s2 = wb[0];                           // access by index (0-based)
@@ -62,7 +150,6 @@ wb.applyNamedStyle(sheet.cell("A1"), "Accent");            // apply to cell
 wb.addDefinedName({"Revenue", "'Sales'!$A$1:$A$100"});     // workbook-scoped name
 auto* dn = wb.definedName("Revenue");
 wb.addDefinedName({"SalesData", "'Sales'!$B$1:$B$50", 0}); // sheet-scoped (localSheetId=0)
-auto* local = wb.definedName("SalesData", 0);                 // scoped lookup
 ```
 
 ### Properties and protection
@@ -80,12 +167,19 @@ wb.setDate1904(false);  // Excel 1900 date system (default)
 xlpp::LoadOptions opts;
 opts.lenient = true;                    // continue past malformed sheets
 opts.maxEntries = 1000;                 // limit ZIP entries
-opts.maxEntryBytes = 10 * 1024 * 1024;  // limit entry size
-opts.maxTotalBytes = 100 * 1024 * 1024; // limit total payload
+opts.maxEntryBytes = 10 * 1024 * 1024;  // limit one uncompressed entry
+opts.maxTotalBytes = 100 * 1024 * 1024; // limit total uncompressed ZIP payload
+opts.maxFileBytes = 128 * 1024 * 1024;  // limit source file/stream bytes
+opts.maxWorksheets = 256;               // limit materialized sheets (0 = unlimited)
+opts.maxCells = 5'000'000;              // total unique materialized cells
+opts.maxSharedStrings = 1'000'000;      // SST cardinality guard
+opts.maxDefinedNames = 100'000;         // defined-name model guard
 opts.cancel = []{ return someFlag; };   // cancellation callback
 opts.progress = [](auto done, auto total) { ... }; // progress callback
 wb.load("large.xlsx", opts);
 ```
+
+P1R applies a strong exception guarantee to `Workbook::load`: package/parser/resource failures leave the pre-existing `Workbook` object unchanged. The same guarantee applies to `load(std::istream&, LoadOptions)` after its bounded RAII temporary-file bridge. The model-level guards complement ZIP byte limits and are useful against highly compressed XML that would otherwise expand into a large object graph.
 
 ### Save options
 
@@ -96,23 +190,8 @@ opts.parallelSheets = true;                     // parallel sheet serialization
 opts.parallelWorkers = 4;                       // thread count
 opts.compressionLevel = CompressionLevel::Best; // zlib level
 opts.compressionStrategy = CompressionStrategy::HuffmanOnly;
-opts.atomicWrite = true;                     // default: stage + atomic replace for path saves
-opts.durableWrite = true;                    // default: flush file + directory/write-through barrier
-opts.validateBeforeSave = true;              // default: validate modeled invariants
 wb.save("output.xlsx", opts);
 ```
-
-### Model validation
-
-```cpp
-auto validation = wb.validate();
-if (!validation.ok()) {
-    for (const auto& issue : validation.issues)
-        std::cerr << issue.code << ": " << issue.message << "\n";
-}
-```
-
-Path-based `load()` provides a strong exception guarantee: if parsing/decryption fails, the caller's existing workbook remains unchanged. Path-based `save()` uses same-directory staging and atomic replacement by default. `SaveOptions::durableWrite` also defaults to true, flushing the completed file and using a POSIX parent-directory `fsync` or Windows write-through replacement where applicable. Set either option to false only for an intentional performance/semantics tradeoff.
 
 ### Diagnostics and inspection
 
@@ -124,6 +203,106 @@ for (const auto& err : diag.errors) { ... }   // error list
 for (const auto& part : wb.preservedParts())  // unmodeled parts
     std::cout << part.name << '\n';
 ```
+
+---
+
+## VBA source projects (P1A)
+
+XL++ can preserve arbitrary external `vbaProject.bin` parts unchanged. For projects generated by XL++ it also exposes a source-oriented C++ authoring model for standard, class and workbook/worksheet document modules.
+
+```cpp
+xlpp::Workbook wb;
+wb.addWorksheet("Data");
+
+wb.setVbaModuleText("Utilities",
+    "Public Function Twice(x As Double) As Double\n"
+    "Twice = x * 2\nEnd Function");
+wb.setVbaClassModuleText("WorkerClass", "Option Explicit\nPublic Name As String");
+wb.setVbaDocumentModuleText("ThisWorkbook",
+    "Private Sub Workbook_Open()\nWorksheets(1).Range(\"A1\").Value = \"Ready\"\nEnd Sub");
+
+xlpp::VbaModule module;
+module.name = "WorkerClass";
+module.type = xlpp::VbaModuleType::Class;
+module.source = "Option Explicit\nPublic Name As String";
+module.docString = "Worker metadata";
+module.readOnly = true;
+module.isPrivate = true;
+wb.setVbaModule(std::move(module));
+```
+
+Project metadata and registered type-library references are first class:
+
+```cpp
+xlpp::VbaProjectInfo info;
+info.name = "AnalyticsProject";
+info.description = "XL++ generated VBA source project";
+info.helpFile = "project-help.chm";
+info.helpContextId = 42;
+info.constants = "Build = 1";
+info.projectId = "{12345678-1234-4ABC-9DEF-1234567890AB}";
+info.references.push_back({
+    "Scripting",
+    "*\\G{420B2830-E718-11CF-893D-00A0C9054228}#1.0#0#C:\\Windows\\System32\\scrrun.dll#Microsoft Scripting Runtime"
+});
+wb.setVbaProjectInfo(info);
+
+const auto modules = wb.vbaModules();
+const auto project = wb.vbaProjectInfo();
+auto source = wb.vbaModuleText("ThisWorkbook");
+wb.removeVbaModule("WorkerClass"); // host document modules cannot be removed here
+```
+
+XL++ rebuilds its own source-generated VBA project on save so `Sheet1`, `Sheet2`, ... document modules remain synchronized after worksheet insertion/removal while existing document/class/standard source and project metadata are retained.
+
+**Current VBA boundary:** this authoring layer does not claim to compile VBA, author UserForms/FRX/designer streams, edit digital signatures, unlock password-protected projects, or reproduce arbitrary compiled p-code. Untouched external VBA projects continue to use opaque package preservation.
+
+---
+
+## Pivot tables (P1A)
+
+New PivotTables can still be generated directly:
+
+```cpp
+xlpp::PivotTable pivot("SalesPivot");
+pivot.setLocation("F2");
+pivot.cache().setSourceData("'Data'!$A$1:$D$100");
+pivot.addRowField("Region");
+pivot.addColumnField("Quarter");
+pivot.addPageField("Year");
+auto& values = pivot.addDataField("Amount", "sum");
+values.setDisplayName("Sales %");
+values.setShowDataAs("percentOfTotal");
+sheet.addPivotTable(std::move(pivot));
+```
+
+P1A also loads common existing `pivotTableDefinition`, `pivotCacheDefinition` and `pivotCacheRecords` parts into the native model. Discovery works both with normal worksheet `<pivotTableParts>` owner nodes and producer variants that expose a PivotTable only through worksheet relationships.
+
+```cpp
+xlpp::Workbook wb;
+wb.load("existing-pivot.xlsx");
+
+// Use a const view for inspection; untouched imported Pivot OOXML is preserved.
+const auto& readOnly = static_cast<const xlpp::Workbook&>(wb);
+const auto* ws = readOnly.worksheet("Data");
+const auto& p = ws->pivotTables().front();
+std::cout << p.name() << ' ' << p.location() << '\n';
+for (const auto& field : p.cache().fields()) std::cout << field << '\n';
+
+// Mutable access opts into regeneration through XL++'s modeled Pivot layer.
+auto& edited = wb.worksheet("Data")->pivotTables().front();
+edited.setStyleName("PivotStyleMedium9");
+edited.setRowGrandTotals(false);
+edited.cache().setRefreshOnLoad(false);
+edited.rowFields().front().hideItem(1);
+edited.dataFields().front().setDisplayName("Sales %");
+edited.dataFields().front().setShowDataAs("percentOfTotal");
+wb.save("edited-pivot.xlsx");
+```
+
+Modeled Pivot state includes cache source/options/fields/records, row/column/page/data-field indices, hidden items, sort/default-subtotal flags, page-field settings, common data aggregations, `showDataAs`, base field/item, number-format ID, style/layout/grand-total/header/stripe settings.
+
+**Current Pivot boundary:** untouched advanced Pivot OOXML is preservation-safe, but choosing mutable imported-Pivot regeneration uses the modeled subset. OLAP caches, grouping, calculated members/items, slicers/timelines, pivot charts and complete shared-cache editing are not yet fully modeled. For conservative safety, a regenerated imported Pivot may leave an otherwise valid preserved workbook cache in place when that cache could be shared.
 
 ---
 
@@ -201,14 +380,81 @@ cd.hidden = true;                            // hide column
 cd.bestFit = true;                           // auto-fit
 ```
 
-### Structural edits
+### Structural edits and transactions (P1K)
+
+For a worksheet that belongs to a `Workbook`, prefer the workbook-level APIs. They transform references across the complete in-memory model instead of moving only the local cell grid.
 
 ```cpp
-sheet.insertRows(2, 3);      // insert 3 rows at row 2
-sheet.deleteRows(2, 3);      // delete 3 rows starting row 2
-sheet.insertColumns(2, 1);   // insert 1 column at column 2
-sheet.deleteColumns(3, 2);   // delete 2 columns starting column 3
+auto report = wb.insertRows("Data", 2, 3);
+wb.deleteRows("Data", 10, 2);
+wb.insertColumns("Data", 2, 1);
+wb.deleteColumns("Data", 3, 2);
 ```
+
+P1K retains the P1J workbook-wide A1/range/whole-row/whole-column repair and makes it transactional by default. Deleted references become `#REF!`; physical edits that would move cells outside Excel's `1,048,576 x 16,384 (XFD)` grid are rejected. `StructuralEditReport` exposes rewrite/invalidation counters, post-edit validation counts and diagnostics.
+
+Transactional options:
+
+```cpp
+xlpp::StructuralEditOptions options;
+options.rollbackOnFailure = true;   // default
+options.validateResult = true;      // default
+options.cancel = [&]() { return shouldCancel(); };
+
+try {
+    auto report = wb.insertRows("Data", 1000, 500, options);
+} catch (const xlpp::StructuralEditCancelled&) {
+    // Model has been restored when rollbackOnFailure=true.
+}
+```
+
+Rollback restores worksheet contents in place, plus workbook defined names and calculation/cache state, so existing `Worksheet&` references keep their identity. Post-edit validation compares against the pre-edit error set and rejects only newly introduced semantic errors. Set `rollbackOnFailure=false` only when a caller explicitly accepts partial mutation on failure/cancellation.
+
+3-D references such as `Start:End!A1` are recognized. Workbook-safe sheet rename/remove rewrites or invalidates a matching 3-D endpoint. Row/column structural edits deliberately preserve 3-D coordinate references and increment `StructuralEditReport::referencesSkippedUnsupported`, because guessing how a structural edit should change a 3-D area can silently corrupt semantics.
+
+Direct worksheet-local calls remain available for standalone worksheet models:
+
+```cpp
+sheet.insertRows(2, 3);
+sheet.deleteColumns(3, 2);
+```
+
+Because a `Worksheet` has no parent-workbook pointer, direct local calls cannot rewrite references owned by sibling worksheets or workbook defined names.
+
+Safe workbook-level sheet lifecycle operations are also available:
+
+```cpp
+wb.renameWorksheet("Data", "Input Data"); // rewrites workbook-wide qualifiers
+wb.removeWorksheet("Old Data");           // invalidates surviving refs with #REF!
+```
+
+Worksheet lookup and safe rename/remove are case-insensitive like Excel. Removing the final worksheet is rejected.
+
+### In-memory model integrity validation (P1J)
+
+```cpp
+auto validation = wb.validateModelIntegrity();
+if (!validation.ok()) {
+    for (const auto& issue : validation.issues) {
+        // issue.code is stable for automation, e.g.
+        // "pivot.record_width_mismatch"
+    }
+}
+```
+
+The validator catches semantic problems that OPC relationship validation cannot see, including invalid grid geometry, table/Pivot schema mismatches, bad field indices, duplicate workbook object names, missing Pivot/chart source sheets, invalid defined-name scopes and broken object references. Warnings such as an intentional `#REF!` are kept separate from errors.
+
+Serialization can opt into a pre-save semantic gate:
+
+```cpp
+xlpp::SaveOptions save;
+save.validateModelBeforeSave = true;
+save.rejectModelWarningsBeforeSave = true; // optional stricter semantic policy
+save.validatePackageBeforeWrite = true;    // validate assembled OPC before write/encryption
+wb.save("validated.xlsx", save);
+```
+
+All three options default to `false` for preservation compatibility. `validateModelBeforeSave` blocks semantic errors; `rejectModelWarningsBeforeSave` additionally promotes warnings such as `#REF!` to fatal when model validation is enabled. `validatePackageBeforeWrite` validates relationships, duplicate IDs, dangling/orphan parts, content types and owner references on the fully assembled inner OOXML package before bytes are written or encrypted.
 
 ### AutoFilter
 
@@ -619,33 +865,6 @@ cell.formulaMetadata().sharedIndex();
 cell.clearFormula();
 ```
 
-### In-process formula calculation (P0W)
-
-```cpp
-xlpp::CalculationOptions options;
-options.recursiveDependencies = true;
-options.updateCachedValues = true;
-options.evaluateVolatileFunctions = true;
-options.maxDepth = 512;
-
-auto report = workbook.calculateFormulas(options);
-report.formulaCellsEvaluated;
-report.cachedValuesUpdated;
-report.circularReferences;
-report.unsupportedFormulas;
-report.warnings;
-```
-
-`Workbook::calculateFormulas()` updates formula cached values but never rewrites
-formula text. The P0W engine covers common aggregate/statistical, logical/error,
-math/trigonometric, text, date/time, criteria, lookup and financial functions;
-it does not yet implement dynamic arrays/spill, structured references, external
-workbook references, `INDIRECT`/`OFFSET`, or iterative circular calculation.
-
-`SaveOptions::calculateFormulasBeforeSave = true` evaluates a private workbook
-copy before serialization. When chart-cache synchronization is also enabled,
-formula calculation runs first.
-
 ### Hyperlinks
 
 ```cpp
@@ -838,13 +1057,16 @@ writer.setParallelWorkers(4);
 ### Reading
 
 ```cpp
-xlpp::StreamingReaderOptions limits;
-limits.maxFileBytes = 8ull * 1024 * 1024 * 1024;
-limits.maxEntryBytes = 2ull * 1024 * 1024 * 1024;
-limits.maxTotalBytes = 16ull * 1024 * 1024 * 1024;
-limits.maxEntries = 100000;
-limits.validateCellReferences = true;
-xlpp::StreamingWorkbookReader reader("large.xlsx", limits);
+// Optional resource guards for untrusted/very large packages.
+xlpp::StreamingReadOptions readOptions;
+readOptions.maxEntries = 100000;
+readOptions.maxEntryBytes = 512u * 1024u * 1024u;
+readOptions.maxTotalBytes = 2ull * 1024u * 1024u * 1024u;
+readOptions.maxFileBytes = 4ull * 1024u * 1024u * 1024u;
+readOptions.maxXmlElementBytes = 64u * 1024u * 1024u; // default
+xlpp::StreamingWorkbookReader guardedReader("large.xlsx", readOptions);
+
+xlpp::StreamingWorkbookReader reader("large.xlsx");
 auto names = reader.worksheetNames();    // all sheet names
 auto logSheet = reader.worksheet("Log");
 
@@ -878,53 +1100,6 @@ struct StreamingCell {
 ```
 
 ---
-
-## VBA / Macro Projects
-
-XL++ supports two VBA ownership modes: source projects generated by XL++, and opaque external `vbaProject.bin` projects that are preserved without destructive rewriting.
-
-```cpp
-Workbook wb;
-auto& ws = wb.addWorksheet("Data");
-ws.setVbaCodeName("DataSheet");
-
-VbaProjectProperties props;
-props.name = "MyMacros";
-props.description = "XL++ generated VBA";
-props.helpFile = "help.chm";
-props.helpContextId = 10;
-props.constants = "FeatureX = 1:DebugMode = 0";
-wb.setVbaProjectProperties(props);
-
-wb.setVbaModuleText("Utilities", "Public Sub Run()\nEnd Sub\n");
-wb.setVbaClassModuleText("Worker", "Public Function Value() As Long\nValue = 1\nEnd Function\n",
-                         true, true);
-wb.setVbaDocumentModuleText("ThisWorkbook",
-                            "Private Sub Workbook_Open()\nEnd Sub\n");
-wb.setVbaDocumentModuleText("DataSheet",
-                            "Private Sub Worksheet_Activate()\nEnd Sub\n");
-
-for (const auto& module : wb.vbaModules()) {
-    module.name;
-    module.source;
-    module.type;          // Standard / Document / Class
-    module.readOnly;
-    module.privateModule;
-}
-
-auto binary = wb.vbaProjectBytes();
-wb.saveVbaProject("vbaProject.bin");
-bool signedProject = wb.hasVbaSignature();
-bool editable = wb.vbaSourceEditable();
-```
-
-`Worksheet::vbaCodeName()` is independent from the worksheet display name and is serialized as `sheetPr/@codeName`. Generated code names are stable across normal workbook topology changes.
-
-`setVbaModuleText`, `setVbaClassModuleText`, `setVbaDocumentModuleText`, `setVbaModule`, `removeVbaModule` and `setVbaProjectProperties` rebuild the source-owned project. They reject externally supplied projects and projects carrying a VBA signature because rebuilding could discard or invalidate opaque VBA state.
-
-`addVbaProject()` and `setVbaProject()` intentionally establish external/binary ownership. The attached bytes can be inspected/exported and are preserved by unrelated workbook edits, but source mutation is not enabled.
-
-Current source generation does not create UserForms/FRX designer state, custom type-library references, VBA project passwords/locks or digital signatures.
 
 ## Package Preservation
 
@@ -1212,96 +1387,68 @@ LibreOffice Calc may recompute chart caches and normalize cache formatting when 
 
 ---
 
-## P0X — 90% General-purpose Editing Core
+## P0V — Automatic Cache Dependency Tracking & Style Resolution
 
-### Dependency graph and structural transactions
-
-```cpp
-auto graph = workbook.dependencyGraph();
-auto users = graph.dependentsOf("Data!A1:A10");
-
-xlpp::StructuralEditOptions editOptions;
-editOptions.transactional = true;
-editOptions.failOnInvalidReference = true;
-auto edit = workbook.insertRows("Data", 3, 2, editOptions);
-```
-
-P0X structural transactions rewrite supported formula/name/table/filter/CF/DV/print/chart/Pivot/drawing/hyperlink dependencies and roll back when configured invalid references are introduced.
-
-### Modern formula semantics
-
-`CalculationOptions` now includes iterative calculation controls and an optional C++ external-reference resolver. Dynamic arrays/spills, structured table references, `LET`, `INDIRECT`, `OFFSET` and common array-shaping families are supported within the scope documented in `docs/P0X_90_PERCENT_ENGINE.md`.
+P0V adds dependency-aware incremental synchronization on top of P0U. The dependency model can be inspected without rebuilding cache data:
 
 ```cpp
-xlpp::CalculationOptions calc;
-calc.iterativeCalculation = true;
-calc.maxIterations = 100;
-calc.maxChange = 1e-9;
-auto report = workbook.calculateFormulas(calc);
+auto dependencies = workbook.chartCacheDependencies();
+for (const auto& dep : dependencies) {
+    dep.ownerSheet;
+    dep.sourceSheet;
+    dep.chartStableId;
+    dep.seriesIndex;
+    dep.kind;       // Title / Category / Value
+    dep.first;
+    dep.last;
+    dep.supported;
+}
 ```
 
-### Standard or Agile password encryption
+Non-const worksheet cell/range access records touched cell keys, while value/formula/number-format mutations also increment a per-cell mutation revision. This keeps retained `Cell&` references detectable even after a tracker reset. Incremental synchronization uses both signals to skip unrelated cache references:
 
 ```cpp
-xlpp::SaveOptions save;
-save.encryptionPassword = "secret";
-save.encryptionMode = xlpp::OfficeEncryptionMode::Standard;
-save.encryptionKeyBits = 256;
-workbook.save("secure.xlsx", save);
+ChartCacheSyncOptions options;
+options.clearTrackedChangesAfterSync = true;
+ChartCacheSyncReport report = workbook.synchronizeChangedChartCaches(options);
+
+report.dependenciesVisited;
+report.dependenciesMatched;
+report.dependenciesSkippedUnchanged;
+report.formulaCachePointsReused;
 ```
 
-P0X supports Agile AES-256/SHA-512 read/write and Standard AES-128/192/256 + SHA-1 read/write. Certificate/private-key encryption and alternate Agile profiles remain outside the current core.
+Full `synchronizeChartCaches()` behavior is unchanged. `onlyChangedCells` can also be enabled directly in `ChartCacheSyncOptions`. `clearChartCacheChangeTracking()` resets only the cache dependency tracker and does not clear the normal worksheet dirty flag.
 
-### Pivot semantic editing
+When a referenced source cell contains a formula but has no cached worksheet value, `preserveFormulaCachedValues` (default `true`) reuses the existing chart cache point at the same index. This prevents cache data from disappearing merely because XL++ does not calculate the formula itself.
 
-Imported PivotTables remain byte-preserved while untouched. Mutable access opts into regeneration of the supported semantic model, including common source/location, fields, layout/style, cache lifecycle, data-field and report-filter properties.
-
-
-## P0Y — Core Reliability and Topology
-
-### Dependency-aware worksheet rename
+Chart style-resource inspection is also deeper:
 
 ```cpp
-xlpp::WorksheetRenameOptions renameOptions;
-renameOptions.recalculateFormulas = false;
-renameOptions.synchronizeChartCaches = true;
-auto report = workbook.renameWorksheet("Raw Data", "Input Data", renameOptions);
+const auto& resources = chart.styleResources();
+resources.chartStyleId;
+resources.colorStyleId;
+resources.colorStyleMethod;
+resources.colorStyleColors;
+
+auto resolved = resources.resolveColorStyle(chart.themePalette());
+auto majorFont = chart.themePalette().resolveTypeface("+mj-lt");
+auto minorFont = chart.themePalette().resolveTypeface("+mn-lt");
 ```
 
-Qualified formula/name/chart/Pivot/CF/DV/internal-hyperlink references are rewritten without altering formula string literals or external-workbook references. Removing a worksheet invalidates supported local dependencies to `#REF!` and compacts local defined-name scopes. Because worksheet storage is currently a `std::deque`, erasing a worksheet may invalidate existing worksheet handles; reacquire them after removal.
+Direct XL++ output preserves chart-style/color-style relationship resources. LibreOffice Calc may remove those extension resources when it becomes the writer; that remains documented host normalization.
 
-### Core reliability build gates
-
-```bash
-cmake -S . -B build-asan -DXLPP_ENABLE_SANITIZERS=ON
-cmake --build build-asan
-ctest --test-dir build-asan --output-on-failure
-
-cmake -S . -B build-warn -DXLPP_ENABLE_STRICT_WARNINGS=ON
-cmake --build build-warn
-```
-
-Continuous parser/package fuzzing (Clang/libFuzzer):
-
-```bash
-CC=clang CXX=clang++ cmake -S . -B build-fuzz \
-  -DXLPP_BUILD_FUZZERS=ON -DXLPP_BUILD_TESTS=OFF \
-  -DXLPP_BUILD_SAMPLES=OFF -DXLPP_BUILD_TOOLS=OFF
-cmake --build build-fuzz --target XLPP_WorkbookLoadFuzzer
-./build-fuzz/tests/fuzz/XLPP_WorkbookLoadFuzzer corpus/ -max_total_time=60
-```
-
-P0Z-G release validation builds the complete native core with this strict-warning profile at **0 warnings / 0 errors** on the release GCC toolchain; safety-critical diagnostics remain promoted to errors.
+---
 
 ## Build
 
-Open `XL++.sln` with Visual Studio 2022+ (Platform Toolset v145), select x64
+Open `XL++.sln` with Visual Studio 2026 (Platform Toolset v145), select x64
 Debug or Release, then build.
 
 ```bash
 # The solution builds:
 #   - XLPP.lib          (static library)
-#   - XLPP.UnitTests    (test runner; current P0X suite count is recorded in PACKAGE_STATUS.md)
+#   - XLPP.UnitTests    (test runner, 155 suites)
 #   - XLPP.Sample       (demo application)
 ```
 
@@ -1357,169 +1504,642 @@ int main() {
 }
 ```
 
+## P0W — Formula dependency propagation and chart color-style application
 
----
+### Incremental formula precedent propagation
 
-## P0V — Dependency-aware Chart Cache Synchronization
+`Workbook::synchronizeChangedChartCaches()` now follows simple local/cross-sheet A1 precedents of formula cells inside chart source ranges. When a tracked precedent changes but the formula cell itself has not been recalculated, XL++ preserves the existing chart cache and can request host recalculation rather than writing a stale cached worksheet value as if it were current.
 
-P0V extends `Workbook::synchronizeChartCaches()` with exact source-dependency snapshots. A snapshot includes the normalized chart reference, source worksheet, cell coordinates, stored cell values, formula text, number format and workbook date epoch.
+`ChartCacheSyncOptions` adds `propagateFormulaDependencies`, `requestHostRecalculationForFormulaDependencies`, and `maxFormulaDependencyDepth`. `ChartCacheSyncReport` adds `formulaDependenciesVisited`, `formulaDependenciesMatched`, `staleFormulaCachesPreserved`, and `hostRecalculationRequested`.
+
+Supported precedent syntax is intentionally conservative: simple A1 cell/range references, including quoted local worksheet names. This is dependency tracking, not formula evaluation.
+
+### Chart color-style application
+
+`Workbook::applyChartColorStyle(worksheetName, chartStableId, applyFill, applyLine, applyMarker)` resolves imported chart-color-style entries through the workbook theme and materializes the resulting SRGB colors into the selected imported chart series using the existing selective ChartML formatting path. It returns `ChartStyleApplyReport` with visited/styled series counts and diagnostics.
+
+This is a foundation for style application; it does not yet reproduce the full Excel chart-style matrix/effect engine.
+
+## P0X/P0Y — Expanded dependency grammar and theme style matrix
+
+`Workbook::synchronizeChartCaches()` and `Workbook::synchronizeChangedChartCaches()` accept more reference forms without turning XL++ into a spreadsheet calculation engine. Formula-dependency traversal can resolve rectangular A1 ranges, whole rows/columns, workbook/local defined names, common structured table references, and statically bounded reference-form `OFFSET`/`INDEX` defined names. One-dimensional structured/defined-name sources may also be materialized directly into chart caches. Calculation-dependent dynamic references are reported and preserved for host recalculation rather than guessed.
+
+`ChartCacheSyncReport` additionally reports `structuredReferencesVisited`, `structuredReferencesResolved`, `structuredReferencesSkipped`, `dynamicDefinedNamesVisited`, `dynamicDefinedNamesResolved`, and `dynamicDefinedNamesSkipped`, alongside the P0W formula-dependency counters and diagnostics.
+
+`ChartThemeEffectScheme` exposes ordered materialized `fillStyles`, `lineStyles`, `effectStyles`, and `backgroundFillStyles`. The materialized vectors preserve theme matrix order; they are inspection/application primitives rather than a spreadsheet-theme evaluator.
+
+`Workbook::applyChartThemeStyleMatrix(worksheetName, chartStableId, fillStyleIndex, lineStyleIndex, applyMarker)` applies zero-based theme `fmtScheme` fill/line entries to each series of an imported chart. `phClr` placeholders are replaced using the chart color-style palette when available and fall back through the workbook theme. `ChartStyleApplyReport` exposes `fillStylesAvailable`, `lineStylesAvailable`, and `effectStylesAvailable` in addition to series visit/style counts and diagnostics.
+
+
+## P0Z — Structured-reference escaping, INDEX endpoint ranges and Office chart-style rules
+
+Structured-reference parsing now follows Excel's apostrophe escaping for special header characters. Examples accepted by chart-cache/dependency resolution include `Table[Sales']Net]`, `Table['#Rate]`, `Table['@Code]`, and `Table[O''Brien]`. Worksheet quote parsing and structured-reference escaping use separate state, so an escaped table-header character is no longer misread as the start of a quoted worksheet name. Contiguous combinations such as `[[#Headers],[#Data],[Column]]` are resolved as one rectangular region; genuinely non-contiguous selections (for example headers plus totals with a non-empty data body) remain diagnostic rather than being flattened incorrectly.
+
+Reference-form dynamic names can also use statically resolvable endpoints with the range operator:
 
 ```cpp
-xlpp::ChartCacheSyncOptions options;
-options.changedReferencesOnly = true;
-
-auto report = workbook.synchronizeChartCaches(options);
-report.referencesChecked;
-report.referencesUnchanged;
-report.dependenciesRegistered;
-report.dependenciesChanged;
-report.cachesUpdated;
+workbook.addDefinedName(DefinedName(
+    "Window",
+    "=INDEX('Data'!$B$2:$B$20,2,1):INDEX('Data'!$B$2:$B$20,8,1)"));
 ```
 
-The first changed-only synchronization has no prior snapshot, so all supported references are synchronized and registered. Later calls skip `strCache`/`numCache` rebuilds when the dependency snapshot is unchanged. Editing a cell outside every tracked chart range does not invalidate any chart dependency.
+Each endpoint must reduce to one cell on the same worksheet. This is geometric reference resolution only; row/column arguments that themselves require formula calculation remain outside XL++'s calculation boundary.
+
+Imported Office 2013 chart-style resources expose a first-class rule model through `ChartStyleResources::chartStyleRules`, `ChartStyleResources::rule(target)`, and `ChartStyleMarkerLayout`. `ChartStyleRule` retains `lnRef`, `fillRef`, `effectRef`, `lineWidthScale`, `fontRef`, explicit `spPr` fill/line overrides, style-color selectors, and ordered color transforms. Chart-color-style entries and their transforms preserve XML order because `styleClr="auto"` and DrawingML transform pipelines are order-sensitive.
 
 ```cpp
-workbook.trackedChartCacheDependencyCount();
-workbook.resetChartCacheDependencyTracking();
+const auto& resources = chart.styleResources();
+if (const auto* rule = resources.rule("dataPoint")) {
+    rule->fillReference.index;
+    rule->fillReference.styleColor;
+    rule->lineWidthScale;
+    rule->shapeFill;
+}
+
+auto report = workbook.applyChartStyleRules("Objects", chart.stableId());
+report.rulesAvailable;
+report.rulesVisited;
+report.rulesApplied;
+report.targetsStyled;
+report.effectReferencesResolved;
 ```
 
-A save can opt into cache synchronization without mutating the caller workbook. XL++ creates a private copy, synchronizes that copy, and serializes it:
+`Workbook::applyChartStyleRules()` resolves theme/style references and materializes supported fill/line rules onto existing selective chart-edit APIs. Current targets include chart/plot area, data series and markers, legend, axes/gridlines, drop/high-low/leader/series lines, up/down bars, trendlines, error bars, data tables, floor and walls when those objects are present. Explicit `spPr` fill/line values override their matrix references, and `phClr` is materialized from the matching style reference/color-style entry. Parsed text/font rules and target effects are preserved/inspectable, but effect serialization to every ChartML target is not claimed yet.
+
+`ChartThemeEffectStyle` now additionally exposes inner shadow, reflection and blur geometry alongside outer shadow, glow and soft edge. Effect references are resolved against the theme effect matrix and reported by `ChartStyleApplyReport`; deeper per-target effect serialization remains a follow-up refinement.
+
+## Pivot shared caches, calculated fields and grouping (P1B)
+
+Multiple generated PivotTables may intentionally share one physical PivotCache by assigning the same non-empty cache identity to compatible cache models:
 
 ```cpp
-xlpp::SaveOptions saveOptions;
-saveOptions.synchronizeChartCaches = true;
-saveOptions.synchronizeChangedChartCachesOnly = true;
-workbook.save("output.xlsx", saveOptions);
+xlpp::PivotCache cache;
+cache.setSharedCacheKey("sales-cache");
+cache.setFields({"Region", "Sales"});
+cache.addRecord({"East", "10"});
+cache.addRecord({"West", "20"});
+
+xlpp::PivotTable a("SalesA");
+a.cache() = cache;
+a.addRowField("Region");
+a.addDataField("Sales", "sum");
+
+xlpp::PivotTable b("SalesB");
+b.cache() = cache; // same key + equivalent model => one physical cache part
+b.addRowField("Region");
+b.addDataField("Sales", "sum");
 ```
 
-`SaveOptions::synchronizeChartCaches` defaults to `false`, preserving the P0U save behavior. Set `synchronizeChangedChartCachesOnly=false` to force a full supported-reference rebuild even when dependency snapshots are available.
+Using the same key with divergent source/options/fields/records/calculated formulas/grouping throws `std::invalid_argument` rather than emitting an inconsistent shared-cache graph.
 
-### P0V-A scope
-
-This batch tracks direct chart A1 dependencies. P0W subsequently added formula calculation, but the chart snapshot tracker is still not a general transitive dependency graph and structural row/column edits still do not rewrite every dependent reference. Those remain P1 work.
-
----
-
-## P0W — Password-to-open OOXML Encryption
+Calculated fields and grouping:
 
 ```cpp
-xlpp::SaveOptions save;
-save.encryptionPassword = "secret";
-save.encryptionSpinCount = 100000;
-workbook.save("secure.xlsx", save);
+const int commission = cache.addCalculatedField("Commission", "Sales*0.1");
+cache.setNumericFieldGrouping(1, 0.0, 1000.0, 100.0);
+cache.setDateFieldGrouping(0, "months",
+                           "2026-01-01T00:00:00",
+                           "2026-12-31T23:59:59",
+                           false, false);
 
-xlpp::LoadOptions load;
-load.password = "secret";
-load.verifyEncryptionIntegrity = true;
-workbook.load("secure.xlsx", load);
-
-auto info = xlpp::inspectOfficeEncryption("secure.xlsx");
+xlpp::PivotFieldGroup group;
+group.baseField = 0;
+group.groupBy = "quarters";
+cache.setFieldGroup(0, group);
 ```
 
-XL++ writes Office Agile AES-256-CBC/SHA-512 encryption with HMAC integrity and reads both that profile and Standard AES/SHA-1 (128/192/256-bit key paths). The CFB implementation includes DataSpaces, miniFAT/FAT/DIFAT and large-file support. Saving a loaded encrypted workbook with a different password rotates the password; saving it without `encryptionPassword` removes file-open encryption. Standard-encryption output, alternate Agile profiles and certificate key encryptors remain unsupported.
+`setDateFieldGrouping()` accepts `seconds`, `minutes`, `hours`, `days`, `months`, `quarters`, and `years`. `PivotField::addSubtotal()` exposes explicit subtotal flags such as `sum`, `avg`, `countA`, `max`, `min`, `product`, `count`, `stdDev`, `stdDevP`, `var`, and `varP`.
 
----
+## VBA code names and extended references (P1B)
 
-## P0Z-I / v1.12.0 — Formula, Enterprise Inspection and Capability APIs
-
-### Dependency-driven recalculation
+Worksheet document modules are keyed by stable worksheet VBA code names rather than by current worksheet position:
 
 ```cpp
-xlpp::CalculationOptions options;
-options.changedCells.push_back({"Data", "A1"});
-auto report = workbook.calculateFormulas(options);
-
-std::cout << report.dirtyRoots << " roots\n";
-std::cout << report.dirtyFormulaCellsSelected << " formulas selected\n";
+auto& sheet = workbook.addWorksheet("Calculation");
+sheet.setVbaCodeName("CalcSheet");
+workbook.setVbaDocumentModuleText(
+    "CalcSheet",
+    "Private Sub Worksheet_Activate()\nEnd Sub");
 ```
 
-When `changedCells` is non-empty, XL++ selects formula cells transitively dependent on those roots instead of visiting every formula cell. An explicitly dirty formula cell is also selected as a calculation root.
-
-Typed workbook calculation mode:
+Project locale/runtime metadata:
 
 ```cpp
-workbook.calcProperties().setCalculationMode(xlpp::CalculationMode::Automatic);
-workbook.calcProperties().setCalculationMode(xlpp::CalculationMode::AutomaticExceptDataTables);
-workbook.calcProperties().setCalculationMode(xlpp::CalculationMode::Manual);
+xlpp::VbaProjectInfo info;
+info.name = "AnalysisProject";
+info.systemKind = 3;
+info.lcid = 0x0409;
+info.lcidInvoke = 0x0409;
+info.codePage = 1252;
 ```
 
-### Advanced AutoFilter
+External VBA-project references use `VbaReferenceKind::Project` and carry absolute/relative LibIds plus the referenced project version. ActiveX/control-library references use `VbaReferenceKind::Control`:
 
 ```cpp
-auto& column = sheet.autoFilter().column(0);
-
-xlpp::Top10Filter top;
-top.top = true;
-top.percent = false;
-top.value = 10;
-column.setTop10Filter(top);
-
-xlpp::DynamicFilter dynamic;
-dynamic.type = xlpp::DynamicFilterType::ThisMonth;
-sheet.autoFilter().column(1).setDynamicFilter(dynamic);
-
-xlpp::ColorFilter color;
-color.dxfId = 3;
-color.cellColor = true;
-sheet.autoFilter().column(2).setColorFilter(color);
-
-xlpp::IconFilter icon;
-icon.iconSet = "4Arrows";
-icon.iconId = 2;
-sheet.autoFilter().column(3).setIconFilter(icon);
-
-xlpp::DateGroupItem month;
-month.year = 2026;
-month.month = 8;
-month.grouping = xlpp::DateTimeGrouping::Month;
-sheet.autoFilter().column(4).addDateGroup(month);
+xlpp::VbaReference forms;
+forms.name = "MSForms";
+forms.kind = xlpp::VbaReferenceKind::Control;
+forms.twiddledLibid = "*\\G{00000000-0000-0000-0000-000000000000}#0.0#0##";
+forms.extendedName = "MSForms";
+forms.libid = "*\\G{...}#2.0#0#...#Microsoft Forms 2.0 Object Library";
+forms.originalTypeLib = "{0D452EE1-E08F-101A-852E-02608C4D0BB4}";
+forms.controlCookie = 1;
+info.references.push_back(forms);
+workbook.setVbaProjectInfo(info);
 ```
 
-### External Data inspection
+This is the binary-reference foundation for ActiveX/UserForm projects. P1C adds a first-class **raw** Designer Storage layer, but still does not claim semantic MS-OFORMS control authoring or arbitrary FRX property editing.
+
+
+## PivotChart, filters and selective shared-cache mutation (P1C)
+
+PivotTables can carry the SpreadsheetML side of a PivotChart link, while `Chart` carries the DrawingML `c:pivotSource` side:
 
 ```cpp
-const auto external = workbook.inspectExternalData();
-for (const auto& connection : external.connections)
-    std::cout << connection.id << ": " << connection.name << "\n";
+xlpp::PivotChartFormat format;
+format.chartIndex = 7;
+format.formatId = 0;
+format.series = true;
+format.pivotAreaXml = "<pivotArea type=\"normal\" dataOnly=\"1\"/>";
+pivot.addChartFormat(format);
+pivot.setChartFormatIndex(7);
 
-for (const auto& query : external.queryTables)
-    std::cout << query.name << " -> connection " << query.connectionId << "\n";
+xlpp::Chart chart(xlpp::Chart::Type::Bar);
+chart.linkPivotTable("SalesPivot", 7);
 ```
 
-The inspection model is deliberately preservation-first. Reading metadata does not imply that XL++ will regenerate opaque connection or Power Query payloads.
+`PivotChartFormat::pivotAreaXml` is intentionally lossless raw XML because the PivotArea selector grammar is much broader than the current high-level model. Existing PivotChart selectors therefore survive read/edit/save even when XL++ does not yet expose every selector field individually.
 
-### Data Model / OLAP inspection
+Pivot filters expose their common field/measure/text attributes while preserving nested advanced filter payloads:
 
 ```cpp
-const auto model = workbook.inspectDataModel();
-if (model.present) {
-    std::cout << "model parts: " << model.modelParts.size() << "\n";
-    std::cout << "OLAP pivot caches: " << model.olapPivotCacheParts.size() << "\n";
+xlpp::PivotFilter filter;
+filter.fieldIndex = 0;
+filter.type = "captionContains";
+filter.stringValue1 = "East";
+filter.autoFilterXml =
+    "<autoFilter ref=\"A1:A100\"><filters><filter val=\"East\"/></filters></autoFilter>";
+pivot.addFilter(std::move(filter));
+```
+
+For an imported PivotTable whose cache has a physical package identity, common cache options can be patched without regenerating any sibling PivotTable that shares the cache:
+
+```cpp
+xlpp::PivotCacheOptionsPatch patch;
+patch.refreshOnLoad = false;
+patch.saveData = false;
+patch.enableRefresh = true;
+patch.missingItemsLimit = 17;
+
+bool changed = workbook.updateImportedPivotCacheOptions(
+    "Data", "SalesPivot", patch);
+```
+
+The patch updates the physical `pivotCacheDefinition` root and synchronizes every loaded Pivot model sharing that cache identity, while leaving the owning `pivotTable*.xml` parts untouched.
+
+## VBA Designer modules and UserForm raw storage (P1C)
+
+P1C distinguishes registered Designer modules from Standard/Class/Document modules and stores their binary designer state in a real recursive CFB root storage:
+
+```cpp
+xlpp::VbaDesignerStorage form;
+form.name = "UserForm1";
+form.streams.push_back({"f", {0x00, 0x01, 0x02}});
+form.streams.push_back({"o", {0x10, 0x20}});
+form.streams.push_back({"Controls/Nested/state", {0xAA, 0xBB}});
+
+workbook.setVbaDesignerModule(
+    "UserForm1",
+    "Option Explicit\nPrivate Sub UserForm_Initialize()\nEnd Sub",
+    form);
+```
+
+Designer source is exposed through the normal VBA module APIs with `VbaModuleType::Designer`. `VbaModule::designerClassId` retains the `PROJECT` `Package=` value and `designerBaseClass` retains the `VB_Base` identity.
+
+Raw storages can be inspected or selectively replaced:
+
+```cpp
+auto storages = workbook.vbaDesignerStorages();
+if (auto* stream = storages.front().findStream("f")) {
+    // inspect bytes
+}
+
+workbook.setVbaDesignerStorage(storages.front());
+workbook.removeVbaDesignerStorage("UserForm1");
+```
+
+The stream paths are relative to the designer root storage and may contain nested storage components separated by `/`. Unknown binary payloads remain byte-preserved. Removing a Designer module through `removeVbaModule()` also retires its matching root Designer Storage.
+
+**Current boundary:** this is a preservation/editing foundation for UserForms and other registered designers, not a complete MS-OFORMS object model. XL++ does not yet decode every control/property stream, synthesize arbitrary controls, edit signatures, unlock protected VBA projects or reproduce arbitrary compiled p-code.
+
+## Selective Pivot field editing and PivotChart validation (P1D)
+
+An imported PivotCache field can be patched in place through its physical shared-cache identity without regenerating sibling PivotTable definitions:
+
+```cpp
+xlpp::PivotCacheFieldPatch patch;
+patch.name = "Revenue";
+patch.caption = "Net Revenue";
+patch.formula = "Sales*1.05";
+patch.numberFormatId = 4;
+patch.databaseField = false;
+
+bool changed = workbook.updateImportedPivotCacheField(
+    "Data", "SalesPivot", 1, patch);
+```
+
+All loaded PivotTable models that point at the same physical cache are synchronized with the patched field metadata. Common field-item state is also modeled:
+
+```cpp
+xlpp::PivotFieldItem item;
+item.cacheIndex = 0;
+item.type = "data";
+item.caption = "East region";
+item.hidden = true;
+item.showDetails = false;
+pivot.rowFields().front().addItem(item);
+```
+
+Use the ownership validator before relying on imported or edited PivotChart links:
+
+```cpp
+const auto report = workbook.validatePivotChartLinks();
+if (!report.ok()) {
+    for (const auto& issue : report.issues) {
+        // issue.worksheetName, issue.chartId,
+        // issue.pivotTableName, issue.message
+    }
 }
 ```
 
-XL++ currently inventories these proprietary/enterprise parts and preserves them where possible; semantic Data Model authoring is not claimed.
+The validator checks source resolution and chart-format identity coherence; it does not attempt to recalculate Pivot results.
 
-### Version and C ABI capability negotiation
+## Semantic UserForm Form properties (P1D)
 
-C++:
+P1D adds a semantic layer above the raw Designer Storage for the MS-OFORMS Form stream named `f`:
 
 ```cpp
-#include <XLPP/Version.h>
-static_assert(xlpp::versionMajor == 1);
-std::cout << xlpp::versionString << "\n";
-std::cout << xlpp::cAbiVersion << "\n";
-```
-
-C:
-
-```c
-printf("XL++ %s, ABI %llu\n", xlpp_version(),
-       (unsigned long long)xlpp_c_abi_version());
-uint64_t caps = xlpp_capabilities();
-if (caps & XLPP_CAP_DIRTY_RECALC) {
-    /* runtime supports the v1.12 dirty-recalculation capability */
+const auto form = workbook.inspectVbaUserForm("UserForm1");
+if (form.valid) {
+    auto caption = form.properties.caption;
+    auto width   = form.properties.displayedWidth;
+    auto height  = form.properties.displayedHeight;
+    auto zoom    = form.properties.zoom;
 }
 ```
 
-C ABI feature bits are additive: existing bits do not change meaning in later compatible releases.
+Common already-materialized form properties can be patched without rewriting unrelated Designer streams:
+
+```cpp
+xlpp::VbaUserFormPropertiesPatch patch;
+patch.caption = "Analysis ✓";
+patch.backColor = 0x80000005u;
+patch.displayedWidth = 6400;
+patch.displayedHeight = 3600;
+patch.logicalWidth = 8000;
+patch.logicalHeight = 5000;
+patch.scrollLeft = 321;
+patch.scrollTop = 654;
+patch.zoom = 150u;
+patch.drawBuffer = 40000u;
+
+workbook.updateVbaUserFormProperties("UserForm1", patch);
+```
+
+Caption rewrites may change encoded length and can move from the compressed single-byte representation to UTF-16. XL++ rebuilds the semantic Form block while retaining trailing FormStreamData/SiteData and sibling `o`, `vbFrame` or nested control streams unchanged.
+
+For safety, P1D only edits properties whose corresponding Form property-mask bit is already present. It does not silently synthesize absent MS-OFORMS fields with guessed defaults.
+
+Designer ownership can be checked explicitly:
+
+```cpp
+const auto report = workbook.validateVbaDesignerProject();
+if (!report.ok()) {
+    for (const auto& issue : report.issues) {
+        // issue.designerName, issue.message
+    }
+}
+```
+
+**Current UserForm boundary after P1E:** Form-level properties and child-site metadata are modeled; individual object-stream control classes are still exposed losslessly as byte slices rather than being semantically rewritten.
+
+
+## Selective imported Pivot item/filter/cache-record editing (P1E)
+
+P1E extends preservation-safe Pivot mutation below cache-field metadata.
+
+Patch one imported Pivot field item without regenerating the complete PivotTable:
+
+```cpp
+xlpp::PivotFieldItemPatch itemPatch;
+itemPatch.caption = "Eastern region";
+itemPatch.hidden = true;
+itemPatch.showDetails = false;
+itemPatch.formula = true;
+
+workbook.updateImportedPivotFieldItem(
+    "Data", "SalesPivot", 0, 0, itemPatch);
+```
+
+Patch an existing Pivot filter, including its nested SpreadsheetML `autoFilter` subtree:
+
+```cpp
+xlpp::PivotFilterPatch filterPatch;
+filterPatch.type = "captionBeginsWith";
+filterPatch.evaluationOrder = 4;
+filterPatch.name = "Eastern filter";
+filterPatch.stringValue1 = "Ea";
+filterPatch.autoFilterXml =
+    "<autoFilter ref=\"A1:A4\">"
+    "<customFilters><customFilter operator=\"beginsWith\" val=\"Ea\"/>"
+    "</customFilters></autoFilter>";
+
+workbook.updateImportedPivotFilter(
+    "Data", "SalesPivot", 0, filterPatch);
+```
+
+Patch one physical `pivotCacheRecords` value without regenerating its cache definition or owner PivotTables:
+
+```cpp
+xlpp::PivotCacheRecordValuePatch value;
+value.type = xlpp::PivotCacheRecordValueType::Number;
+value.value = "15.5";
+
+workbook.updateImportedPivotCacheRecordValue(
+    "Data", "SalesPivot", 0, 1, value);
+```
+
+Supported physical cache-record value kinds are `Missing`, `Number`, `String`, `Boolean`, `Error`, `DateTime` and `SharedItem`. For `SharedItem`, supply both the resolved logical `value` and `sharedItemIndex`.
+
+These APIs deliberately fail instead of switching to full Pivot regeneration when the requested imported physical part/field/item/record cannot be located.
+
+## UserForm child control sites and object-stream slicing (P1E)
+
+P1E parses the MS-OFORMS `FormSiteData` tail of a Designer Form stream and exposes each `OleSiteConcreteControl` site:
+
+```cpp
+const auto form = workbook.inspectVbaUserFormControls("UserForm1");
+if (form.valid) {
+    for (const auto& control : form.controls) {
+        auto name = control.name;
+        auto id = control.id;
+        auto tabIndex = control.tabIndex;
+        auto positionTop = control.top;
+        auto positionLeft = control.left;
+        auto bytes = control.objectData;
+    }
+}
+```
+
+The site model exposes depth/type/version/property mask, Name, Tag, ID, HelpContextID, BitFlags, ObjectStreamSize, TabIndex, ClsidCacheIndex, GroupID, Position, tooltip/runtime-license/control-source/row-source values when present.
+
+`ObjectStreamSize` values are also mapped onto the Designer Storage `o` stream. Each control receives `objectStreamOffset` and a lossless `objectData` slice. `objectStreamBytes` and `unassignedObjectStreamBytes` make incomplete or trailing object-stream data visible to callers.
+
+Safe site metadata can be patched in place:
+
+```cpp
+xlpp::VbaUserFormControlSitePatch patch;
+patch.name = "RunButton";
+patch.tag = "primary";
+patch.helpContextId = 88;
+patch.bitFlags = 0x31;
+patch.tabIndex = 7;
+patch.groupId = 4;
+patch.controlTipText = "Run analysis";
+patch.controlSource = "C3";
+patch.rowSource = "C3:C8";
+patch.top = 333;
+patch.left = 444;
+
+workbook.updateVbaUserFormControlSite("UserForm1", 0, patch);
+```
+
+Variable-length site strings can grow or switch to UTF-16; XL++ updates the site record length and enclosing `FormSiteData` byte count while preserving the `o` stream and unrelated nested Designer streams byte-for-byte.
+
+For safety, P1E only edits site properties whose `SitePropMask` bits are already materialized. Semantic parsing/writing of individual `CommandButton`, `TextBox`, `Label`, list controls and other object-stream classes remains a later layer.
+
+## Pivot data/page field selective mutation (P1F)
+
+P1F extends the imported-Pivot selective-edit path to data and page fields without regenerating the physical PivotCache:
+
+```cpp
+xlpp::PivotDataFieldPatch data;
+data.name = "Average sales";
+data.subtotal = "average";
+data.showDataAs = "percentOfTotal";
+data.baseField = 0;
+data.baseItem = 0;
+data.numberFormatId = 4;
+workbook.updateImportedPivotDataField("Data", "SalesPivot", 0, data);
+
+xlpp::PivotPageFieldPatch page;
+page.item = 1;
+page.hierarchy = 2;
+page.name = "Fiscal year";
+workbook.updateImportedPivotPageField("Data", "SalesPivot", 0, page);
+```
+
+The APIs patch only the selected imported `dataField`/`pageField` record and update the loaded model. They fail instead of silently switching to whole-Pivot regeneration when the requested owner/record cannot be resolved.
+
+## UserForm object-specific control inspection/editing (P1F)
+
+P1F adds built-in MSForms control classification from `ClsidCacheIndex` and the first object-specific semantic layer for `CommandButton` and `Label` Designer `o`-stream slices.
+
+```cpp
+auto info = workbook.inspectVbaUserFormControlObject("ButtonForm", 0);
+
+xlpp::VbaUserFormControlObjectPatch patch;
+patch.caption = "Run \xE2\x9C\x93";
+patch.width = 2200;
+patch.height = 700;
+workbook.updateVbaUserFormControlObject("ButtonForm", 0, patch);
+```
+
+`VbaUserFormControlKind` identifies common cached built-ins including Form, Image, Frame, MorphData, SpinButton, CommandButton, TabStrip, Label, TextBox, ListBox, ComboBox, CheckBox, OptionButton, ToggleButton, ScrollBar and MultiPage. Custom-class cache indexes are surfaced as `CustomClass`.
+
+For `CommandButton` and `Label`, XL++ can inspect/preserve common header/property-mask data, colors, caption, size and selected style/accelerator fields. Caption growth and compressed-to-UTF-16 conversion update the control `cbControl` length and the owning site's `ObjectStreamSize`; unrelated trailing object bytes and sibling Designer streams remain lossless.
+
+`TextBox`/MorphData and other families are classified and common-header validated in P1F, but semantic object-property mutation is intentionally limited until their family-specific binary layouts are implemented.
+
+
+
+## P1J binding-safe worksheet lifecycle
+
+The C ABI now exposes `xlpp_workbook_rename_sheet()` and catches exceptions from `xlpp_workbook_remove_sheet()` so the last-sheet invariant never allows a C++ exception to cross the C boundary. Python exposes `rename_worksheet()`, and C# exposes `RenameWorksheet()`.
+
+
+## P1S chart generation additions
+
+`ChartSeries` adds `bubbleSizeReference()` / `setBubbleSizeReference()` and a dedicated bubble-size cache. `Chart` adds `scatterStyle()` / `setScatterStyle()` plus generated multi-plot helpers `addPlot()`, `addSeriesToPlot()` and `clearPlots()`.
+
+```cpp
+xlpp::Chart combo(xlpp::Chart::Type::Bar);
+combo.addPlot(xlpp::Chart::Type::Bar, xlpp::Chart::Grouping::Clustered, false);
+combo.addSeriesToPlot(0, primary);
+combo.addPlot(xlpp::Chart::Type::Line, xlpp::Chart::Grouping::Standard, true);
+combo.addSeriesToPlot(1, secondary);
+```
+
+Scatter/Bubble generated series use the XY-family OOXML representation. Bubble series require an explicit bubble-size reference/cache when generated.
+
+## P1S typed Pivot cache values
+
+`PivotCacheValueKind` describes the physical SpreadsheetML cache value kind: `Missing`, `Number`, `String`, `Boolean`, `Error`, or `DateTime`.
+
+```cpp
+cache.setTypedRecords(
+    {{"00123", "123", "2026-08-14T09:30:00", "true", ""}},
+    {{xlpp::PivotCacheValueKind::String,
+      xlpp::PivotCacheValueKind::Number,
+      xlpp::PivotCacheValueKind::DateTime,
+      xlpp::PivotCacheValueKind::Boolean,
+      xlpp::PivotCacheValueKind::Missing}});
+```
+
+Use `addTypedRecord()` or `setRecordValue(..., kind)` when exact physical cache types matter. The legacy mutable `records()` accessor invalidates typed-kind metadata because direct string mutation does not specify a physical value kind. Use `hasTypedRecordKinds()`, `recordKinds()` and `recordKind()` for inspection.
+
+## P1T mixed workbook sheet model and Chartsheets
+
+Legacy `Workbook::sheetCount()`, `sheetNames()` and worksheet indexing remain worksheet-only. Use the mixed-tab APIs when workbook order must include chart-only sheets:
+
+```cpp
+xlpp::Workbook wb;
+auto& data = wb.addWorksheet("Data");
+xlpp::Chart chart(xlpp::Chart::Type::Bar);
+chart.setTitle("Dashboard");
+wb.addChartsheet("Chart View", std::move(chart));
+wb.moveWorkbookSheet(1, 0);
+
+for (const auto& tab : wb.workbookSheets()) {
+    // tab.kind is Worksheet or Chartsheet; tab.kindIndex indexes that collection.
+}
+```
+
+Chartsheet APIs: `addChartsheet`, `chartsheet`, `renameChartsheet`, `removeChartsheet`, `chartsheetCount`, `chartsheets`, `workbookSheetCount`, `workbookSheetNames`, `workbookSheets`, `moveWorkbookSheet`. `LoadOptions::maxChartsheets` bounds materialized chart-only sheets. Streaming readers expose `chartsheetNames()` and `workbookSheetNames()`.
+
+## P1T Pivot logical cache-item identity
+
+Prefer value-bound field items when the cache may be edited:
+
+```cpp
+auto& field = pivot.addRowField("Category");
+field.hideCacheValue("B", xlpp::PivotCacheValueKind::String);
+```
+
+`PivotFieldItem::bindCacheValue()` and `PivotField::{addCacheValueItem,hideCacheValue,showCacheValue}` bind semantics to `(kind,value)`. On save, XL++ resolves the current physical shared-item index and writes the repaired `x` ordinal. Legacy `cacheIndex` remains supported for callers that intentionally address the physical cache table.
+
+## P1T C ABI additions
+
+The C ABI adds mixed-tab and Chartsheet functions (`xlpp_workbook_tab_*`, `xlpp_workbook_*chartsheet*`, `xlpp_chartsheet_chart`) and chart-generation helpers for scatter style, generated plots/secondary axes, series-to-plot insertion and bubble-size references. Legacy C worksheet functions keep their original worksheet-only meaning.
+
+
+## P1U template and Chartsheet production APIs
+
+### Mixed-tab visibility and active state
+
+```cpp
+xlpp::Workbook wb;
+wb.addWorksheet("Data");
+wb.addChartsheet("Dashboard", chart);
+wb.addWorksheet("Hidden Data");
+
+wb.setActiveWorkbookSheet("Dashboard");
+wb.setWorkbookSheetVisibility(2, xlpp::WorkbookSheetVisibility::Hidden);
+
+auto active = wb.activeWorkbookSheetIndex();
+auto state = wb.workbookSheetVisibility(2);
+```
+
+`WorkbookSheetVisibility` has `Visible`, `Hidden` and `VeryHidden`. A workbook cannot hide its final visible tab. `workbookSheets()` reports kind, kind-local index, visibility and active state while legacy `sheetCount()` / `sheetNames()` remain worksheet-only.
+
+### Chartsheet metadata
+
+```cpp
+auto& cs = wb.addChartsheet("Dashboard", chart);
+cs.properties().setCodeName("ChartDashboard");
+cs.properties().setTabColor("FF336699");
+cs.view().setZoomScale(125);
+cs.view().setZoomToFit(false);
+cs.protection().setContent(true);
+cs.protection().setObjects(true);
+cs.protection().setPassword("pw");
+cs.pageSetup().setOrientation(xlpp::PageOrientation::Landscape);
+cs.pageSetup().setScale(85);
+cs.headerFooter().setOddHeader("&CReport");
+cs.headerFooter().setFirstHeader("&LFirst page");
+```
+
+Mutable sheet-metadata access marks only the Chartsheet part dirty. Mutable `chart()` access marks the chart subtree dirty. For preservation-backed imported Chartsheets this distinction lets sheet metadata change while original drawing/chart bytes remain untouched.
+
+### Templates
+
+```cpp
+wb.setTemplate(true);
+wb.save("dashboard.xltx");
+
+wb.setVbaModuleText("Module1", "Sub Hello()\r\nEnd Sub\r\n");
+wb.save("dashboard.xltm");
+```
+
+Template identity is recovered automatically on load. `.xltm` identity is the combination of template mode and a VBA project.
+
+### C ABI additions
+
+P1U adds `xlpp_workbook_tab_visibility`, `xlpp_workbook_set_tab_visibility`, `xlpp_workbook_active_tab`, `xlpp_workbook_set_active_tab`, `xlpp_workbook_set_template` and `xlpp_workbook_is_template`.
+
+
+## P1V advanced Chartsheet page/view APIs
+
+### Advanced page setup
+
+```cpp
+auto& setup = chartsheet.pageSetup();
+setup.setPaperHeight("210mm");
+setup.setPaperWidth("297mm");
+setup.setPageOrder(xlpp::PageOrder::OverThenDown);
+setup.setUsePrinterDefaults(false);
+setup.setCellComments(xlpp::PageCellComments::AtEnd);
+setup.setErrors(xlpp::PageErrorDisplay::Dash);
+setup.setHorizontalDpi(600);
+setup.setVerticalDpi(600);
+setup.setCopies(3);
+```
+
+`PageSetup` now carries these settings for both Worksheets and Chartsheets. Imported printer-settings relationship IDs can be retained through `relationshipId()` / `setRelationshipId()`. Generated callers should not invent a printer-settings relationship ID without also owning the corresponding package part; model validation reports that situation.
+
+### Modern Chartsheet protection metadata
+
+```cpp
+auto& protection = chartsheet.protection();
+protection.setContent(true);
+protection.setObjects(true);
+protection.setAlgorithmName("SHA-512");
+protection.setHashValue("AQIDBA==");
+protection.setSaltValue("BQYHCA==");
+protection.setSpinCount(100000);
+```
+
+These APIs preserve the OOXML protection descriptor; they do not calculate a new password hash from plaintext.
+
+### Custom Chartsheet views
+
+```cpp
+auto& view = chartsheet.customViews().emplace_back();
+view.setGuid("{11111111-2222-3333-4444-555555555555}");
+view.setScale(90);
+view.setState(xlpp::CustomChartsheetViewState::Hidden);
+view.setZoomToFit(false);
+view.pageSetup().setPaperHeight("210mm");
+view.headerFooter().setOddHeader("&CAlternate view");
+```
+
+Custom views retain GUID, scale, visibility state and zoom-to-fit state plus optional nested `PageMargins`, `PageSetup` and `HeaderFooter`. Untouched imported `customSheetViews` XML is retained losslessly; mutable `customViews()` access opts into semantic regeneration. Duplicate or empty GUIDs are rejected by save/model validation.
+
+### I/O decomposition
+
+Chartsheet XML parsing/serialization and chart-only drawing relationship helpers live in `src/XLPP/Workbook/WorkbookChartsheetIO.cpp`. This reduces the amount of the monolithic workbook serializer that must be recompiled for Chartsheet-only changes and gives future parser/writer hardening a narrower boundary.
+
+
+## P1X-A internal package-writer note
+
+P1X-A does not add a public API. The `.xltx/.xltm` Chartsheet writer has been moved to an internal `WorkbookChartsheetPackage` subsystem. Relationship-ID collision repair is now relationship-owner aware so generated drawing/printer-settings IDs cannot rewrite unrelated preserved Chartsheet owner nodes.

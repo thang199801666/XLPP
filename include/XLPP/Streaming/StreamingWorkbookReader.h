@@ -1,7 +1,6 @@
 #pragma once
 #include <XLPP/Cell/Cell.h>
 #include <cstddef>
-#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <iterator>
@@ -12,6 +11,18 @@
 
 namespace xlpp {
 
+struct StreamingReadOptions {
+    // Package resource guards. Zero means unlimited, matching Workbook::LoadOptions.
+    std::size_t maxEntries{0};
+    std::size_t maxEntryBytes{0};
+    std::size_t maxTotalBytes{0};
+    std::size_t maxFileBytes{0};
+    // Maximum buffered size of one streamed XML element (normally one row).
+    // A finite default prevents a malformed unterminated row from growing the
+    // streaming buffer without bound. Set to 0 to opt out.
+    std::size_t maxXmlElementBytes{64u * 1024u * 1024u};
+};
+
 struct StreamingCell {
     std::string address;
     CellValue value;
@@ -19,14 +30,6 @@ struct StreamingCell {
     std::optional<std::size_t> styleIndex;
 };
 using StreamingRow = std::vector<StreamingCell>;
-
-struct StreamingReaderOptions {
-    std::uint64_t maxFileBytes{0};
-    std::uint64_t maxEntryBytes{0};
-    std::uint64_t maxTotalBytes{0};
-    std::size_t maxEntries{0};
-    bool validateCellReferences{true};
-};
 
 namespace internal {
 class WorksheetRowSource;
@@ -89,9 +92,11 @@ private:
 class StreamingWorkbookReader {
 public:
     explicit StreamingWorkbookReader(const std::filesystem::path& path);
-    StreamingWorkbookReader(const std::filesystem::path& path, const StreamingReaderOptions& options);
+    StreamingWorkbookReader(const std::filesystem::path& path, const StreamingReadOptions& options);
 
     std::vector<std::string> worksheetNames() const;
+    std::vector<std::string> chartsheetNames() const;
+    std::vector<std::string> workbookSheetNames() const;
     StreamingWorksheetReader worksheet(const std::string& worksheetName) const;
     void forEachRow(const std::string& worksheetName,
                     const std::function<bool(std::size_t, const StreamingRow&)>& callback) const;

@@ -10,3 +10,10 @@ workbook.Save("report.xlsx");
 ```
 
 The owning `Workbook` uses `SafeHandle`; child handles remain non-owning views and must not outlive their workbook.
+
+The managed API includes path and memory I/O, streaming, formulas and dependency
+graphs, styles, tables, charts, PivotTables, VBA, encryption, rich text,
+validation, structural edits, preservation metadata, and enterprise feature
+inspection. Enterprise payloads such as Power Query, Data Model/OLAP, slicers,
+timelines, SmartArt, ActiveX, and UserForms remain preservation-oriented where
+the native library does not provide semantic authoring.

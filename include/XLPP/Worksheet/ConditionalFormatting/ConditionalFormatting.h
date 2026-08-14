@@ -1,5 +1,4 @@
 #pragma once
-#include <XLPP/Core/StableVector.h>
 #include <XLPP/Styles/Style.h>
 #include <cstddef>
 #include <optional>
@@ -203,13 +202,13 @@ public:
         return rules_.back();
     }
 
-    const StableVector<ConditionalRule>& rules() const noexcept { return rules_; }
-    StableVector<ConditionalRule>& rules() noexcept { return rules_; }
+    const std::vector<ConditionalRule>& rules() const noexcept { return rules_; }
+    std::vector<ConditionalRule>& rules() noexcept { return rules_; }
     bool empty() const noexcept { return rules_.empty(); }
 
 private:
     std::string reference_;
-    StableVector<ConditionalRule> rules_;
+    std::vector<ConditionalRule> rules_;
 };
 
 class ConditionalFormattingCollection {
@@ -226,13 +225,13 @@ public:
         return add(std::move(reference)).addRule(std::move(rule));
     }
 
-    const StableVector<ConditionalFormattingEntry>& entries() const noexcept { return entries_; }
-    StableVector<ConditionalFormattingEntry>& entries() noexcept { return entries_; }
+    const std::vector<ConditionalFormattingEntry>& entries() const noexcept { return entries_; }
+    std::vector<ConditionalFormattingEntry>& entries() noexcept { return entries_; }
     bool empty() const noexcept { return entries_.empty(); }
     void clear() noexcept { entries_.clear(); }
 
 private:
-    StableVector<ConditionalFormattingEntry> entries_;
+    std::vector<ConditionalFormattingEntry> entries_;
 };
 
 } // namespace xlpp

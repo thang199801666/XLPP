@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(XLPP
-    VERSION 1.12.0
+    VERSION 1.1.2
     DESCRIPTION "High-performance C++20 Excel xlsx read/write library"
     LANGUAGES CXX C
 )
@@ -13,35 +13,47 @@ option(XLPP_BUILD_TESTS "Build unit tests" ON)
 option(XLPP_BUILD_SAMPLES "Build sample programs" ON)
 option(XLPP_BUILD_CAPI "Build C API DLL" ON)
 option(XLPP_BUILD_BINDINGS "Build language bindings" OFF)
-option(XLPP_BUILD_BENCHMARKS "Build external library benchmarks" OFF)
+option(XLPP_BUILD_BENCHMARKS "Build native and optional external performance benchmarks" OFF)
 option(XLPP_BUILD_TOOLS "Build XLPP package inspection tools" ON)
 option(XLPP_USE_BUNDLED_ZLIB "Use bundled zlib instead of system" ON)
-option(XLPP_ENABLE_SANITIZERS "Enable Address/UndefinedBehavior sanitizers for development builds" OFF)
-option(XLPP_ENABLE_STRICT_WARNINGS "Enable strong compiler warnings on XLPP core" OFF)
-option(XLPP_BUILD_FUZZERS "Build libFuzzer hardening targets (Clang only)" OFF)
+option(XLPP_ENABLE_ASAN "Enable AddressSanitizer for XL++ development builds" OFF)
+option(XLPP_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer for XL++ development builds" OFF)
 
 # === C++ Standard ===
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# === Sanitizer development profiles ===
+if(XLPP_ENABLE_ASAN OR XLPP_ENABLE_UBSAN)
+    if(MSVC)
+        if(XLPP_ENABLE_ASAN)
+            add_compile_options(/fsanitize=address)
+            add_link_options(/fsanitize=address)
+        endif()
+        if(XLPP_ENABLE_UBSAN)
+            message(WARNING "XLPP_ENABLE_UBSAN is not supported by MSVC; use Clang/GCC for UBSan")
+        endif()
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        set(_xlpp_sanitizers "")
+        if(XLPP_ENABLE_ASAN)
+            list(APPEND _xlpp_sanitizers "address")
+        endif()
+        if(XLPP_ENABLE_UBSAN)
+            list(APPEND _xlpp_sanitizers "undefined")
+        endif()
+        list(JOIN _xlpp_sanitizers "," _xlpp_sanitizer_flags)
+        add_compile_options(-fno-omit-frame-pointer -fsanitize=${_xlpp_sanitizer_flags})
+        add_link_options(-fsanitize=${_xlpp_sanitizer_flags})
+    else()
+        message(WARNING "Requested sanitizers are unsupported by this compiler")
+    endif()
+endif()
+
 # === Position independent code ===
 # Required so the static libraries (XLPP + bundled zlib) can be linked into
 # shared objects such as the Python extension module.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
-# === Development hardening ===
-if(XLPP_ENABLE_SANITIZERS)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
-        add_link_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
-    elseif(MSVC)
-        add_compile_options(/fsanitize=address)
-        add_link_options(/INFERASANLIBS)
-    else()
-        message(WARNING "XLPP_ENABLE_SANITIZERS is not configured for this compiler")
-    endif()
-endif()
 
 # === Platform detection ===
 if(WIN32)
@@ -49,6 +61,11 @@ if(WIN32)
     if(MSVC)
         add_compile_options(/EHsc /bigobj)
     endif()
+endif()
+
+# === Crypto (Office password-to-open / Agile Encryption) ===
+if(NOT WIN32)
+    find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 endif()
 
 # === zlib ===
@@ -76,11 +93,6 @@ if(XLPP_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-# === Fuzzing ===
-if(XLPP_BUILD_FUZZERS)
-    add_subdirectory(tests/fuzz)
-endif()
-
 # === Samples ===
 if(XLPP_BUILD_SAMPLES)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/CMakeLists.txt")
@@ -93,13 +105,6 @@ endif()
 # === C API ===
 if(XLPP_BUILD_CAPI)
     add_subdirectory(bindings/c)
-endif()
-
-# === Language bindings ===
-# Python links directly against the in-tree native target when requested.
-# C# consumes the C ABI and is built by dotnet/NuGet tooling rather than CMake.
-if(XLPP_BUILD_BINDINGS)
-    add_subdirectory(bindings/python)
 endif()
 
 if(XLPP_BUILD_BENCHMARKS)

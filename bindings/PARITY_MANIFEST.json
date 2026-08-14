@@ -367,7 +367,9 @@
         "csharp_candidates": [
           "InspectEnterpriseFeatures"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "InspectEnterpriseFeatures"
+        ],
         "overloads": 1,
         "python_candidates": [
           "inspect_enterprise_features"
@@ -605,7 +607,9 @@
         "csharp_candidates": [
           "SetConnectionRefreshOnLoad"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetConnectionRefreshOnLoad"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_connection_refresh_on_load"
@@ -635,7 +639,9 @@
         "csharp_candidates": [
           "SetOlapPivotCacheRefreshOnLoad"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetOlapPivotCacheRefreshOnLoad"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_olap_pivot_cache_refresh_on_load"
@@ -648,7 +654,9 @@
         "csharp_candidates": [
           "SetPivotChartSourceName"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetPivotChartSourceName"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_pivot_chart_source_name"
@@ -661,7 +669,9 @@
         "csharp_candidates": [
           "SetQueryTableRefreshOnLoad"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetQueryTableRefreshOnLoad"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_query_table_refresh_on_load"
@@ -980,7 +990,9 @@
         "csharp_candidates": [
           "AddChartSeriesTrendline"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "AddChartSeriesTrendline"
+        ],
         "overloads": 1,
         "python_candidates": [
           "add_chart_series_trendline"
@@ -1197,7 +1209,9 @@
         "csharp_candidates": [
           "ChartByStableId"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "ChartByStableId"
+        ],
         "overloads": 1,
         "python_candidates": [
           "chart_by_stable_id"
@@ -1242,7 +1256,9 @@
         "csharp_candidates": [
           "ClearChartAxisCrossesAt"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "ClearChartAxisCrossesAt"
+        ],
         "overloads": 1,
         "python_candidates": [
           "clear_chart_axis_crosses_at"
@@ -1255,7 +1271,9 @@
         "csharp_candidates": [
           "ClearChartAxisDisplayUnits"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "ClearChartAxisDisplayUnits"
+        ],
         "overloads": 1,
         "python_candidates": [
           "clear_chart_axis_display_units"
@@ -1268,7 +1286,9 @@
         "csharp_candidates": [
           "ClearChartSeriesCaches"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "ClearChartSeriesCaches"
+        ],
         "overloads": 1,
         "python_candidates": [
           "clear_chart_series_caches"
@@ -1554,7 +1574,9 @@
         "csharp_candidates": [
           "ImageByStableId"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "ImageByStableId"
+        ],
         "overloads": 1,
         "python_candidates": [
           "image_by_stable_id"
@@ -1767,7 +1789,9 @@
         "csharp_candidates": [
           "MoveChart"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "MoveChart"
+        ],
         "overloads": 1,
         "python_candidates": [
           "move_chart"
@@ -1780,7 +1804,9 @@
         "csharp_candidates": [
           "MoveChartAbsolute"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "MoveChartAbsolute"
+        ],
         "overloads": 1,
         "python_candidates": [
           "move_chart_absolute"
@@ -1793,7 +1819,9 @@
         "csharp_candidates": [
           "MoveImage"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "MoveImage"
+        ],
         "overloads": 1,
         "python_candidates": [
           "move_image"
@@ -1806,7 +1834,9 @@
         "csharp_candidates": [
           "MoveImageAbsolute"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "MoveImageAbsolute"
+        ],
         "overloads": 1,
         "python_candidates": [
           "move_image_absolute"
@@ -2009,7 +2039,9 @@
         "csharp_candidates": [
           "RemoveChart"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChart"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart"
@@ -2022,7 +2054,9 @@
         "csharp_candidates": [
           "RemoveChartAxisGridlines"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChartAxisGridlines"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart_axis_gridlines"
@@ -2035,7 +2069,9 @@
         "csharp_candidates": [
           "RemoveChartDataTable"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChartDataTable"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart_data_table"
@@ -2061,7 +2097,9 @@
         "csharp_candidates": [
           "RemoveChartPlotDropLines"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChartPlotDropLines"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart_plot_drop_lines"
@@ -2074,7 +2112,9 @@
         "csharp_candidates": [
           "RemoveChartPlotHighLowLines"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChartPlotHighLowLines"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart_plot_high_low_lines"
@@ -2087,7 +2127,9 @@
         "csharp_candidates": [
           "RemoveChartPlotLeaderLines"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChartPlotLeaderLines"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart_plot_leader_lines"
@@ -2100,7 +2142,9 @@
         "csharp_candidates": [
           "RemoveChartPlotUpDownBars"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChartPlotUpDownBars"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart_plot_up_down_bars"
@@ -2139,7 +2183,9 @@
         "csharp_candidates": [
           "RemoveChartSeriesErrorBars"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChartSeriesErrorBars"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart_series_error_bars"
@@ -2152,7 +2198,9 @@
         "csharp_candidates": [
           "RemoveChartSeriesLeaderLines"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChartSeriesLeaderLines"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart_series_leader_lines"
@@ -2165,7 +2213,9 @@
         "csharp_candidates": [
           "RemoveChartSeriesTrendline"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveChartSeriesTrendline"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_chart_series_trendline"
@@ -2178,7 +2228,9 @@
         "csharp_candidates": [
           "RemoveImage"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "RemoveImage"
+        ],
         "overloads": 1,
         "python_candidates": [
           "remove_image"
@@ -2206,7 +2258,9 @@
         "csharp_candidates": [
           "ReplaceImage"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "ReplaceImage"
+        ],
         "overloads": 2,
         "python_candidates": [
           "replace_image"
@@ -2219,7 +2273,9 @@
         "csharp_candidates": [
           "ResizeChart"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "ResizeChart"
+        ],
         "overloads": 1,
         "python_candidates": [
           "resize_chart"
@@ -2232,7 +2288,9 @@
         "csharp_candidates": [
           "ResizeImage"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "ResizeImage"
+        ],
         "overloads": 1,
         "python_candidates": [
           "resize_image"
@@ -2318,7 +2376,9 @@
         "csharp_candidates": [
           "SetChartAreaFillFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAreaFillFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_area_fill_format"
@@ -2331,7 +2391,9 @@
         "csharp_candidates": [
           "SetChartAreaLineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAreaLineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_area_line_format"
@@ -2344,7 +2406,9 @@
         "csharp_candidates": [
           "SetChartAxisCrossesAt"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisCrossesAt"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_crosses_at"
@@ -2357,7 +2421,9 @@
         "csharp_candidates": [
           "SetChartAxisCrossing"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisCrossing"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_crossing"
@@ -2370,7 +2436,9 @@
         "csharp_candidates": [
           "SetChartAxisDisplayUnits"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisDisplayUnits"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_display_units"
@@ -2383,7 +2451,9 @@
         "csharp_candidates": [
           "SetChartAxisGridlineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisGridlineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_gridline_format"
@@ -2396,7 +2466,9 @@
         "csharp_candidates": [
           "SetChartAxisLineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisLineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_line_format"
@@ -2409,7 +2481,9 @@
         "csharp_candidates": [
           "SetChartAxisNumberFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisNumberFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_number_format"
@@ -2422,7 +2496,9 @@
         "csharp_candidates": [
           "SetChartAxisScaling"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisScaling"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_scaling"
@@ -2435,7 +2511,9 @@
         "csharp_candidates": [
           "SetChartAxisTicks"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisTicks"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_ticks"
@@ -2448,7 +2526,9 @@
         "csharp_candidates": [
           "SetChartAxisTitle"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisTitle"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_title"
@@ -2461,7 +2541,9 @@
         "csharp_candidates": [
           "SetChartAxisTitleRichText"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisTitleRichText"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_title_rich_text"
@@ -2474,7 +2556,9 @@
         "csharp_candidates": [
           "SetChartAxisUnits"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartAxisUnits"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_axis_units"
@@ -2526,7 +2610,9 @@
         "csharp_candidates": [
           "SetChartLegend"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartLegend"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_legend"
@@ -2539,7 +2625,9 @@
         "csharp_candidates": [
           "SetChartLegendFillFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartLegendFillFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_legend_fill_format"
@@ -2552,7 +2640,9 @@
         "csharp_candidates": [
           "SetChartLegendLayout"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartLegendLayout"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_legend_layout"
@@ -2565,7 +2655,9 @@
         "csharp_candidates": [
           "SetChartLegendLineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartLegendLineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_legend_line_format"
@@ -2578,7 +2670,9 @@
         "csharp_candidates": [
           "SetChartLegendOverlay"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartLegendOverlay"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_legend_overlay"
@@ -2591,7 +2685,9 @@
         "csharp_candidates": [
           "SetChartPlotAreaFillFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartPlotAreaFillFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_plot_area_fill_format"
@@ -2604,7 +2700,9 @@
         "csharp_candidates": [
           "SetChartPlotAreaLayout"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartPlotAreaLayout"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_plot_area_layout"
@@ -2617,7 +2715,9 @@
         "csharp_candidates": [
           "SetChartPlotAreaLineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartPlotAreaLineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_plot_area_line_format"
@@ -2656,7 +2756,9 @@
         "csharp_candidates": [
           "SetChartPlotDoughnutHoleSize"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartPlotDoughnutHoleSize"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_plot_doughnut_hole_size"
@@ -2669,7 +2771,9 @@
         "csharp_candidates": [
           "SetChartPlotDropLines"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartPlotDropLines"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_plot_drop_lines"
@@ -2682,7 +2786,9 @@
         "csharp_candidates": [
           "SetChartPlotFirstSliceAngle"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartPlotFirstSliceAngle"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_plot_first_slice_angle"
@@ -2695,7 +2801,9 @@
         "csharp_candidates": [
           "SetChartPlotHighLowLines"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartPlotHighLowLines"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_plot_high_low_lines"
@@ -2708,7 +2816,9 @@
         "csharp_candidates": [
           "SetChartPlotLeaderLineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartPlotLeaderLineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_plot_leader_line_format"
@@ -2734,7 +2844,9 @@
         "csharp_candidates": [
           "SetChartPlotRadarStyle"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartPlotRadarStyle"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_plot_radar_style"
@@ -2760,7 +2872,9 @@
         "csharp_candidates": [
           "SetChartSeriesCategoryCache"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesCategoryCache"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_category_cache"
@@ -2825,7 +2939,9 @@
         "csharp_candidates": [
           "SetChartSeriesErrorBars"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesErrorBars"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_error_bars"
@@ -2838,7 +2954,9 @@
         "csharp_candidates": [
           "SetChartSeriesErrorBarsLineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesErrorBarsLineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_error_bars_line_format"
@@ -2851,7 +2969,9 @@
         "csharp_candidates": [
           "SetChartSeriesFillFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesFillFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_fill_format"
@@ -2864,7 +2984,9 @@
         "csharp_candidates": [
           "SetChartSeriesLeaderLineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesLeaderLineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_leader_line_format"
@@ -2877,7 +2999,9 @@
         "csharp_candidates": [
           "SetChartSeriesLineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesLineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_line_format"
@@ -2903,7 +3027,9 @@
         "csharp_candidates": [
           "SetChartSeriesReferences"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesReferences"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_references"
@@ -2916,7 +3042,9 @@
         "csharp_candidates": [
           "SetChartSeriesTitle"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesTitle"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_title"
@@ -2929,7 +3057,9 @@
         "csharp_candidates": [
           "SetChartSeriesTitleCache"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesTitleCache"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_title_cache"
@@ -2942,7 +3072,9 @@
         "csharp_candidates": [
           "SetChartSeriesTrendline"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesTrendline"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_trendline"
@@ -2955,7 +3087,9 @@
         "csharp_candidates": [
           "SetChartSeriesTrendlineLineFormat"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesTrendlineLineFormat"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_trendline_line_format"
@@ -2968,7 +3102,9 @@
         "csharp_candidates": [
           "SetChartSeriesValueCache"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartSeriesValueCache"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_series_value_cache"
@@ -2994,7 +3130,9 @@
         "csharp_candidates": [
           "SetChartStyle"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartStyle"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_style"
@@ -3007,7 +3145,9 @@
         "csharp_candidates": [
           "SetChartTitle"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartTitle"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_title"
@@ -3020,7 +3160,9 @@
         "csharp_candidates": [
           "SetChartTitleRichText"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartTitleRichText"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_title_rich_text"
@@ -3033,7 +3175,9 @@
         "csharp_candidates": [
           "SetChartView3D"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartView3D"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_view3_d"
@@ -3046,7 +3190,9 @@
         "csharp_candidates": [
           "SetChartXAxisTitle"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartXAxisTitle"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_x_axis_title"
@@ -3059,7 +3205,9 @@
         "csharp_candidates": [
           "SetChartYAxisTitle"
         ],
-        "csharp_found": [],
+        "csharp_found": [
+          "SetChartYAxisTitle"
+        ],
         "overloads": 1,
         "python_candidates": [
           "set_chart_y_axis_title"

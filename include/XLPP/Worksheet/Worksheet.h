@@ -1,10 +1,7 @@
 #pragma once
-#include <XLPP/Core/StableVector.h>
 #include <XLPP/Cell/Cell.h>
 #include "Range.h"
-#include "Row.h"
 #include "Dimensions.h"
-#include "StructuralEditing.h"
 #include "Filters.h"
 #include "ConditionalFormatting.h"
 #include "DataValidation.h"
@@ -15,31 +12,51 @@
 #include "SheetView.h"
 #include <XLPP/Chart/Chart.h>
 #include <XLPP/Pivot/PivotTable.h>
+#include <XLPP/Workbook/StructuralEdit.h>
 #include <map>
+#include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 #include <filesystem>
 
 namespace xlpp {
-namespace internal { struct WorkbookDrawingAccess; }
+namespace internal { struct WorkbookDrawingAccess; struct WorkbookSheetOperationsAccess; }
 
+struct WorksheetExtents {
+    std::size_t minRow;
+    std::size_t minColumn;
+    std::size_t maxRow;
+    std::size_t maxColumn;
+};
+
+class Row {
+public:
+    Row(class Worksheet& sheet, std::size_t rowNumber);
+    Cell& cell(std::size_t column);
+    const Cell* tryCell(std::size_t column) const noexcept;
+    std::size_t number() const noexcept { return rowNumber_; }
+    std::vector<Cell*> cells();
+    std::vector<CellValue> values() const;
+
+private:
+    class Worksheet* sheet_;
+    std::size_t rowNumber_;
+};
 
 class Worksheet {
+    friend class Workbook;
+    friend struct internal::WorkbookSheetOperationsAccess;
 public:
     Worksheet() = default;
     explicit Worksheet(std::string name) : name_(std::move(name)) {}
 
     const std::string& name() const noexcept { return name_; }
-    // VBA document-module code name. This is independent from the visible
-    // worksheet name and remains stable across ordinary worksheet renames.
-    const std::string& vbaCodeName() const noexcept { return vbaCodeName_; }
-    void setVbaCodeName(std::string codeName);
-    // Low-level rename for standalone worksheets/loaders. When this worksheet
-    // belongs to a Workbook, prefer Workbook::renameWorksheet() so dependent
-    // formulas, charts, pivots, names and hyperlinks are rewritten as well.
     void rename(std::string name);
+    const std::string& vbaCodeName() const noexcept { return vbaCodeName_; }
+    void setVbaCodeName(std::string value) { vbaCodeName_ = std::move(value); dirty_ = true; }
 
     Cell& cell(const std::string& address);
     Cell& cell(std::size_t row, std::size_t column);
@@ -85,8 +102,8 @@ public:
     Table& addTable(std::string name, std::string reference);
     Table* table(const std::string& name) noexcept;
     const Table* table(const std::string& name) const noexcept;
-    StableVector<Table>& tables() noexcept { dirty_ = true; return tables_; }
-    const StableVector<Table>& tables() const noexcept { return tables_; }
+    std::vector<Table>& tables() noexcept { dirty_ = true; return tables_; }
+    const std::vector<Table>& tables() const noexcept { return tables_; }
 
     PageSetup& pageSetup() noexcept { dirty_ = true; return pageSetup_; }
     const PageSetup& pageSetup() const noexcept { return pageSetup_; }
@@ -103,8 +120,8 @@ public:
     // Loader-only path. Existing images are exposed through the normal const
     // images() API but do not mark a preserved drawing for regeneration.
     Image& addLoadedImage(Image image) { images_.push_back(std::move(image)); loadedImageCount_ = images_.size(); return images_.back(); }
-    StableVector<Image>& images() noexcept { dirty_ = true; drawingsDirty_ = true; drawingAppendDirty_ = false; return images_; }
-    const StableVector<Image>& images() const noexcept { return images_; }
+    std::vector<Image>& images() noexcept { dirty_ = true; drawingsDirty_ = true; drawingAppendDirty_ = false; return images_; }
+    const std::vector<Image>& images() const noexcept { return images_; }
     std::size_t loadedImageCount() const noexcept { return loadedImageCount_; }
     std::size_t appendedImageCount() const noexcept { return images_.size() > loadedImageCount_ ? images_.size() - loadedImageCount_ : 0; }
 
@@ -225,8 +242,8 @@ public:
     Chart& chart(std::size_t index) { dirty_ = true; drawingsDirty_ = true; drawingAppendDirty_ = false; return charts_.at(index); }
     const Chart& chart(std::size_t index) const { return charts_.at(index); }
     std::size_t chartCount() const noexcept { return charts_.size(); }
-    StableVector<Chart>& charts() noexcept { dirty_ = true; drawingsDirty_ = true; drawingAppendDirty_ = false; return charts_; }
-    const StableVector<Chart>& charts() const noexcept { return charts_; }
+    std::vector<Chart>& charts() noexcept { dirty_ = true; drawingsDirty_ = true; drawingAppendDirty_ = false; return charts_; }
+    const std::vector<Chart>& charts() const noexcept { return charts_; }
 
     PivotTable& addPivotTable(PivotTable pt) {
         dirty_ = true;
@@ -235,13 +252,12 @@ public:
         pivotTables_.push_back(std::move(pt));
         return pivotTables_.back();
     }
-    // Loader-only semantic view of an imported pivot. Unchanged imported pivots
-    // remain byte-preserved; requesting mutable pivotTables() opts into model regeneration.
+    // Loader-only path: expose an existing PivotTable through the object model
+    // without forcing regeneration of its OOXML parts on an unrelated save.
     PivotTable& addLoadedPivotTable(PivotTable pt) { pivotTables_.push_back(std::move(pt)); loadedPivotCount_ = pivotTables_.size(); return pivotTables_.back(); }
-    StableVector<PivotTable>& pivotTables() noexcept { dirty_ = true; pivotsDirty_ = true; pivotAppendDirty_ = false; return pivotTables_; }
-    const StableVector<PivotTable>& pivotTables() const noexcept { return pivotTables_; }
     std::size_t loadedPivotCount() const noexcept { return loadedPivotCount_; }
-    std::size_t generatedPivotStart() const noexcept { return pivotsDirty_ ? 0 : loadedPivotCount_; }
+    std::vector<PivotTable>& pivotTables() noexcept { dirty_ = true; pivotsDirty_ = true; pivotAppendDirty_ = false; return pivotTables_; }
+    const std::vector<PivotTable>& pivotTables() const noexcept { return pivotTables_; }
 
     const std::string& printArea() const noexcept { return printArea_; }
     void setPrintArea(std::string v) { printArea_ = std::move(v); dirty_ = true; }
@@ -254,12 +270,6 @@ public:
     void deleteRows(std::size_t index, std::size_t amount = 1);
     void insertColumns(std::size_t index, std::size_t amount = 1);
     void deleteColumns(std::size_t index, std::size_t amount = 1);
-
-    // Apply a workbook-style structural edit. If this worksheet is the target,
-    // cells/dimensions/anchors are shifted; references on every worksheet may
-    // still be rewritten when they explicitly target edit.sheetName. This is
-    // the primitive used by Workbook structural transactions.
-    WorksheetStructuralEditReport applyStructuralEdit(const StructuralEdit& edit);
 
     std::size_t maxRow() const noexcept;
     std::size_t maxColumn() const noexcept;
@@ -283,21 +293,54 @@ public:
     bool drawingsDirty() const noexcept { return drawingsDirty_; }
     bool drawingAppendDirty() const noexcept { return drawingAppendDirty_; }
     bool pivotsDirty() const noexcept { return pivotsDirty_; }
+    bool pivotAppendDirty() const noexcept { return pivotAppendDirty_; }
+    std::size_t appendedPivotCount() const noexcept { return pivotTables_.size() > loadedPivotCount_ ? pivotTables_.size() - loadedPivotCount_ : 0; }
     std::size_t loadedChartCount() const noexcept { return loadedChartCount_; }
     std::size_t appendedChartCount() const noexcept { return charts_.size() > loadedChartCount_ ? charts_.size() - loadedChartCount_ : 0; }
     void markDirty() noexcept { dirty_ = true; }
-    void clearDirty() const noexcept { dirty_ = false; drawingsDirty_ = false; drawingAppendDirty_ = false; pivotsDirty_ = false; pivotAppendDirty_ = false; }
+    bool hasTrackedCellChanges() const noexcept {
+        if (!trackedCellKeys_.empty()) return true;
+        return std::any_of(cells_.begin(), cells_.end(), [](const auto& entry) { return entry.second.mutationRevision() != 0; });
+    }
+    std::size_t trackedCellChangeCount() const noexcept {
+        // Both containers are ordered by the packed cell key.  Merge-walk the
+        // two sets rather than cloning trackedCellKeys_ or performing one
+        // logarithmic lookup per mutated cell.  This keeps the query O(N+K)
+        // with O(1) auxiliary memory even on million-cell worksheets.
+        std::size_t count = trackedCellKeys_.size();
+        auto tracked = trackedCellKeys_.begin();
+        const auto trackedEnd = trackedCellKeys_.end();
+        for (const auto& entry : cells_) {
+            if (entry.second.mutationRevision() == 0) continue;
+            while (tracked != trackedEnd && *tracked < entry.first) ++tracked;
+            if (tracked == trackedEnd || *tracked != entry.first) ++count;
+        }
+        return count;
+    }
+    const std::set<std::uint64_t>& trackedCellKeys() const noexcept { return trackedCellKeys_; }
+    void clearTrackedCellChanges() const noexcept {
+        trackedCellKeys_.clear();
+        for (const auto& entry : cells_) entry.second.clearMutationRevision();
+    }
+    void clearDirty() const noexcept { dirty_ = false; drawingsDirty_ = false; drawingAppendDirty_ = false; pivotsDirty_ = false; pivotAppendDirty_ = false; clearTrackedCellChanges(); }
 
 private:
-    WorksheetStructuralEditReport shiftRows(std::size_t index, std::size_t amount, bool insert);
-    WorksheetStructuralEditReport shiftColumns(std::size_t index, std::size_t amount, bool insert);
-    WorksheetStructuralEditReport translateStructuralReferences(const StructuralEdit& edit, bool targetWorksheet);
-    WorksheetStructuralEditReport translateWorksheetRenameReferences(std::string_view oldName, std::string_view newName);
-    WorksheetStructuralEditReport invalidateWorksheetReferencesForRemoval(std::string_view removedName);
+    void shiftRows(std::size_t index, std::size_t amount, bool insert,
+                   const StructuralEditOptions* options = nullptr, StructuralEditReport* report = nullptr);
+    void shiftColumns(std::size_t index, std::size_t amount, bool insert,
+                      const StructuralEditOptions* options = nullptr, StructuralEditReport* report = nullptr);
+    void shiftStructure(std::size_t index, std::size_t amount, bool insert, bool rows,
+                        const StructuralEditOptions* options, StructuralEditReport* report);
 
     std::string name_;
     std::string vbaCodeName_;
     std::map<std::uint64_t, Cell> cells_;
+    // An empty worksheet has the canonical A1:A1 extent, so the cache is
+    // valid from construction. This lets monotonic append()/cell() insertion
+    // maintain extents incrementally instead of forcing a first-query O(N)
+    // scan after bulk ingestion.
+    mutable WorksheetExtents extentsCache_{1, 1, 1, 1};
+    mutable bool extentsCacheValid_{true};
     std::vector<std::string> mergedRanges_;
     struct MergedRangeCache { std::size_t minRow, minColumn, maxRow, maxColumn; };
     std::vector<MergedRangeCache> mergedRangesParsed_;
@@ -308,7 +351,7 @@ private:
     AutoFilter autoFilter_;
     ConditionalFormattingCollection conditionalFormatting_;
     DataValidationCollection dataValidations_;
-    StableVector<Table> tables_;
+    std::vector<Table> tables_;
     PageSetup pageSetup_;
     PageMargins pageMargins_;
     struct ImportedImageEdit {
@@ -531,12 +574,14 @@ private:
     PrintOptions printOptions_;
     HeaderFooter headerFooter_;
     WorksheetProtection protection_;
-    StableVector<Image> images_;
+    std::vector<Image> images_;
     SheetView sheetView_;
     std::string printArea_, printTitlesRows_, printTitlesCols_;
-    StableVector<Chart> charts_;
-    StableVector<PivotTable> pivotTables_;
+    std::vector<Chart> charts_;
+    std::vector<PivotTable> pivotTables_;
+    std::size_t loadedPivotCount_{0};
     mutable bool dirty_{true};
+    mutable std::set<std::uint64_t> trackedCellKeys_;
     // Separate mutation flags allow package-level copy-on-write preservation:
     // unrelated cell edits do not force imported drawings or pivots to be
     // reserialized through XLPP's intentionally smaller object model.
@@ -546,7 +591,6 @@ private:
     std::vector<ImportedImageEdit> importedImageEdits_;
     std::size_t loadedChartCount_{0};
     std::vector<ImportedChartEdit> importedChartEdits_;
-    std::size_t loadedPivotCount_{0};
     mutable bool pivotsDirty_{true};
     mutable bool pivotAppendDirty_{false};
 };

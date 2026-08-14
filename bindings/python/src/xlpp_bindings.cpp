@@ -11,21 +11,6 @@
 namespace py = pybind11;
 using namespace xlpp;
 
-// StableVector-backed model collections deliberately keep native element addresses
-// stable.  Python collection properties preserve their historical list-like value
-// semantics by returning copies, while add/get-by-name APIs return live handles.
-template <class T>
-static std::vector<T> stable_vector_copy(const StableVector<T>& values) {
-    return std::vector<T>(values.begin(), values.end());
-}
-
-template <class T>
-static void assign_stable_vector(StableVector<T>& destination, const std::vector<T>& values) {
-    destination.clear();
-    destination.reserve(values.size());
-    for (const auto& value : values) destination.push_back(value);
-}
-
 // --- DateTime converters ---
 static DateTime py_to_datetime(const py::object& obj) {
     if (py::isinstance<py::none>(obj))
@@ -150,21 +135,6 @@ PYBIND11_MODULE(xlpp, m) {
         catch (const std::runtime_error& e)  { PyErr_SetString(PyExc_RuntimeError, e.what()); }
     });
 
-    py::enum_<ErrorCode>(m, "ErrorCode")
-        .value("UNKNOWN", ErrorCode::Unknown)
-        .value("INVALID_ARGUMENT", ErrorCode::InvalidArgument)
-        .value("INVALID_STATE", ErrorCode::InvalidState)
-        .value("IO", ErrorCode::Io)
-        .value("PACKAGE", ErrorCode::Package)
-        .value("XML", ErrorCode::Xml)
-        .value("VALIDATION", ErrorCode::Validation)
-        .value("ENCRYPTION", ErrorCode::Encryption)
-        .value("FORMULA", ErrorCode::Formula)
-        .value("UNSUPPORTED", ErrorCode::Unsupported)
-        .value("CANCELLED", ErrorCode::Cancelled)
-        .value("RESOURCE_LIMIT", ErrorCode::ResourceLimit);
-    py::register_exception<Exception>(m, "XLPPError");
-
     // === Compression ===
     py::enum_<CompressionLevel>(m, "CompressionLevel")
         .value("STORE", CompressionLevel::Store)
@@ -179,11 +149,55 @@ PYBIND11_MODULE(xlpp, m) {
         .value("RLE", CompressionStrategy::Rle)
         .value("FIXED", CompressionStrategy::Fixed);
 
-    py::enum_<OfficeEncryptionMode>(m, "OfficeEncryptionMode")
-        .value("NONE", OfficeEncryptionMode::None)
-        .value("AGILE_AES256_SHA512", OfficeEncryptionMode::AgileAes256Sha512)
-        .value("STANDARD_AES_SHA1", OfficeEncryptionMode::StandardAesSha1)
-        .value("UNSUPPORTED", OfficeEncryptionMode::Unsupported);
+    py::enum_<PackageEncryptionMode>(m, "PackageEncryptionMode")
+        .value("AGILE", PackageEncryptionMode::Agile)
+        .value("STANDARD", PackageEncryptionMode::Standard);
+
+    py::enum_<PackageEncryptionHash>(m, "PackageEncryptionHash")
+        .value("SHA1", PackageEncryptionHash::Sha1)
+        .value("SHA256", PackageEncryptionHash::Sha256)
+        .value("SHA384", PackageEncryptionHash::Sha384)
+        .value("SHA512", PackageEncryptionHash::Sha512);
+
+    py::enum_<PackageEncryptionFormat>(m, "PackageEncryptionFormat")
+        .value("NONE", PackageEncryptionFormat::None)
+        .value("AGILE", PackageEncryptionFormat::Agile)
+        .value("STANDARD", PackageEncryptionFormat::Standard)
+        .value("UNSUPPORTED", PackageEncryptionFormat::Unsupported);
+
+    py::class_<PackageEncryptionCertificateKeyInfo>(m, "PackageEncryptionCertificateKeyInfo")
+        .def_readonly("x509_certificate", &PackageEncryptionCertificateKeyInfo::x509Certificate)
+        .def_readonly("encrypted_key_bytes", &PackageEncryptionCertificateKeyInfo::encryptedKeyBytes)
+        .def_readonly("cert_verifier_bytes", &PackageEncryptionCertificateKeyInfo::certVerifierBytes)
+        .def_readonly("valid_encoding", &PackageEncryptionCertificateKeyInfo::validEncoding);
+
+    py::class_<PackageEncryptionInfo>(m, "PackageEncryptionInfo")
+        .def_readonly("encrypted", &PackageEncryptionInfo::encrypted)
+        .def_readonly("format", &PackageEncryptionInfo::format)
+        .def_readonly("version_major", &PackageEncryptionInfo::versionMajor)
+        .def_readonly("version_minor", &PackageEncryptionInfo::versionMinor)
+        .def_readonly("key_bits", &PackageEncryptionInfo::keyBits)
+        .def_readonly("block_size", &PackageEncryptionInfo::blockSize)
+        .def_readonly("hash_size", &PackageEncryptionInfo::hashSize)
+        .def_readonly("spin_count", &PackageEncryptionInfo::spinCount)
+        .def_readonly("hash_algorithm", &PackageEncryptionInfo::hashAlgorithm)
+        .def_readonly("has_data_integrity", &PackageEncryptionInfo::hasDataIntegrity)
+        .def_readonly("supported_for_read", &PackageEncryptionInfo::supportedForRead)
+        .def_readonly("supported_for_write", &PackageEncryptionInfo::supportedForWrite)
+        .def_readonly("cipher_algorithm", &PackageEncryptionInfo::cipherAlgorithm)
+        .def_readonly("cipher_chaining", &PackageEncryptionInfo::cipherChaining)
+        .def_readonly("key_encryptor_count", &PackageEncryptionInfo::keyEncryptorCount)
+        .def_readonly("password_key_encryptor_count", &PackageEncryptionInfo::passwordKeyEncryptorCount)
+        .def_readonly("certificate_key_encryptors", &PackageEncryptionInfo::certificateKeyEncryptors);
+
+    py::class_<PackageEncryptionOptions>(m, "PackageEncryptionOptions")
+        .def(py::init<>())
+        .def_readwrite("enabled", &PackageEncryptionOptions::enabled)
+        .def_readwrite("password", &PackageEncryptionOptions::password)
+        .def_readwrite("mode", &PackageEncryptionOptions::mode)
+        .def_readwrite("hash_algorithm", &PackageEncryptionOptions::hashAlgorithm)
+        .def_readwrite("key_bits", &PackageEncryptionOptions::keyBits)
+        .def_readwrite("spin_count", &PackageEncryptionOptions::spinCount);
 
     py::class_<SaveOptions>(m, "SaveOptions")
         .def(py::init<>())
@@ -193,16 +207,10 @@ PYBIND11_MODULE(xlpp, m) {
         .def_readwrite("parallel_sheets", &SaveOptions::parallelSheets)
         .def_readwrite("parallel_rows", &SaveOptions::parallelRows)
         .def_readwrite("strict_namespace", &SaveOptions::strictNamespace)
-        .def_readwrite("synchronize_chart_caches", &SaveOptions::synchronizeChartCaches)
-        .def_readwrite("synchronize_changed_chart_caches_only", &SaveOptions::synchronizeChangedChartCachesOnly)
-        .def_readwrite("calculate_formulas_before_save", &SaveOptions::calculateFormulasBeforeSave)
-        .def_readwrite("atomic_write", &SaveOptions::atomicWrite)
-        .def_readwrite("durable_write", &SaveOptions::durableWrite)
-        .def_readwrite("validate_before_save", &SaveOptions::validateBeforeSave)
-        .def_readwrite("encryption_password", &SaveOptions::encryptionPassword)
-        .def_readwrite("encryption_mode", &SaveOptions::encryptionMode)
-        .def_readwrite("encryption_spin_count", &SaveOptions::encryptionSpinCount)
-        .def_readwrite("encryption_key_bits", &SaveOptions::encryptionKeyBits);
+        .def_readwrite("validate_model_before_save", &SaveOptions::validateModelBeforeSave)
+        .def_readwrite("reject_model_warnings_before_save", &SaveOptions::rejectModelWarningsBeforeSave)
+        .def_readwrite("validate_package_before_write", &SaveOptions::validatePackageBeforeWrite)
+        .def_readwrite("encryption", &SaveOptions::encryption);
 
     py::class_<LoadOptions>(m, "LoadOptions")
         .def(py::init<>())
@@ -211,255 +219,14 @@ PYBIND11_MODULE(xlpp, m) {
         .def_readwrite("max_entry_bytes", &LoadOptions::maxEntryBytes)
         .def_readwrite("max_total_bytes", &LoadOptions::maxTotalBytes)
         .def_readwrite("max_file_bytes", &LoadOptions::maxFileBytes)
+        .def_readwrite("password_to_open", &LoadOptions::passwordToOpen)
+        .def_readwrite("max_encryption_spin_count", &LoadOptions::maxEncryptionSpinCount)
+        .def_readwrite("max_decrypted_package_bytes", &LoadOptions::maxDecryptedPackageBytes)
+        .def_readwrite("allow_standard_encryption", &LoadOptions::allowStandardEncryption)
+        .def_readwrite("require_agile_data_integrity", &LoadOptions::requireAgileDataIntegrity)
+        .def_readwrite("max_encryption_info_bytes", &LoadOptions::maxEncryptionInfoBytes)
         .def_readwrite("cancel", &LoadOptions::cancel)
-        .def_readwrite("progress", &LoadOptions::progress)
-        .def_readwrite("password", &LoadOptions::password)
-        .def_readwrite("verify_encryption_integrity", &LoadOptions::verifyEncryptionIntegrity);
-
-    // === Formula calculation / structural editing / encryption ===
-    py::class_<CalculationCell>(m, "CalculationCell")
-        .def(py::init<>())
-        .def_readwrite("sheet", &CalculationCell::sheet)
-        .def_readwrite("cell", &CalculationCell::cell);
-
-    py::class_<CalculationOptions>(m, "CalculationOptions")
-        .def(py::init<>())
-        .def_readwrite("recursive_dependencies", &CalculationOptions::recursiveDependencies)
-        .def_readwrite("update_cached_values", &CalculationOptions::updateCachedValues)
-        .def_readwrite("evaluate_volatile_functions", &CalculationOptions::evaluateVolatileFunctions)
-        .def_readwrite("spill_dynamic_arrays", &CalculationOptions::spillDynamicArrays)
-        .def_readwrite("iterative_calculation", &CalculationOptions::iterativeCalculation)
-        .def_readwrite("max_iterations", &CalculationOptions::maxIterations)
-        .def_readwrite("max_change", &CalculationOptions::maxChange)
-        .def_readwrite("external_reference_resolver", &CalculationOptions::externalReferenceResolver)
-        .def_readwrite("max_depth", &CalculationOptions::maxDepth)
-        .def_readwrite("changed_cells", &CalculationOptions::changedCells);
-
-    py::class_<CalculationReport>(m, "CalculationReport")
-        .def(py::init<>())
-        .def_readwrite("formula_cells_visited", &CalculationReport::formulaCellsVisited)
-        .def_readwrite("formula_cells_evaluated", &CalculationReport::formulaCellsEvaluated)
-        .def_readwrite("cached_values_updated", &CalculationReport::cachedValuesUpdated)
-        .def_readwrite("dependency_evaluations", &CalculationReport::dependencyEvaluations)
-        .def_readwrite("defined_names_resolved", &CalculationReport::definedNamesResolved)
-        .def_readwrite("circular_references", &CalculationReport::circularReferences)
-        .def_readwrite("unsupported_formulas", &CalculationReport::unsupportedFormulas)
-        .def_readwrite("evaluation_errors", &CalculationReport::evaluationErrors)
-        .def_readwrite("dynamic_arrays_spilled", &CalculationReport::dynamicArraysSpilled)
-        .def_readwrite("spill_cells_updated", &CalculationReport::spillCellsUpdated)
-        .def_readwrite("spill_conflicts", &CalculationReport::spillConflicts)
-        .def_readwrite("structured_references_resolved", &CalculationReport::structuredReferencesResolved)
-        .def_readwrite("iterative_iterations", &CalculationReport::iterativeIterations)
-        .def_readwrite("iterative_convergence_failures", &CalculationReport::iterativeConvergenceFailures)
-        .def_readwrite("external_references_resolved", &CalculationReport::externalReferencesResolved)
-        .def_readwrite("unresolved_external_references", &CalculationReport::unresolvedExternalReferences)
-        .def_readonly("dirty_roots", &CalculationReport::dirtyRoots)
-        .def_readonly("dirty_formula_cells_selected", &CalculationReport::dirtyFormulaCellsSelected)
-        .def_readonly("warnings", &CalculationReport::warnings)
-        .def_property_readonly("success", &CalculationReport::success);
-
-    py::enum_<StructuralEditKind>(m, "StructuralEditKind")
-        .value("INSERT_ROWS", StructuralEditKind::InsertRows)
-        .value("DELETE_ROWS", StructuralEditKind::DeleteRows)
-        .value("INSERT_COLUMNS", StructuralEditKind::InsertColumns)
-        .value("DELETE_COLUMNS", StructuralEditKind::DeleteColumns);
-
-    py::class_<StructuralEdit>(m, "StructuralEdit")
-        .def(py::init<>())
-        .def(py::init([](std::string sheetName, StructuralEditKind kind, std::size_t index, std::size_t amount) {
-                return StructuralEdit{std::move(sheetName), kind, index, amount};
-            }), py::arg("sheet_name"), py::arg("kind"), py::arg("index"), py::arg("amount") = 1)
-        .def_readwrite("sheet_name", &StructuralEdit::sheetName)
-        .def_readwrite("kind", &StructuralEdit::kind)
-        .def_readwrite("index", &StructuralEdit::index)
-        .def_readwrite("amount", &StructuralEdit::amount);
-
-    py::class_<ReferenceTranslationResult>(m, "ReferenceTranslationResult")
-        .def(py::init<>())
-        .def_readwrite("value", &ReferenceTranslationResult::value)
-        .def_readwrite("references_visited", &ReferenceTranslationResult::referencesVisited)
-        .def_readwrite("references_changed", &ReferenceTranslationResult::referencesChanged)
-        .def_readwrite("references_invalidated", &ReferenceTranslationResult::referencesInvalidated)
-        .def_property_readonly("changed", &ReferenceTranslationResult::changed);
-
-    py::class_<StructuralEditOptions>(m, "StructuralEditOptions")
-        .def(py::init<>())
-        .def_readwrite("transactional", &StructuralEditOptions::transactional)
-        .def_readwrite("update_defined_names", &StructuralEditOptions::updateDefinedNames)
-        .def_readwrite("recalculate_formulas", &StructuralEditOptions::recalculateFormulas)
-        .def_readwrite("synchronize_chart_caches", &StructuralEditOptions::synchronizeChartCaches)
-        .def_readwrite("changed_chart_caches_only", &StructuralEditOptions::changedChartCachesOnly)
-        .def_readwrite("fail_on_invalid_reference", &StructuralEditOptions::failOnInvalidReference);
-
-    py::class_<StructuralEditReport>(m, "StructuralEditReport")
-        .def(py::init<>())
-        .def_readwrite("worksheets_visited", &StructuralEditReport::worksheetsVisited)
-        .def_readwrite("cells_moved", &StructuralEditReport::cellsMoved)
-        .def_readwrite("cells_removed", &StructuralEditReport::cellsRemoved)
-        .def_readwrite("formulas_updated", &StructuralEditReport::formulasUpdated)
-        .def_readwrite("formula_metadata_updated", &StructuralEditReport::formulaMetadataUpdated)
-        .def_readwrite("worksheet_references_updated", &StructuralEditReport::worksheetReferencesUpdated)
-        .def_readwrite("defined_names_updated", &StructuralEditReport::definedNamesUpdated)
-        .def_readwrite("chart_references_updated", &StructuralEditReport::chartReferencesUpdated)
-        .def_readwrite("pivot_references_updated", &StructuralEditReport::pivotReferencesUpdated)
-        .def_readwrite("drawing_anchors_updated", &StructuralEditReport::drawingAnchorsUpdated)
-        .def_readwrite("hyperlinks_updated", &StructuralEditReport::hyperlinksUpdated)
-        .def_readwrite("references_invalidated", &StructuralEditReport::referencesInvalidated)
-        .def_readwrite("formulas_calculated", &StructuralEditReport::formulasCalculated)
-        .def_readwrite("chart_caches_updated", &StructuralEditReport::chartCachesUpdated)
-        .def_readwrite("warnings", &StructuralEditReport::warnings)
-        .def_property_readonly("success", &StructuralEditReport::success);
-
-    py::class_<WorksheetStructuralEditReport>(m, "WorksheetStructuralEditReport")
-        .def(py::init<>())
-        .def_readwrite("cells_moved", &WorksheetStructuralEditReport::cellsMoved)
-        .def_readwrite("cells_removed", &WorksheetStructuralEditReport::cellsRemoved)
-        .def_readwrite("formulas_updated", &WorksheetStructuralEditReport::formulasUpdated)
-        .def_readwrite("formula_metadata_updated", &WorksheetStructuralEditReport::formulaMetadataUpdated)
-        .def_readwrite("worksheet_references_updated", &WorksheetStructuralEditReport::worksheetReferencesUpdated)
-        .def_readwrite("references_invalidated", &WorksheetStructuralEditReport::referencesInvalidated)
-        .def_readwrite("drawing_anchors_updated", &WorksheetStructuralEditReport::drawingAnchorsUpdated)
-        .def_readwrite("chart_references_updated", &WorksheetStructuralEditReport::chartReferencesUpdated)
-        .def_readwrite("pivot_references_updated", &WorksheetStructuralEditReport::pivotReferencesUpdated)
-        .def_readwrite("hyperlinks_updated", &WorksheetStructuralEditReport::hyperlinksUpdated);
-
-    py::class_<WorksheetRenameOptions>(m, "WorksheetRenameOptions")
-        .def(py::init<>())
-        .def_readwrite("recalculate_formulas", &WorksheetRenameOptions::recalculateFormulas)
-        .def_readwrite("synchronize_chart_caches", &WorksheetRenameOptions::synchronizeChartCaches)
-        .def_readwrite("changed_chart_caches_only", &WorksheetRenameOptions::changedChartCachesOnly);
-
-    py::class_<WorksheetRenameReport>(m, "WorksheetRenameReport")
-        .def(py::init<>())
-        .def_readwrite("worksheets_visited", &WorksheetRenameReport::worksheetsVisited)
-        .def_readwrite("formulas_updated", &WorksheetRenameReport::formulasUpdated)
-        .def_readwrite("formula_metadata_updated", &WorksheetRenameReport::formulaMetadataUpdated)
-        .def_readwrite("defined_names_updated", &WorksheetRenameReport::definedNamesUpdated)
-        .def_readwrite("chart_references_updated", &WorksheetRenameReport::chartReferencesUpdated)
-        .def_readwrite("pivot_references_updated", &WorksheetRenameReport::pivotReferencesUpdated)
-        .def_readwrite("hyperlinks_updated", &WorksheetRenameReport::hyperlinksUpdated)
-        .def_readwrite("references_updated", &WorksheetRenameReport::referencesUpdated)
-        .def_readwrite("formulas_calculated", &WorksheetRenameReport::formulasCalculated)
-        .def_readwrite("chart_caches_updated", &WorksheetRenameReport::chartCachesUpdated)
-        .def_readwrite("warnings", &WorksheetRenameReport::warnings)
-        .def_property_readonly("success", &WorksheetRenameReport::success);
-
-    py::class_<ChartCacheSyncOptions>(m, "ChartCacheSyncOptions")
-        .def(py::init<>())
-        .def_readwrite("synchronize_titles", &ChartCacheSyncOptions::synchronizeTitles)
-        .def_readwrite("synchronize_categories", &ChartCacheSyncOptions::synchronizeCategories)
-        .def_readwrite("synchronize_values", &ChartCacheSyncOptions::synchronizeValues)
-        .def_readwrite("changed_references_only", &ChartCacheSyncOptions::changedReferencesOnly)
-        .def_readwrite("clear_unsupported_references", &ChartCacheSyncOptions::clearUnsupportedReferences);
-
-    py::class_<ChartCacheSyncReport>(m, "ChartCacheSyncReport")
-        .def(py::init<>())
-        .def_readwrite("charts_visited", &ChartCacheSyncReport::chartsVisited)
-        .def_readwrite("series_visited", &ChartCacheSyncReport::seriesVisited)
-        .def_readwrite("references_checked", &ChartCacheSyncReport::referencesChecked)
-        .def_readwrite("references_unchanged", &ChartCacheSyncReport::referencesUnchanged)
-        .def_readwrite("dependencies_registered", &ChartCacheSyncReport::dependenciesRegistered)
-        .def_readwrite("dependencies_changed", &ChartCacheSyncReport::dependenciesChanged)
-        .def_readwrite("caches_updated", &ChartCacheSyncReport::cachesUpdated)
-        .def_readwrite("caches_cleared", &ChartCacheSyncReport::cachesCleared)
-        .def_readwrite("references_skipped", &ChartCacheSyncReport::referencesSkipped)
-        .def_readwrite("warnings", &ChartCacheSyncReport::warnings)
-        .def_property_readonly("success", &ChartCacheSyncReport::success);
-
-    py::enum_<WorkbookValidationSeverity>(m, "WorkbookValidationSeverity")
-        .value("WARNING", WorkbookValidationSeverity::Warning)
-        .value("ERROR", WorkbookValidationSeverity::Error);
-
-    py::class_<WorkbookValidationIssue>(m, "WorkbookValidationIssue")
-        .def(py::init<>())
-        .def_readwrite("severity", &WorkbookValidationIssue::severity)
-        .def_readwrite("code", &WorkbookValidationIssue::code)
-        .def_readwrite("message", &WorkbookValidationIssue::message)
-        .def_readwrite("worksheet", &WorkbookValidationIssue::worksheet);
-
-    py::class_<WorkbookValidationOptions>(m, "WorkbookValidationOptions")
-        .def(py::init<>())
-        .def_readwrite("validate_worksheet_names", &WorkbookValidationOptions::validateWorksheetNames)
-        .def_readwrite("validate_defined_names", &WorkbookValidationOptions::validateDefinedNames)
-        .def_readwrite("validate_tables", &WorkbookValidationOptions::validateTables)
-        .def_readwrite("validate_pivots", &WorkbookValidationOptions::validatePivots)
-        .def_readwrite("validate_charts", &WorkbookValidationOptions::validateCharts)
-        .def_readwrite("validate_vba", &WorkbookValidationOptions::validateVba);
-
-    py::class_<WorkbookValidationReport>(m, "WorkbookValidationReport")
-        .def(py::init<>())
-        .def_readwrite("issues", &WorkbookValidationReport::issues)
-        .def_readwrite("error_count", &WorkbookValidationReport::errorCount)
-        .def_readwrite("warning_count", &WorkbookValidationReport::warningCount)
-        .def_property_readonly("ok", &WorkbookValidationReport::ok)
-        .def("__bool__", &WorkbookValidationReport::ok);
-
-    py::enum_<VbaModuleType>(m, "VbaModuleType")
-        .value("STANDARD", VbaModuleType::Standard)
-        .value("DOCUMENT", VbaModuleType::Document)
-        .value("CLASS", VbaModuleType::Class);
-
-    py::class_<VbaModule>(m, "VbaModule")
-        .def(py::init<>())
-        .def_readwrite("name", &VbaModule::name)
-        .def_readwrite("source", &VbaModule::source)
-        .def_readwrite("type", &VbaModule::type)
-        .def_readwrite("read_only", &VbaModule::readOnly)
-        .def_readwrite("private_module", &VbaModule::privateModule);
-
-    py::class_<VbaProjectProperties>(m, "VbaProjectProperties")
-        .def(py::init<>())
-        .def_readwrite("name", &VbaProjectProperties::name)
-        .def_readwrite("description", &VbaProjectProperties::description)
-        .def_readwrite("help_file", &VbaProjectProperties::helpFile)
-        .def_readwrite("help_context_id", &VbaProjectProperties::helpContextId)
-        .def_readwrite("constants", &VbaProjectProperties::constants);
-
-    py::class_<OfficeEncryptionInfo>(m, "OfficeEncryptionInfo")
-        .def(py::init<>())
-        .def_readwrite("encrypted", &OfficeEncryptionInfo::encrypted)
-        .def_readwrite("supported", &OfficeEncryptionInfo::supported)
-        .def_readwrite("mode", &OfficeEncryptionInfo::mode)
-        .def_readwrite("spin_count", &OfficeEncryptionInfo::spinCount)
-        .def_readwrite("key_bits", &OfficeEncryptionInfo::keyBits)
-        .def_readwrite("cipher_algorithm", &OfficeEncryptionInfo::cipherAlgorithm)
-        .def_readwrite("hash_algorithm", &OfficeEncryptionInfo::hashAlgorithm);
-
-    py::enum_<FormulaDependencyKind>(m, "FormulaDependencyKind")
-        .value("CELL_OR_RANGE", FormulaDependencyKind::CellOrRange)
-        .value("DEFINED_NAME", FormulaDependencyKind::DefinedName)
-        .value("TABLE", FormulaDependencyKind::Table)
-        .value("EXTERNAL_REFERENCE", FormulaDependencyKind::ExternalReference)
-        .value("VOLATILE_REFERENCE", FormulaDependencyKind::VolatileReference);
-
-    py::class_<FormulaDependency>(m, "FormulaDependency")
-        .def(py::init<>())
-        .def_readwrite("dependent_sheet", &FormulaDependency::dependentSheet)
-        .def_readwrite("dependent_cell", &FormulaDependency::dependentCell)
-        .def_readwrite("kind", &FormulaDependency::kind)
-        .def_readwrite("precedent_sheet", &FormulaDependency::precedentSheet)
-        .def_readwrite("precedent_reference", &FormulaDependency::precedentReference)
-        .def_readwrite("symbol", &FormulaDependency::symbol);
-
-    py::class_<FormulaDependencyReport>(m, "FormulaDependencyReport")
-        .def(py::init<>())
-        .def_readwrite("formula_cells", &FormulaDependencyReport::formulaCells)
-        .def_readwrite("edges", &FormulaDependencyReport::edges)
-        .def_readwrite("cell_or_range_edges", &FormulaDependencyReport::cellOrRangeEdges)
-        .def_readwrite("defined_name_edges", &FormulaDependencyReport::definedNameEdges)
-        .def_readwrite("table_edges", &FormulaDependencyReport::tableEdges)
-        .def_readwrite("external_edges", &FormulaDependencyReport::externalEdges)
-        .def_readwrite("volatile_references", &FormulaDependencyReport::volatileReferences)
-        .def_readwrite("unresolved_symbols", &FormulaDependencyReport::unresolvedSymbols)
-        .def_readwrite("warnings", &FormulaDependencyReport::warnings);
-
-    py::class_<FormulaDependencyGraph>(m, "FormulaDependencyGraph")
-        .def(py::init<>())
-        .def_property_readonly("edges", [](const FormulaDependencyGraph& graph) { return graph.edges(); })
-        .def_property_readonly("report", &FormulaDependencyGraph::report, py::return_value_policy::reference_internal)
-        .def("precedents_of", &FormulaDependencyGraph::precedentsOf)
-        .def("dependents_of", &FormulaDependencyGraph::dependentsOf)
-        .def("depends_on", &FormulaDependencyGraph::dependsOn);
+        .def_readwrite("progress", &LoadOptions::progress);
 
     // === CellReference ===
     py::class_<CellReference>(m, "CellReference")
@@ -472,40 +239,23 @@ PYBIND11_MODULE(xlpp, m) {
         .def_static("column_index", [](const std::string& name) { return CellReference::columnIndex(name); },
                     py::arg("name"))
         .def("address", &CellReference::address)
-        .def("__eq__", [](const CellReference& a, const CellReference& b) {
-            return a.row == b.row && a.column == b.column;
-        })
         .def("__repr__", [](const CellReference& r) { return "<CellRef " + r.address() + ">"; });
-
-    m.attr("MAX_EXCEL_ROWS") = py::int_(MaxExcelRows);
-    m.attr("MAX_EXCEL_COLUMNS") = py::int_(MaxExcelColumns);
-    m.attr("MAX_WORKSHEET_NAME_CHARACTERS") = py::int_(MaxWorksheetNameCharacters);
-    m.def("is_valid_cell_coordinate", &isValidCellCoordinate, py::arg("row"), py::arg("column"));
-    m.def("make_cell_key", &makeCellKey, py::arg("row"), py::arg("column"));
-    m.def("is_valid_worksheet_name", &isValidWorksheetName, py::arg("name"));
-    m.def("validate_worksheet_name", &validateWorksheetName, py::arg("name"));
-    m.def("worksheet_names_equal", &worksheetNamesEqual, py::arg("left"), py::arg("right"));
 
     // === DateTime (aggregate) ===
     py::class_<DateTime>(m, "DateTime")
-        .def(py::init<>())
         .def(py::init<int, int, int, int, int, double>(),
              py::arg("year"), py::arg("month"), py::arg("day"),
              py::arg("hour") = 0, py::arg("minute") = 0, py::arg("second") = 0.0)
-        .def_readwrite("year", &DateTime::year)
-        .def_readwrite("month", &DateTime::month)
-        .def_readwrite("day", &DateTime::day)
-        .def_readwrite("hour", &DateTime::hour)
-        .def_readwrite("minute", &DateTime::minute)
-        .def_readwrite("second", &DateTime::second)
+        .def_readonly("year", &DateTime::year)
+        .def_readonly("month", &DateTime::month)
+        .def_readonly("day", &DateTime::day)
+        .def_readonly("hour", &DateTime::hour)
+        .def_readonly("minute", &DateTime::minute)
+        .def_readonly("second", &DateTime::second)
         .def_property_readonly("second_int", [](const DateTime& d) { return static_cast<int>(d.second); })
         .def_property_readonly("millisecond", [](const DateTime& d) {
             return static_cast<int>((d.second - static_cast<int>(d.second)) * 1000.0);
         })
-        .def("to_iso8601_date", [](const DateTime& d) { return toIso8601Date(d); })
-        .def("to_iso8601", [](const DateTime& d) { return toIso8601(d); })
-        .def("__eq__", [](const DateTime& a, const DateTime& b) { return a == b; })
-        .def("__ne__", [](const DateTime& a, const DateTime& b) { return a != b; })
         .def("__str__", [](const DateTime& d) { return toIso8601(d); })
         .def("__repr__", [](const DateTime& d) { return "<DateTime " + toIso8601(d) + ">"; });
 
@@ -520,14 +270,6 @@ PYBIND11_MODULE(xlpp, m) {
     m.def("is_date_format_code", [](const std::string& format, int numFmtId) {
             return isDateFormatCode(format, numFmtId);
           }, py::arg("format"), py::arg("num_fmt_id") = -1);
-    m.def("days_from_civil", &daysFromCivil, py::arg("year"), py::arg("month"), py::arg("day"));
-    m.def("civil_from_days", [](long long days) {
-        DateTime value;
-        civilFromDays(days, value.year, value.month, value.day);
-        return value;
-    }, py::arg("days"));
-    m.def("to_iso8601_date", [](const DateTime& value) { return toIso8601Date(value); }, py::arg("value"));
-    m.def("to_iso8601", [](const DateTime& value) { return toIso8601(value); }, py::arg("value"));
 
     // === Formula metadata / CellError ===
     py::enum_<FormulaType>(m, "FormulaType")
@@ -560,9 +302,7 @@ PYBIND11_MODULE(xlpp, m) {
         .value("NAME", CellError::Name)
         .value("NUMBER", CellError::Number)
         .value("NOT_AVAILABLE", CellError::NotAvailable)
-        .value("GETTING_DATA", CellError::GettingData)
-        .value("SPILL", CellError::Spill)
-        .value("CALCULATION", CellError::Calculation);
+        .value("GETTING_DATA", CellError::GettingData);
 
     m.def("cell_error_to_string", [](CellError e) { return toString(e); }, py::arg("error"));
     m.def("cell_error_from_string", [](const std::string& s) { return cellErrorFromString(s); }, py::arg("value"));
@@ -573,9 +313,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def(py::init<std::string>(), py::arg("argb"))
         .def("set_argb", &Color::setArgb, py::return_value_policy::reference_internal)
         .def_property("argb", &Color::argb, &Color::setArgb)
-        .def("empty", &Color::empty)
-        .def("hash", &Color::hash)
-        .def("__eq__", [](const Color& a, const Color& b) { return a == b; });
+        .def("empty", &Color::empty);
 
     // === Font ===
     py::class_<Font>(m, "Font")
@@ -586,9 +324,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("italic", &Font::italic, [](Font& f, bool v) -> Font& { f.setItalic(v); return f; })
         .def_property("underline", &Font::underline, [](Font& f, bool v) -> Font& { f.setUnderline(v); return f; })
         .def_property("strike", &Font::strike, [](Font& f, bool v) -> Font& { f.setStrike(v); return f; })
-        .def("color", static_cast<Color& (Font::*)()>(&Font::color), py::return_value_policy::reference_internal)
-        .def("hash", &Font::hash)
-        .def("__eq__", [](const Font& a, const Font& b) { return a == b; });
+        .def("color", static_cast<Color& (Font::*)()>(&Font::color), py::return_value_policy::reference_internal);
 
     // === Fill ===
     py::class_<Fill>(m, "Fill")
@@ -596,18 +332,14 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("pattern_type", &Fill::patternType,
             [](Fill& f, std::string v) -> Fill& { f.setPatternType(std::move(v)); return f; })
         .def("foreground", static_cast<Color& (Fill::*)()>(&Fill::foregroundColor), py::return_value_policy::reference_internal)
-        .def("background", static_cast<Color& (Fill::*)()>(&Fill::backgroundColor), py::return_value_policy::reference_internal)
-        .def("hash", &Fill::hash)
-        .def("__eq__", [](const Fill& a, const Fill& b) { return a == b; });
+        .def("background", static_cast<Color& (Fill::*)()>(&Fill::backgroundColor), py::return_value_policy::reference_internal);
 
     // === BorderSide ===
     py::class_<BorderSide>(m, "BorderSide")
         .def(py::init<>())
         .def_property("style", &BorderSide::style,
             [](BorderSide& b, std::string v) -> BorderSide& { b.setStyle(std::move(v)); return b; })
-        .def("color", static_cast<Color& (BorderSide::*)()>(&BorderSide::color), py::return_value_policy::reference_internal)
-        .def("hash", &BorderSide::hash)
-        .def("__eq__", [](const BorderSide& a, const BorderSide& b) { return a == b; });
+        .def("color", static_cast<Color& (BorderSide::*)()>(&BorderSide::color), py::return_value_policy::reference_internal);
 
     // === Border ===
     py::class_<Border>(m, "Border")
@@ -616,9 +348,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def("right", static_cast<BorderSide& (Border::*)()>(&Border::right), py::return_value_policy::reference_internal)
         .def("top", static_cast<BorderSide& (Border::*)()>(&Border::top), py::return_value_policy::reference_internal)
         .def("bottom", static_cast<BorderSide& (Border::*)()>(&Border::bottom), py::return_value_policy::reference_internal)
-        .def("diagonal", static_cast<BorderSide& (Border::*)()>(&Border::diagonal), py::return_value_policy::reference_internal)
-        .def("hash", &Border::hash)
-        .def("__eq__", [](const Border& a, const Border& b) { return a == b; });
+        .def("diagonal", static_cast<BorderSide& (Border::*)()>(&Border::diagonal), py::return_value_policy::reference_internal);
 
     // === Alignment ===
     py::class_<Alignment>(m, "Alignment")
@@ -634,9 +364,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("text_rotation", &Alignment::textRotation,
             [](Alignment& a, int v) -> Alignment& { a.setTextRotation(v); return a; })
         .def_property("indent", &Alignment::indent,
-            [](Alignment& a, int v) -> Alignment& { a.setIndent(v); return a; })
-        .def("hash", &Alignment::hash)
-        .def("__eq__", [](const Alignment& a, const Alignment& b) { return a == b; });
+            [](Alignment& a, int v) -> Alignment& { a.setIndent(v); return a; });
 
     // === Style ===
     py::class_<Style>(m, "Style")
@@ -649,9 +377,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("num_fmt_id", &Style::numFmtId, &Style::setNumFmtId)
         .def_property("locked", &Style::locked, &Style::setLocked)
         .def_property("hidden", &Style::hidden, &Style::setHidden)
-        .def("is_default", &Style::isDefault)
-        .def("hash", &Style::hash)
-        .def("__eq__", [](const Style& a, const Style& b) { return a == b; });
+        .def("is_default", &Style::isDefault);
 
     // === Hyperlink ===
     py::class_<Hyperlink>(m, "Hyperlink")
@@ -686,8 +412,8 @@ PYBIND11_MODULE(xlpp, m) {
         .def(py::init<>())
         .def("add_run", &RichText::addRun)
         .def_property("runs",
-            [](const RichText& rt) { return stable_vector_copy(rt.runs()); },
-            [](RichText& rt, const std::vector<RichTextRun>& v) { assign_stable_vector(rt.runs(), v); },
+            [](RichText& rt) -> std::vector<RichTextRun>& { return rt.runs(); },
+            [](RichText& rt, const std::vector<RichTextRun>& v) { rt.runs() = v; },
             py::return_value_policy::reference_internal)
         .def("empty", &RichText::empty)
         .def("plain_text", &RichText::plainText)
@@ -718,32 +444,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def_readwrite("op", &CustomFilter::op)
         .def_readwrite("value", &CustomFilter::value);
 
-    py::enum_<DynamicFilterType>(m, "DynamicFilterType")
-        .value("ABOVE_AVERAGE", DynamicFilterType::AboveAverage).value("BELOW_AVERAGE", DynamicFilterType::BelowAverage)
-        .value("TODAY", DynamicFilterType::Today).value("YESTERDAY", DynamicFilterType::Yesterday).value("TOMORROW", DynamicFilterType::Tomorrow)
-        .value("THIS_WEEK", DynamicFilterType::ThisWeek).value("LAST_WEEK", DynamicFilterType::LastWeek).value("NEXT_WEEK", DynamicFilterType::NextWeek)
-        .value("THIS_MONTH", DynamicFilterType::ThisMonth).value("LAST_MONTH", DynamicFilterType::LastMonth).value("NEXT_MONTH", DynamicFilterType::NextMonth)
-        .value("THIS_YEAR", DynamicFilterType::ThisYear).value("LAST_YEAR", DynamicFilterType::LastYear).value("NEXT_YEAR", DynamicFilterType::NextYear)
-        .value("YEAR_TO_DATE", DynamicFilterType::YearToDate);
-
-    py::enum_<DateTimeGrouping>(m, "DateTimeGrouping")
-        .value("YEAR", DateTimeGrouping::Year).value("MONTH", DateTimeGrouping::Month).value("DAY", DateTimeGrouping::Day)
-        .value("HOUR", DateTimeGrouping::Hour).value("MINUTE", DateTimeGrouping::Minute).value("SECOND", DateTimeGrouping::Second);
-
-    py::class_<DynamicFilter>(m, "DynamicFilter")
-        .def(py::init<>()).def_readwrite("type", &DynamicFilter::type).def_readwrite("value", &DynamicFilter::value).def_readwrite("max_value", &DynamicFilter::maxValue);
-    py::class_<Top10Filter>(m, "Top10Filter")
-        .def(py::init<>()).def_readwrite("top", &Top10Filter::top).def_readwrite("percent", &Top10Filter::percent)
-        .def_readwrite("value", &Top10Filter::value).def_readwrite("filter_value", &Top10Filter::filterValue);
-    py::class_<ColorFilter>(m, "ColorFilter")
-        .def(py::init<>()).def_readwrite("dxf_id", &ColorFilter::dxfId).def_readwrite("cell_color", &ColorFilter::cellColor);
-    py::class_<IconFilter>(m, "IconFilter")
-        .def(py::init<>()).def_readwrite("icon_set", &IconFilter::iconSet).def_readwrite("icon_id", &IconFilter::iconId);
-    py::class_<DateGroupItem>(m, "DateGroupItem")
-        .def(py::init<>()).def_readwrite("year", &DateGroupItem::year).def_readwrite("month", &DateGroupItem::month)
-        .def_readwrite("day", &DateGroupItem::day).def_readwrite("hour", &DateGroupItem::hour).def_readwrite("minute", &DateGroupItem::minute)
-        .def_readwrite("second", &DateGroupItem::second).def_readwrite("grouping", &DateGroupItem::grouping);
-
     py::class_<FilterColumn>(m, "FilterColumn")
         .def(py::init<>())
         .def(py::init<std::size_t>(), py::arg("column_id"))
@@ -754,23 +454,8 @@ PYBIND11_MODULE(xlpp, m) {
         .def("add_custom_filter", &FilterColumn::addCustomFilter)
         .def("clear_custom_filters", &FilterColumn::clearCustomFilters)
         .def_property_readonly("custom_filters", &FilterColumn::customFilters)
-        .def("add_date_group", &FilterColumn::addDateGroup)
-        .def("clear_date_groups", &FilterColumn::clearDateGroups)
-        .def_property_readonly("date_groups", &FilterColumn::dateGroups)
         .def_property("and_mode", &FilterColumn::andMode, &FilterColumn::setAndMode)
-        .def_property("include_blank", &FilterColumn::includeBlank, &FilterColumn::setIncludeBlank)
-        .def_property("dynamic_filter", &FilterColumn::dynamicFilter, [](FilterColumn& c, const std::optional<DynamicFilter>& v){ if(v)c.setDynamicFilter(*v); else c.clearDynamicFilter(); })
-        .def("set_dynamic_filter", &FilterColumn::setDynamicFilter)
-        .def("clear_dynamic_filter", &FilterColumn::clearDynamicFilter)
-        .def_property("top10_filter", &FilterColumn::top10Filter, [](FilterColumn& c, const std::optional<Top10Filter>& v){ if(v)c.setTop10Filter(*v); else c.clearTop10Filter(); })
-        .def("set_top10_filter", &FilterColumn::setTop10Filter)
-        .def("clear_top10_filter", &FilterColumn::clearTop10Filter)
-        .def_property("color_filter", &FilterColumn::colorFilter, [](FilterColumn& c, const std::optional<ColorFilter>& v){ if(v)c.setColorFilter(*v); else c.clearColorFilter(); })
-        .def("set_color_filter", &FilterColumn::setColorFilter)
-        .def("clear_color_filter", &FilterColumn::clearColorFilter)
-        .def_property("icon_filter", &FilterColumn::iconFilter, [](FilterColumn& c, const std::optional<IconFilter>& v){ if(v)c.setIconFilter(*v); else c.clearIconFilter(); })
-        .def("set_icon_filter", &FilterColumn::setIconFilter)
-        .def("clear_icon_filter", &FilterColumn::clearIconFilter);
+        .def_property("include_blank", &FilterColumn::includeBlank, &FilterColumn::setIncludeBlank);
 
     py::class_<SortCondition>(m, "SortCondition")
         .def(py::init<>())
@@ -787,7 +472,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def("clear", &SortState::clear);
 
     py::class_<AutoFilter>(m, "AutoFilter")
-        .def(py::init<>())
         .def("set_reference", &AutoFilter::setReference)
         .def_property("reference", &AutoFilter::reference, &AutoFilter::setReference)
         .def_property_readonly("enabled", &AutoFilter::enabled)
@@ -797,10 +481,8 @@ PYBIND11_MODULE(xlpp, m) {
             const auto* c = f.tryColumn(id);
             return c ? py::cast(*c, py::return_value_policy::reference) : py::none{};
         })
-        .def_property_readonly("columns", &AutoFilter::columns)
         .def("sort_state", [](AutoFilter& f) -> SortState& { return f.sortState(); },
-             py::return_value_policy::reference_internal)
-        .def_property_readonly("sort_state_value", &AutoFilter::sortStateValue);
+             py::return_value_policy::reference_internal);
 
     // === PageSetup ===
     py::enum_<PageOrientation>(m, "PageOrientation")
@@ -853,317 +535,34 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("different_odd_even", &HeaderFooter::differentOddEven, &HeaderFooter::setDifferentOddEven)
         .def_property("different_first", &HeaderFooter::differentFirst, &HeaderFooter::setDifferentFirst);
 
-    // === Drawing metadata / Image ===
-    py::enum_<DrawingAnchorType>(m, "DrawingAnchorType")
-        .value("ONE_CELL", DrawingAnchorType::OneCell).value("TWO_CELL", DrawingAnchorType::TwoCell)
-        .value("ABSOLUTE", DrawingAnchorType::Absolute);
-    py::class_<DrawingMarker>(m, "DrawingMarker")
-        .def(py::init<>()).def_readwrite("row", &DrawingMarker::row).def_readwrite("column", &DrawingMarker::column)
-        .def_readwrite("row_offset_emu", &DrawingMarker::rowOffsetEmu).def_readwrite("column_offset_emu", &DrawingMarker::columnOffsetEmu);
-    py::class_<DrawingAnchorInfo>(m, "DrawingAnchorInfo")
-        .def(py::init<>()).def_readwrite("type", &DrawingAnchorInfo::type).def_readwrite("from_marker", &DrawingAnchorInfo::from)
-        .def_readwrite("to_marker", &DrawingAnchorInfo::to).def_readwrite("x_emu", &DrawingAnchorInfo::xEmu)
-        .def_readwrite("y_emu", &DrawingAnchorInfo::yEmu).def_readwrite("width_emu", &DrawingAnchorInfo::widthEmu)
-        .def_readwrite("height_emu", &DrawingAnchorInfo::heightEmu).def_readwrite("edit_as", &DrawingAnchorInfo::editAs);
+    // === Image ===
     py::class_<Image>(m, "Image")
         .def(py::init<>())
-        .def(py::init([](std::string anchor, const py::bytes& bytes, std::string extension) {
-            const auto data = static_cast<std::string>(bytes);
-            return Image(std::move(anchor),
-                         std::vector<unsigned char>(data.begin(), data.end()),
-                         std::move(extension));
-        }), py::arg("anchor"), py::arg("bytes"), py::arg("extension"))
         .def(py::init<std::string, std::vector<unsigned char>, std::string>(),
              py::arg("anchor"), py::arg("bytes"), py::arg("extension"))
         .def_static("from_file", &Image::fromFile)
         .def_property("anchor", &Image::anchor, &Image::setAnchor)
-        .def_property_readonly("bytes", [](const Image& image) {
-            const auto& bytes = image.bytes();
-            return py::bytes(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-        })
+        .def_property_readonly("bytes", &Image::bytes)
         .def_property_readonly("extension", &Image::extension)
         .def_property("width_pixels", &Image::widthPixels, &Image::setWidthPixels)
         .def_property("height_pixels", &Image::heightPixels, &Image::setHeightPixels)
-        .def_property("name", &Image::name, &Image::setName)
-        .def_property("anchor_info", &Image::anchorInfo, &Image::setAnchorInfo)
-        .def_property("stable_id", &Image::stableId, &Image::setStableId)
-        .def_property("source_drawing_part", &Image::sourceDrawingPart, &Image::setSourceDrawingPart)
-        .def_property("source_media_part", &Image::sourceMediaPart, &Image::setSourceMediaPart)
-        .def_property("source_relationship_id", &Image::sourceRelationshipId, &Image::setSourceRelationshipId)
-        .def_property("imported", &Image::imported, &Image::setImported);
+        .def_property("name", &Image::name, &Image::setName);
 
     // === Chart ===
     py::enum_<Chart::Type>(m, "ChartType")
         .value("BAR", Chart::Type::Bar).value("LINE", Chart::Type::Line).value("PIE", Chart::Type::Pie)
         .value("SCATTER", Chart::Type::Scatter).value("DOUGHNUT", Chart::Type::Doughnut)
-        .value("RADAR", Chart::Type::Radar).value("AREA", Chart::Type::Area).value("BUBBLE", Chart::Type::Bubble)
-        .value("STOCK", Chart::Type::Stock).value("BAR_3D", Chart::Type::Bar3D).value("LINE_3D", Chart::Type::Line3D)
-        .value("AREA_3D", Chart::Type::Area3D).value("PIE_3D", Chart::Type::Pie3D).value("SURFACE", Chart::Type::Surface)
-        .value("SURFACE_3D", Chart::Type::Surface3D).value("PIE_OF_PIE", Chart::Type::PieOfPie)
-        .value("BAR_OF_PIE", Chart::Type::BarOfPie).value("HORIZONTAL_BAR", Chart::Type::HorizontalBar)
-        .value("HISTOGRAM", Chart::Type::Histogram).value("PARETO", Chart::Type::Pareto)
-        .value("BOX_WHISKER", Chart::Type::BoxWhisker).value("WATERFALL", Chart::Type::Waterfall)
-        .value("FUNNEL", Chart::Type::Funnel).value("TREEMAP", Chart::Type::Treemap)
-        .value("SUNBURST", Chart::Type::Sunburst).value("FILLED_MAP", Chart::Type::FilledMap);
+        .value("RADAR", Chart::Type::Radar).value("AREA", Chart::Type::Area).value("BUBBLE", Chart::Type::Bubble);
     py::enum_<Chart::Grouping>(m, "ChartGrouping")
         .value("STANDARD", Chart::Grouping::Standard).value("STACKED", Chart::Grouping::Stacked)
         .value("PERCENT_STACKED", Chart::Grouping::PercentStacked).value("CLUSTERED", Chart::Grouping::Clustered);
-    py::enum_<Chart::BarDirection>(m, "ChartBarDirection")
-        .value("COLUMN", Chart::BarDirection::Column).value("BAR", Chart::BarDirection::Bar);
-    py::enum_<Chart::ScatterStyle>(m, "ChartScatterStyle")
-        .value("NONE", Chart::ScatterStyle::None).value("LINE", Chart::ScatterStyle::Line)
-        .value("LINE_MARKER", Chart::ScatterStyle::LineMarker).value("MARKER", Chart::ScatterStyle::Marker)
-        .value("SMOOTH", Chart::ScatterStyle::Smooth).value("SMOOTH_MARKER", Chart::ScatterStyle::SmoothMarker);
-    py::enum_<Chart::BubbleSizeRepresents>(m, "ChartBubbleSizeRepresents")
-        .value("AREA", Chart::BubbleSizeRepresents::Area).value("WIDTH", Chart::BubbleSizeRepresents::Width);
-
-    py::enum_<ChartColorTransform::Kind>(m, "ChartColorTransformKind")
-        .value("ALPHA", ChartColorTransform::Kind::Alpha).value("ALPHA_MOD", ChartColorTransform::Kind::AlphaMod)
-        .value("ALPHA_OFF", ChartColorTransform::Kind::AlphaOff).value("TINT", ChartColorTransform::Kind::Tint)
-        .value("SHADE", ChartColorTransform::Kind::Shade).value("LUM_MOD", ChartColorTransform::Kind::LumMod)
-        .value("LUM_OFF", ChartColorTransform::Kind::LumOff).value("SAT_MOD", ChartColorTransform::Kind::SatMod)
-        .value("SAT_OFF", ChartColorTransform::Kind::SatOff);
-    py::class_<ChartColorTransform>(m, "ChartColorTransform")
-        .def(py::init<>()).def_readwrite("kind", &ChartColorTransform::kind).def_readwrite("value", &ChartColorTransform::value);
-    py::enum_<ChartColor::Kind>(m, "ChartColorKind")
-        .value("NONE", ChartColor::Kind::None).value("SRGB", ChartColor::Kind::SRgb)
-        .value("SCHEME", ChartColor::Kind::Scheme).value("SYSTEM", ChartColor::Kind::System)
-        .value("PRESET", ChartColor::Kind::Preset).value("UNKNOWN", ChartColor::Kind::Unknown);
-    py::class_<ChartColor>(m, "ChartColor")
-        .def(py::init<>()).def_readwrite("kind", &ChartColor::kind).def_readwrite("value", &ChartColor::value)
-        .def_readwrite("transforms", &ChartColor::transforms).def_property_readonly("present", &ChartColor::present);
-    py::class_<ChartCustomDashStop>(m, "ChartCustomDashStop")
-        .def(py::init<>()).def_readwrite("dash", &ChartCustomDashStop::dash).def_readwrite("space", &ChartCustomDashStop::space);
-    py::class_<ChartLineFormat>(m, "ChartLineFormat")
-        .def(py::init<>()).def_readwrite("present", &ChartLineFormat::present).def_readwrite("no_fill", &ChartLineFormat::noFill)
-        .def_readwrite("color", &ChartLineFormat::color).def_readwrite("width_points", &ChartLineFormat::widthPoints)
-        .def_readwrite("dash", &ChartLineFormat::dash).def_readwrite("cap", &ChartLineFormat::cap)
-        .def_readwrite("compound", &ChartLineFormat::compound).def_readwrite("join", &ChartLineFormat::join)
-        .def_readwrite("custom_dash", &ChartLineFormat::customDash);
-    py::class_<ChartGradientStop>(m, "ChartGradientStop")
-        .def(py::init<>()).def_readwrite("position", &ChartGradientStop::position).def_readwrite("color", &ChartGradientStop::color);
-    py::enum_<ChartFillFormat::Kind>(m, "ChartFillKind")
-        .value("NONE", ChartFillFormat::Kind::None).value("NO_FILL", ChartFillFormat::Kind::NoFill)
-        .value("SOLID", ChartFillFormat::Kind::Solid).value("GRADIENT", ChartFillFormat::Kind::Gradient)
-        .value("PATTERN", ChartFillFormat::Kind::Pattern);
-    py::class_<ChartFillFormat>(m, "ChartFillFormat")
-        .def(py::init<>()).def_readwrite("present", &ChartFillFormat::present).def_readwrite("no_fill", &ChartFillFormat::noFill)
-        .def_readwrite("color", &ChartFillFormat::color).def_readwrite("kind", &ChartFillFormat::kind)
-        .def_readwrite("gradient_stops", &ChartFillFormat::gradientStops).def_readwrite("gradient_angle_degrees", &ChartFillFormat::gradientAngleDegrees)
-        .def_readwrite("pattern", &ChartFillFormat::pattern).def_readwrite("foreground_color", &ChartFillFormat::foregroundColor)
-        .def_readwrite("background_color", &ChartFillFormat::backgroundColor);
-    py::class_<ChartTextRun>(m, "ChartTextRun")
-        .def(py::init<>()).def_readwrite("text", &ChartTextRun::text).def_readwrite("bold", &ChartTextRun::bold)
-        .def_readwrite("italic", &ChartTextRun::italic).def_readwrite("font_size_points", &ChartTextRun::fontSizePoints)
-        .def_readwrite("typeface", &ChartTextRun::typeface).def_readwrite("color", &ChartTextRun::color);
-    py::class_<ChartTextStyle>(m, "ChartTextStyle")
-        .def(py::init<>()).def_readwrite("present", &ChartTextStyle::present).def_readwrite("bold", &ChartTextStyle::bold)
-        .def_readwrite("italic", &ChartTextStyle::italic).def_readwrite("font_size_points", &ChartTextStyle::fontSizePoints)
-        .def_readwrite("typeface", &ChartTextStyle::typeface).def_readwrite("color", &ChartTextStyle::color);
-    py::class_<ChartRichText>(m, "ChartRichText")
-        .def(py::init<>()).def_readwrite("present", &ChartRichText::present).def_readwrite("runs", &ChartRichText::runs)
-        .def_property_readonly("plain_text", &ChartRichText::plainText);
-    py::class_<ChartCachePoint>(m, "ChartCachePoint")
-        .def(py::init<>()).def_readwrite("index", &ChartCachePoint::index).def_readwrite("value", &ChartCachePoint::value);
-    py::class_<ChartSeriesCache>(m, "ChartSeriesCache")
-        .def(py::init<>()).def_readwrite("present", &ChartSeriesCache::present).def_readwrite("numeric", &ChartSeriesCache::numeric)
-        .def_readwrite("format_code", &ChartSeriesCache::formatCode).def_readwrite("point_count", &ChartSeriesCache::pointCount)
-        .def_readwrite("points", &ChartSeriesCache::points).def_property_readonly("effective_point_count", &ChartSeriesCache::effectivePointCount)
-        .def("valid", &ChartSeriesCache::valid, py::arg("allow_sparse") = true);
-    py::class_<ChartManualLayout>(m, "ChartManualLayout")
-        .def(py::init<>()).def_readwrite("present", &ChartManualLayout::present).def_readwrite("target", &ChartManualLayout::target)
-        .def_readwrite("x_mode", &ChartManualLayout::xMode).def_readwrite("y_mode", &ChartManualLayout::yMode)
-        .def_readwrite("width_mode", &ChartManualLayout::widthMode).def_readwrite("height_mode", &ChartManualLayout::heightMode)
-        .def_readwrite("has_x", &ChartManualLayout::hasX).def_readwrite("has_y", &ChartManualLayout::hasY)
-        .def_readwrite("has_width", &ChartManualLayout::hasWidth).def_readwrite("has_height", &ChartManualLayout::hasHeight)
-        .def_readwrite("x", &ChartManualLayout::x).def_readwrite("y", &ChartManualLayout::y)
-        .def_readwrite("width", &ChartManualLayout::width).def_readwrite("height", &ChartManualLayout::height);
-    py::class_<ChartAxisScaling>(m, "ChartAxisScaling")
-        .def(py::init<>()).def_readwrite("has_minimum", &ChartAxisScaling::hasMinimum).def_readwrite("has_maximum", &ChartAxisScaling::hasMaximum)
-        .def_readwrite("has_log_base", &ChartAxisScaling::hasLogBase).def_readwrite("minimum", &ChartAxisScaling::minimum)
-        .def_readwrite("maximum", &ChartAxisScaling::maximum).def_readwrite("log_base", &ChartAxisScaling::logBase)
-        .def_readwrite("reverse_order", &ChartAxisScaling::reverseOrder);
-    py::class_<ChartDataLabelPoint>(m, "ChartDataLabelPoint")
-        .def(py::init<>()).def_readwrite("index", &ChartDataLabelPoint::index).def_readwrite("deleted", &ChartDataLabelPoint::deleted)
-        .def_readwrite("show_value", &ChartDataLabelPoint::showValue).def_readwrite("show_category_name", &ChartDataLabelPoint::showCategoryName)
-        .def_readwrite("show_series_name", &ChartDataLabelPoint::showSeriesName).def_readwrite("position", &ChartDataLabelPoint::position)
-        .def_readwrite("separator", &ChartDataLabelPoint::separator).def_readwrite("rich_text", &ChartDataLabelPoint::richText);
-    py::class_<ChartDisplayUnits>(m, "ChartDisplayUnits")
-        .def(py::init<>()).def_readwrite("present", &ChartDisplayUnits::present).def_readwrite("built_in_unit", &ChartDisplayUnits::builtInUnit)
-        .def_readwrite("has_custom_unit", &ChartDisplayUnits::hasCustomUnit).def_readwrite("custom_unit", &ChartDisplayUnits::customUnit)
-        .def_readwrite("show_label", &ChartDisplayUnits::showLabel).def_readwrite("label_rich_text", &ChartDisplayUnits::labelRichText);
-    py::class_<ChartDataPointFormat>(m, "ChartDataPointFormat")
-        .def(py::init<>()).def_readwrite("index", &ChartDataPointFormat::index).def_readwrite("fill", &ChartDataPointFormat::fill)
-        .def_readwrite("line", &ChartDataPointFormat::line).def_readwrite("marker", &ChartDataPointFormat::marker);
-    py::class_<ChartMarkerFormat>(m, "ChartMarkerFormat")
-        .def(py::init<>()).def_readwrite("present", &ChartMarkerFormat::present).def_readwrite("symbol", &ChartMarkerFormat::symbol)
-        .def_readwrite("size", &ChartMarkerFormat::size).def_readwrite("fill", &ChartMarkerFormat::fill).def_readwrite("line", &ChartMarkerFormat::line);
-    py::class_<ChartView3D>(m, "ChartView3D")
-        .def(py::init<>()).def_readwrite("present", &ChartView3D::present).def_readwrite("has_rotation_x", &ChartView3D::hasRotationX)
-        .def_readwrite("has_rotation_y", &ChartView3D::hasRotationY).def_readwrite("rotation_x", &ChartView3D::rotationX)
-        .def_readwrite("rotation_y", &ChartView3D::rotationY).def_readwrite("height_percent", &ChartView3D::heightPercent)
-        .def_readwrite("depth_percent", &ChartView3D::depthPercent).def_readwrite("right_angle_axes", &ChartView3D::rightAngleAxes)
-        .def_readwrite("perspective", &ChartView3D::perspective);
-    py::class_<ChartWallFormat>(m, "ChartWallFormat")
-        .def(py::init<>()).def_readwrite("present", &ChartWallFormat::present).def_readwrite("has_thickness", &ChartWallFormat::hasThickness)
-        .def_readwrite("thickness", &ChartWallFormat::thickness).def_readwrite("fill", &ChartWallFormat::fill).def_readwrite("line", &ChartWallFormat::line);
-    py::class_<ChartUpDownBars>(m, "ChartUpDownBars")
-        .def(py::init<>()).def_readwrite("present", &ChartUpDownBars::present).def_readwrite("gap_width", &ChartUpDownBars::gapWidth)
-        .def_readwrite("up_fill", &ChartUpDownBars::upFill).def_readwrite("up_line", &ChartUpDownBars::upLine)
-        .def_readwrite("down_fill", &ChartUpDownBars::downFill).def_readwrite("down_line", &ChartUpDownBars::downLine);
-    py::class_<ChartProjectedPieOptions>(m, "ChartProjectedPieOptions")
-        .def(py::init<>()).def_readwrite("present", &ChartProjectedPieOptions::present).def_readwrite("of_pie_type", &ChartProjectedPieOptions::ofPieType)
-        .def_readwrite("gap_width", &ChartProjectedPieOptions::gapWidth).def_readwrite("split_type", &ChartProjectedPieOptions::splitType)
-        .def_readwrite("has_split_position", &ChartProjectedPieOptions::hasSplitPosition).def_readwrite("split_position", &ChartProjectedPieOptions::splitPosition)
-        .def_readwrite("custom_split_points", &ChartProjectedPieOptions::customSplitPoints).def_readwrite("second_plot_size", &ChartProjectedPieOptions::secondPlotSize)
-        .def_readwrite("has_series_lines", &ChartProjectedPieOptions::hasSeriesLines).def_readwrite("series_lines_format", &ChartProjectedPieOptions::seriesLinesFormat);
-    py::class_<ChartDataLabels>(m, "ChartDataLabels")
-        .def(py::init<>()).def_readwrite("present", &ChartDataLabels::present).def_readwrite("show_value", &ChartDataLabels::showValue)
-        .def_readwrite("show_category_name", &ChartDataLabels::showCategoryName).def_readwrite("show_series_name", &ChartDataLabels::showSeriesName)
-        .def_readwrite("show_percent", &ChartDataLabels::showPercent).def_readwrite("show_bubble_size", &ChartDataLabels::showBubbleSize)
-        .def_readwrite("show_leader_lines", &ChartDataLabels::showLeaderLines).def_readwrite("has_leader_lines", &ChartDataLabels::hasLeaderLines)
-        .def_readwrite("leader_line_format", &ChartDataLabels::leaderLineFormat).def_readwrite("position", &ChartDataLabels::position)
-        .def_readwrite("separator", &ChartDataLabels::separator).def_readwrite("points", &ChartDataLabels::points);
-    py::class_<ChartDataTable>(m, "ChartDataTable")
-        .def(py::init<>()).def_readwrite("present", &ChartDataTable::present).def_readwrite("show_horizontal_border", &ChartDataTable::showHorizontalBorder)
-        .def_readwrite("show_vertical_border", &ChartDataTable::showVerticalBorder).def_readwrite("show_outline", &ChartDataTable::showOutline)
-        .def_readwrite("show_legend_keys", &ChartDataTable::showLegendKeys).def_readwrite("fill", &ChartDataTable::fill)
-        .def_readwrite("line", &ChartDataTable::line).def_readwrite("text_style", &ChartDataTable::textStyle);
-
-    py::enum_<Chart::AxisKind>(m, "ChartAxisKind")
-        .value("CATEGORY", Chart::AxisKind::Category).value("VALUE", Chart::AxisKind::Value)
-        .value("DATE", Chart::AxisKind::Date).value("SERIES", Chart::AxisKind::Series);
-    py::class_<Chart::Axis>(m, "ChartAxis")
-        .def(py::init<>()).def_readwrite("kind", &Chart::Axis::kind).def_readwrite("id", &Chart::Axis::id)
-        .def_readwrite("cross_axis_id", &Chart::Axis::crossAxisId).def_readwrite("position", &Chart::Axis::position)
-        .def_readwrite("title", &Chart::Axis::title).def_readwrite("title_rich_text", &Chart::Axis::titleRichText)
-        .def_readwrite("secondary", &Chart::Axis::secondary).def_readwrite("number_format", &Chart::Axis::numberFormat)
-        .def_readwrite("number_format_source_linked", &Chart::Axis::numberFormatSourceLinked)
-        .def_readwrite("major_tick_mark", &Chart::Axis::majorTickMark).def_readwrite("minor_tick_mark", &Chart::Axis::minorTickMark)
-        .def_readwrite("tick_label_position", &Chart::Axis::tickLabelPosition).def_readwrite("has_major_unit", &Chart::Axis::hasMajorUnit)
-        .def_readwrite("has_minor_unit", &Chart::Axis::hasMinorUnit).def_readwrite("major_unit", &Chart::Axis::majorUnit)
-        .def_readwrite("minor_unit", &Chart::Axis::minorUnit).def_readwrite("crosses", &Chart::Axis::crosses)
-        .def_readwrite("cross_between", &Chart::Axis::crossBetween).def_readwrite("has_crosses_at", &Chart::Axis::hasCrossesAt)
-        .def_readwrite("crosses_at", &Chart::Axis::crossesAt).def_readwrite("scaling", &Chart::Axis::scaling)
-        .def_readwrite("display_units", &Chart::Axis::displayUnits).def_readwrite("has_major_gridlines", &Chart::Axis::hasMajorGridlines)
-        .def_readwrite("has_minor_gridlines", &Chart::Axis::hasMinorGridlines).def_readwrite("line_format", &Chart::Axis::lineFormat)
-        .def_readwrite("major_gridline_format", &Chart::Axis::majorGridlineFormat).def_readwrite("minor_gridline_format", &Chart::Axis::minorGridlineFormat);
-    py::class_<Chart::Plot>(m, "ChartPlot")
-        .def(py::init<>())
-        .def_readwrite("type", &Chart::Plot::type)
-        .def_readwrite("grouping", &Chart::Plot::grouping)
-        .def_readwrite("first_series", &Chart::Plot::firstSeries)
-        .def_readwrite("series_count", &Chart::Plot::seriesCount)
-        .def_readwrite("uses_secondary_axes", &Chart::Plot::usesSecondaryAxes)
-        .def_readwrite("axis_ids", &Chart::Plot::axisIds)
-        .def_readwrite("data_labels", &Chart::Plot::dataLabels)
-        .def_readwrite("has_drop_lines", &Chart::Plot::hasDropLines).def_readwrite("drop_lines_format", &Chart::Plot::dropLinesFormat)
-        .def_readwrite("has_high_low_lines", &Chart::Plot::hasHighLowLines).def_readwrite("high_low_lines_format", &Chart::Plot::highLowLinesFormat)
-        .def_readwrite("up_down_bars", &Chart::Plot::upDownBars).def_readwrite("has_gap_depth", &Chart::Plot::hasGapDepth)
-        .def_readwrite("gap_depth", &Chart::Plot::gapDepth).def_readwrite("has_wireframe", &Chart::Plot::hasWireframe)
-        .def_readwrite("wireframe", &Chart::Plot::wireframe).def_readwrite("shape", &Chart::Plot::shape)
-        .def_readwrite("has_first_slice_angle", &Chart::Plot::hasFirstSliceAngle).def_readwrite("first_slice_angle", &Chart::Plot::firstSliceAngle)
-        .def_readwrite("has_hole_size", &Chart::Plot::hasHoleSize).def_readwrite("hole_size", &Chart::Plot::holeSize)
-        .def_readwrite("radar_style", &Chart::Plot::radarStyle).def_readwrite("projected_pie", &Chart::Plot::projectedPie)
-        .def_readwrite("bar_direction", &Chart::Plot::barDirection)
-        .def_readwrite("scatter_style", &Chart::Plot::scatterStyle)
-        .def_readwrite("has_bubble_scale", &Chart::Plot::hasBubbleScale)
-        .def_readwrite("bubble_scale", &Chart::Plot::bubbleScale)
-        .def_readwrite("show_negative_bubbles", &Chart::Plot::showNegativeBubbles)
-        .def_readwrite("bubble_size_represents", &Chart::Plot::bubbleSizeRepresents)
-        .def_readwrite("bubble_3d", &Chart::Plot::bubble3D)
-        .def_readwrite("histogram_bin_width", &Chart::Plot::histogramBinWidth)
-        .def_readwrite("histogram_bin_count", &Chart::Plot::histogramBinCount)
-        .def_readwrite("histogram_automatic_bins", &Chart::Plot::histogramAutomaticBins)
-        .def_readwrite("histogram_has_underflow", &Chart::Plot::histogramHasUnderflow)
-        .def_readwrite("histogram_underflow", &Chart::Plot::histogramUnderflow)
-        .def_readwrite("histogram_has_overflow", &Chart::Plot::histogramHasOverflow)
-        .def_readwrite("histogram_overflow", &Chart::Plot::histogramOverflow)
-        .def_readwrite("box_whisker_show_inner_points", &Chart::Plot::boxWhiskerShowInnerPoints)
-        .def_readwrite("box_whisker_show_outlier_points", &Chart::Plot::boxWhiskerShowOutlierPoints)
-        .def_readwrite("box_whisker_show_mean_line", &Chart::Plot::boxWhiskerShowMeanLine)
-        .def_readwrite("box_whisker_show_mean_marker", &Chart::Plot::boxWhiskerShowMeanMarker)
-        .def_readwrite("box_whisker_quartile_inclusive", &Chart::Plot::boxWhiskerQuartileInclusive)
-        .def_readwrite("waterfall_show_connector_lines", &Chart::Plot::waterfallShowConnectorLines)
-        .def_readwrite("map_projection", &Chart::Plot::mapProjection)
-        .def_readwrite("map_area", &Chart::Plot::mapArea)
-        .def_readwrite("map_labels", &Chart::Plot::mapLabels);
-
-    py::enum_<ChartSeries::TrendlineType>(m, "ChartTrendlineType")
-        .value("LINEAR", ChartSeries::TrendlineType::Linear).value("EXPONENTIAL", ChartSeries::TrendlineType::Exponential)
-        .value("LOGARITHMIC", ChartSeries::TrendlineType::Logarithmic).value("POLYNOMIAL", ChartSeries::TrendlineType::Polynomial)
-        .value("POWER", ChartSeries::TrendlineType::Power).value("MOVING_AVERAGE", ChartSeries::TrendlineType::MovingAverage);
-    py::enum_<ChartSeries::ErrorBarDirection>(m, "ChartErrorBarDirection")
-        .value("X", ChartSeries::ErrorBarDirection::X).value("Y", ChartSeries::ErrorBarDirection::Y);
-    py::enum_<ChartSeries::ErrorBarType>(m, "ChartErrorBarType")
-        .value("BOTH", ChartSeries::ErrorBarType::Both).value("PLUS", ChartSeries::ErrorBarType::Plus).value("MINUS", ChartSeries::ErrorBarType::Minus);
-    py::enum_<ChartSeries::ErrorValueType>(m, "ChartErrorValueType")
-        .value("FIXED_VALUE", ChartSeries::ErrorValueType::FixedValue).value("PERCENTAGE", ChartSeries::ErrorValueType::Percentage)
-        .value("STANDARD_DEVIATION", ChartSeries::ErrorValueType::StandardDeviation).value("STANDARD_ERROR", ChartSeries::ErrorValueType::StandardError)
-        .value("CUSTOM", ChartSeries::ErrorValueType::Custom);
-    py::class_<ChartSeries::Trendline>(m, "ChartTrendline")
-        .def(py::init<>()).def_readwrite("type", &ChartSeries::Trendline::type).def_readwrite("order", &ChartSeries::Trendline::order)
-        .def_readwrite("period", &ChartSeries::Trendline::period).def_readwrite("forward", &ChartSeries::Trendline::forward)
-        .def_readwrite("backward", &ChartSeries::Trendline::backward).def_readwrite("display_equation", &ChartSeries::Trendline::displayEquation)
-        .def_readwrite("display_r_squared", &ChartSeries::Trendline::displayRSquared).def_readwrite("line_format", &ChartSeries::Trendline::lineFormat);
-    py::class_<ChartSeries::ErrorBars>(m, "ChartErrorBars")
-        .def(py::init<>()).def_readwrite("direction", &ChartSeries::ErrorBars::direction).def_readwrite("bar_type", &ChartSeries::ErrorBars::barType)
-        .def_readwrite("value_type", &ChartSeries::ErrorBars::valueType).def_readwrite("value", &ChartSeries::ErrorBars::value)
-        .def_readwrite("no_end_cap", &ChartSeries::ErrorBars::noEndCap).def_readwrite("plus_reference", &ChartSeries::ErrorBars::plusReference)
-        .def_readwrite("minus_reference", &ChartSeries::ErrorBars::minusReference).def_readwrite("line_format", &ChartSeries::ErrorBars::lineFormat);
     py::class_<ChartSeries>(m, "ChartSeries")
-        .def(py::init<>())
         .def(py::init<std::string>())
         .def_property("title", &ChartSeries::title, &ChartSeries::setTitle)
         .def_property("values_reference", &ChartSeries::valuesReference, &ChartSeries::setValuesReference)
         .def_property("categories_reference", &ChartSeries::categoriesReference, &ChartSeries::setCategoriesReference)
-        .def_property("bubble_size_reference", &ChartSeries::bubbleSizeReference, &ChartSeries::setBubbleSizeReference)
-        .def_property("title_reference", &ChartSeries::titleReference, &ChartSeries::setTitleReference)
-        .def_property("title_cache", &ChartSeries::titleCache, &ChartSeries::setTitleCache)
-        .def_property("categories_cache", &ChartSeries::categoriesCache, &ChartSeries::setCategoriesCache)
-        .def_property("values_cache", &ChartSeries::valuesCache, &ChartSeries::setValuesCache)
-        .def_property("bubble_size_cache", &ChartSeries::bubbleSizeCache, &ChartSeries::setBubbleSizeCache)
-        .def_property_readonly("has_smooth", &ChartSeries::hasSmooth)
-        .def_property("smooth", &ChartSeries::smooth, &ChartSeries::setSmooth)
-        .def("clear_smooth", &ChartSeries::clearSmooth)
-        .def_property("trendlines", &ChartSeries::trendlines, &ChartSeries::setTrendlines)
-        .def_property("error_bars", &ChartSeries::errorBars, &ChartSeries::setErrorBars)
-        .def_property("data_labels", &ChartSeries::dataLabels, &ChartSeries::setDataLabels)
-        .def_property("line_format", &ChartSeries::lineFormat, &ChartSeries::setLineFormat)
-        .def_property("fill_format", &ChartSeries::fillFormat, &ChartSeries::setFillFormat)
-        .def_property("marker_format", &ChartSeries::markerFormat, &ChartSeries::setMarkerFormat)
-        .def_property("data_points", &ChartSeries::dataPoints, &ChartSeries::setDataPoints)
-        .def("data_point", [](const ChartSeries& s, std::size_t index) -> py::object {
-            const auto* point = s.dataPoint(index);
-            return point ? py::cast(*point, py::return_value_policy::reference) : py::none{};
-        })
         .def("reference", &ChartSeries::reference, py::arg("sheet_name"), py::arg("range_ref"))
         .def("categories", &ChartSeries::categories, py::arg("sheet_name"), py::arg("range_ref"));
-    py::class_<ChartThemeFontScheme>(m, "ChartThemeFontScheme")
-        .def(py::init<>()).def_readwrite("present", &ChartThemeFontScheme::present).def_readwrite("name", &ChartThemeFontScheme::name)
-        .def_readwrite("major_latin_typeface", &ChartThemeFontScheme::majorLatinTypeface).def_readwrite("minor_latin_typeface", &ChartThemeFontScheme::minorLatinTypeface);
-    py::class_<ChartThemeEffectScheme>(m, "ChartThemeEffectScheme")
-        .def(py::init<>()).def_readwrite("present", &ChartThemeEffectScheme::present).def_readwrite("name", &ChartThemeEffectScheme::name)
-        .def_readwrite("fill_style_count", &ChartThemeEffectScheme::fillStyleCount).def_readwrite("line_style_count", &ChartThemeEffectScheme::lineStyleCount)
-        .def_readwrite("effect_style_count", &ChartThemeEffectScheme::effectStyleCount).def_readwrite("background_fill_style_count", &ChartThemeEffectScheme::backgroundFillStyleCount);
-    py::class_<ChartThemeColor>(m, "ChartThemeColor")
-        .def(py::init<>()).def_readwrite("name", &ChartThemeColor::name).def_readwrite("srgb", &ChartThemeColor::srgb);
-    py::class_<ChartResolvedColor>(m, "ChartResolvedColor")
-        .def(py::init<>()).def_readwrite("present", &ChartResolvedColor::present).def_readwrite("red", &ChartResolvedColor::red)
-        .def_readwrite("green", &ChartResolvedColor::green).def_readwrite("blue", &ChartResolvedColor::blue)
-        .def_readwrite("alpha", &ChartResolvedColor::alpha).def("srgb", &ChartResolvedColor::srgb);
-    py::class_<ChartThemePalette>(m, "ChartThemePalette")
-        .def(py::init<>()).def_readwrite("present", &ChartThemePalette::present).def_readwrite("colors", &ChartThemePalette::colors)
-        .def_readwrite("font_scheme", &ChartThemePalette::fontScheme).def_readwrite("effect_scheme", &ChartThemePalette::effectScheme)
-        .def("base_color", &ChartThemePalette::baseColor).def("resolve_base", &ChartThemePalette::resolveBase)
-        .def("resolve", &ChartThemePalette::resolve).def("resolve_final_rgb", &ChartThemePalette::resolveFinalRgb);
-    py::class_<ChartStyleResources>(m, "ChartStyleResources")
-        .def(py::init<>()).def_readwrite("chart_style_present", &ChartStyleResources::chartStylePresent)
-        .def_readwrite("color_style_present", &ChartStyleResources::colorStylePresent)
-        .def_readwrite("chart_style_part", &ChartStyleResources::chartStylePart).def_readwrite("color_style_part", &ChartStyleResources::colorStylePart);
-    py::class_<ChartLegendFormat>(m, "ChartLegendFormat")
-        .def(py::init<>()).def_readwrite("present", &ChartLegendFormat::present).def_readwrite("overlay", &ChartLegendFormat::overlay)
-        .def_readwrite("layout", &ChartLegendFormat::layout).def_readwrite("fill", &ChartLegendFormat::fill).def_readwrite("line", &ChartLegendFormat::line);
     py::class_<Chart>(m, "Chart")
         .def(py::init<Chart::Type>(), py::arg("type") = Chart::Type::Bar)
         .def_property_readonly("type", &Chart::type)
@@ -1172,122 +571,19 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("x_axis_title", &Chart::xAxisTitle, &Chart::setXAxisTitle)
         .def_property("y_axis_title", &Chart::yAxisTitle, &Chart::setYAxisTitle)
         .def_property("style", &Chart::style, &Chart::setStyle)
-        .def_property("title_rich_text", &Chart::titleRichText, &Chart::setTitleRichText)
-        .def_property("theme_palette", &Chart::themePalette, &Chart::setThemePalette)
-        .def_property("style_resources", &Chart::styleResources, &Chart::setStyleResources)
-        .def("resolve_theme_base_color", &Chart::resolveThemeBaseColor)
-        .def("resolve_theme_color", &Chart::resolveThemeColor)
-        .def("resolve_theme_final_rgb", &Chart::resolveThemeFinalRgb)
         .def_property("width", &Chart::width, &Chart::setWidth)
         .def_property("height", &Chart::height, &Chart::setHeight)
         .def_property("show_legend", &Chart::showLegend, &Chart::setShowLegend)
         .def_property("legend_position", &Chart::legendPosition, &Chart::setLegendPosition)
-        .def_property("legend_format", &Chart::legendFormat, &Chart::setLegendFormat)
-        .def_property("plot_area_layout", &Chart::plotAreaLayout, &Chart::setPlotAreaLayout)
-        .def_property("chart_area_fill_format", &Chart::chartAreaFillFormat, &Chart::setChartAreaFillFormat)
-        .def_property("chart_area_line_format", &Chart::chartAreaLineFormat, &Chart::setChartAreaLineFormat)
-        .def_property("plot_area_fill_format", &Chart::plotAreaFillFormat, &Chart::setPlotAreaFillFormat)
-        .def_property("plot_area_line_format", &Chart::plotAreaLineFormat, &Chart::setPlotAreaLineFormat)
-        .def_property("data_table", &Chart::dataTable, &Chart::setDataTable)
-        .def_property("view_3d", &Chart::view3D, &Chart::setView3D)
-        .def_property("floor_format", &Chart::floorFormat, &Chart::setFloorFormat)
-        .def_property("side_wall_format", &Chart::sideWallFormat, &Chart::setSideWallFormat)
-        .def_property("back_wall_format", &Chart::backWallFormat, &Chart::setBackWallFormat)
-        .def_property_readonly("modern", &Chart::modern)
-        .def_property_readonly("combined", &Chart::combined)
-        .def("primary_plot", [](Chart& c) -> Chart::Plot& { return c.primaryPlot(); }, py::return_value_policy::reference_internal)
-        .def("primary_plot_or_none", [](const Chart& c) -> py::object {
-            const auto* plot = c.primaryPlotOrNull();
-            return plot ? py::cast(*plot, py::return_value_policy::reference) : py::none{};
-        })
-        .def("primary_plot_or_null", [](const Chart& c) -> py::object {
-            const auto* plot = c.primaryPlotOrNull();
-            return plot ? py::cast(*plot, py::return_value_policy::reference) : py::none{};
-        })
-        .def("add_plot", &Chart::addPlot, py::arg("type"), py::arg("first_series"), py::arg("series_count"), py::arg("secondary_axes") = false,
-             py::return_value_policy::reference_internal)
         .def("add_series", &Chart::addSeries, py::return_value_policy::reference_internal)
-        .def_property_readonly("series", [](const Chart& c) { return stable_vector_copy(c.series()); })
-        .def_property_readonly("plots", [](Chart& c) -> std::vector<Chart::Plot>& { return c.plots(); }, py::return_value_policy::reference_internal)
-        .def_property_readonly("axes", &Chart::axes)
-        .def_property("anchor_info", &Chart::anchorInfo, &Chart::setAnchorInfo)
-        .def_property_readonly("stable_id", &Chart::stableId)
-        .def_property_readonly("source_drawing_part", &Chart::sourceDrawingPart)
-        .def_property_readonly("source_chart_part", &Chart::sourceChartPart)
-        .def_property_readonly("source_relationship_id", &Chart::sourceRelationshipId)
-        .def_property_readonly("drawing_object_name", &Chart::drawingObjectName)
-        .def_property_readonly("imported", &Chart::imported)
-        .def("set_stable_id", &Chart::setStableId)
-        .def("set_source_drawing_part", &Chart::setSourceDrawingPart)
-        .def("set_source_chart_part", &Chart::setSourceChartPart)
-        .def("set_source_relationship_id", &Chart::setSourceRelationshipId)
-        .def("set_drawing_object_name", &Chart::setDrawingObjectName)
-        .def("set_imported", &Chart::setImported)
-        .def("set_axes", &Chart::setAxes)
-        .def("set_plots", &Chart::setPlots)
-        .def("set_primary_axis_ids", &Chart::setPrimaryAxisIds, py::arg("x_axis_id"), py::arg("y_axis_id"))
-        .def_property_readonly("has_secondary_axes", &Chart::hasSecondaryAxes)
-        .def_property_readonly("primary_x_axis_id", &Chart::primaryXAxisId)
-        .def_property_readonly("primary_y_axis_id", &Chart::primaryYAxisId)
-        .def("axis_by_id", [](const Chart& c, std::uint64_t id) -> py::object {
-            const auto* axis = c.axisById(id);
-            return axis ? py::cast(*axis, py::return_value_policy::reference) : py::none{};
-        })
-        .def_static("type_name", &Chart::typeName, py::arg("type"), py::arg("grouping") = Chart::Grouping::Standard)
-        .def_static("is_modern_type", &Chart::isModernType, py::arg("type"));
+        .def_property_readonly("series", [](Chart& c) -> std::vector<ChartSeries>& { return c.series(); }, py::return_value_policy::reference_internal)
+        .def_static("type_name", &Chart::typeName, py::arg("type"), py::arg("grouping") = Chart::Grouping::Standard);
 
     // === Pivot tables ===
-    py::enum_<PivotGrouping::Kind>(m, "PivotGroupingKind")
-        .value("NONE", PivotGrouping::Kind::None).value("NUMERIC", PivotGrouping::Kind::Numeric).value("DATE", PivotGrouping::Kind::Date);
-    py::enum_<PivotGrouping::DatePart>(m, "PivotDatePart")
-        .value("SECONDS", PivotGrouping::DatePart::Seconds).value("MINUTES", PivotGrouping::DatePart::Minutes)
-        .value("HOURS", PivotGrouping::DatePart::Hours).value("DAYS", PivotGrouping::DatePart::Days)
-        .value("MONTHS", PivotGrouping::DatePart::Months).value("QUARTERS", PivotGrouping::DatePart::Quarters)
-        .value("YEARS", PivotGrouping::DatePart::Years);
-    py::class_<PivotGrouping>(m, "PivotGrouping")
-        .def(py::init<>())
-        .def_readwrite("kind", &PivotGrouping::kind)
-        .def_readwrite("auto_start", &PivotGrouping::autoStart)
-        .def_readwrite("auto_end", &PivotGrouping::autoEnd)
-        .def_readwrite("start", &PivotGrouping::start)
-        .def_readwrite("end", &PivotGrouping::end)
-        .def_readwrite("interval", &PivotGrouping::interval)
-        .def_readwrite("date_part", &PivotGrouping::datePart)
-        .def_readwrite("start_date", &PivotGrouping::startDate)
-        .def_readwrite("end_date", &PivotGrouping::endDate)
-        .def_property_readonly("active", &PivotGrouping::active);
-
-    py::class_<PivotFilter>(m, "PivotFilter")
-        .def(py::init<>())
-        .def_readwrite("type", &PivotFilter::type)
-        .def_readwrite("field_index", &PivotFilter::fieldIndex)
-        .def_readwrite("measure_field_index", &PivotFilter::measureFieldIndex)
-        .def_readwrite("value1", &PivotFilter::value1)
-        .def_readwrite("value2", &PivotFilter::value2)
-        .def_readwrite("top10_value", &PivotFilter::top10Value)
-        .def_readwrite("top10_percent", &PivotFilter::top10Percent)
-        .def_readwrite("top10_top", &PivotFilter::top10Top);
-
     py::class_<PivotCache>(m, "PivotCache")
         .def(py::init<>())
         .def_property("cache_id", &PivotCache::cacheId, &PivotCache::setCacheId)
-        .def_property("source_data", &PivotCache::sourceData, &PivotCache::setSourceData)
-        .def_property("refresh_on_load", &PivotCache::refreshOnLoad, &PivotCache::setRefreshOnLoad)
-        .def_property("save_data", &PivotCache::saveData, &PivotCache::setSaveData)
-        .def_property("enable_refresh", &PivotCache::enableRefresh, &PivotCache::setEnableRefresh)
-        .def_property("missing_items_limit", &PivotCache::missingItemsLimit, &PivotCache::setMissingItemsLimit)
-        .def_property("background_query", &PivotCache::backgroundQuery, &PivotCache::setBackgroundQuery)
-        .def_property("optimize_memory", &PivotCache::optimizeMemory, &PivotCache::setOptimizeMemory)
-        .def_property("upgrade_on_refresh", &PivotCache::upgradeOnRefresh, &PivotCache::setUpgradeOnRefresh)
-        .def_property("support_subquery", &PivotCache::supportSubquery, &PivotCache::setSupportSubquery)
-        .def_property("support_advanced_drill", &PivotCache::supportAdvancedDrill, &PivotCache::setSupportAdvancedDrill)
-        .def_property("refreshed_by", &PivotCache::refreshedBy, &PivotCache::setRefreshedBy)
-        .def_property("fields", [](PivotCache& c) -> std::vector<std::string>& { return c.fields(); }, &PivotCache::setFields, py::return_value_policy::reference_internal)
-        .def_property("records", [](PivotCache& c) -> std::vector<std::vector<std::string>>& { return c.records(); }, &PivotCache::setRecords, py::return_value_policy::reference_internal)
-        .def("add_field", &PivotCache::addField)
-        .def("add_record", &PivotCache::addRecord)
-        .def("clear_records", &PivotCache::clearRecords)
-        .def("field_index", &PivotCache::fieldIndex);
+        .def_property("source_data", &PivotCache::sourceData, &PivotCache::setSourceData);
 
     py::class_<PivotField>(m, "PivotField")
         .def(py::init<>())
@@ -1295,90 +591,29 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("name", &PivotField::name, &PivotField::setName)
         .def_property("axis", &PivotField::axis, &PivotField::setAxis)
         .def_property("show_all", &PivotField::showAll, &PivotField::setShowAll)
-        .def_property("sort_type", &PivotField::sortType, &PivotField::setSortType)
-        .def_property("subtotal_top", &PivotField::subtotalTop, &PivotField::setSubtotalTop)
-        .def_property("insert_blank_row", &PivotField::insertBlankRow, &PivotField::setInsertBlankRow)
-        .def_property("repeat_item_labels", &PivotField::repeatItemLabels, &PivotField::setRepeatItemLabels)
-        .def_property("include_new_items_in_filter", &PivotField::includeNewItemsInFilter, &PivotField::setIncludeNewItemsInFilter)
-        .def_property("multiple_item_selection_allowed", &PivotField::multipleItemSelectionAllowed, &PivotField::setMultipleItemSelectionAllowed)
-        .def_property("selected_item_index", &PivotField::selectedItemIndex, &PivotField::setSelectedItemIndex)
-        .def_property("field_index", &PivotField::fieldIndex, &PivotField::setFieldIndex)
-        .def_property("compact", &PivotField::compact, &PivotField::setCompact)
-        .def_property("outline", &PivotField::outline, &PivotField::setOutline)
-        .def_property("insert_page_break", &PivotField::insertPageBreak, &PivotField::setInsertPageBreak)
-        .def_property("show_drop_downs", &PivotField::showDropDowns, &PivotField::setShowDropDowns)
-        .def_property("default_subtotal", &PivotField::defaultSubtotal, &PivotField::setDefaultSubtotal)
-        .def_property("subtotals", &PivotField::subtotals, &PivotField::setSubtotals)
-        .def_property("hidden_item_indexes", &PivotField::hiddenItemIndexes, &PivotField::setHiddenItemIndexes)
-        .def_property("grouping", [](PivotField& f) -> PivotGrouping& { return f.grouping(); }, &PivotField::setGrouping, py::return_value_policy::reference_internal)
-        .def("add_subtotal", &PivotField::addSubtotal)
-        .def("item_hidden", &PivotField::itemHidden)
-        .def("set_item_hidden", &PivotField::setItemHidden, py::arg("index"), py::arg("hidden") = true);
+        .def_property("sort_type", &PivotField::sortType, &PivotField::setSortType);
 
     py::class_<PivotFieldReference>(m, "PivotFieldReference")
         .def(py::init<>())
-        .def_property("field_index", &PivotFieldReference::fieldIndex, &PivotFieldReference::setFieldIndex)
-        .def_property("name", &PivotFieldReference::name, &PivotFieldReference::setName)
-        .def_property("subtotal", &PivotFieldReference::subtotal, &PivotFieldReference::setSubtotal)
-        .def_property("caption", &PivotFieldReference::caption, &PivotFieldReference::setCaption)
-        .def_property("number_format_id", &PivotFieldReference::numberFormatId, &PivotFieldReference::setNumberFormatId)
-        .def_property("show_data_as", &PivotFieldReference::showDataAs, &PivotFieldReference::setShowDataAs)
-        .def_property("base_field", &PivotFieldReference::baseField, &PivotFieldReference::setBaseField)
-        .def_property("base_item", &PivotFieldReference::baseItem, &PivotFieldReference::setBaseItem);
-
-    py::enum_<PivotLayout>(m, "PivotLayout")
-        .value("COMPACT", PivotLayout::Compact)
-        .value("OUTLINE", PivotLayout::Outline)
-        .value("TABULAR", PivotLayout::Tabular);
+        .def_property("field_index", &PivotFieldReference::fieldIndex, &PivotFieldReference::setFieldIndex);
 
     py::class_<PivotTable>(m, "PivotTable")
         .def(py::init<>())
         .def(py::init<std::string>(), py::arg("name"))
         .def_property("name", &PivotTable::name, &PivotTable::setName)
         .def_property("location", &PivotTable::location, &PivotTable::setLocation)
-        .def_property("layout", &PivotTable::layout, &PivotTable::setLayout)
-        .def_property("row_grand_totals", &PivotTable::rowGrandTotals, &PivotTable::setRowGrandTotals)
-        .def_property("column_grand_totals", &PivotTable::columnGrandTotals, &PivotTable::setColumnGrandTotals)
-        .def_property("preserve_formatting", &PivotTable::preserveFormatting, &PivotTable::setPreserveFormatting)
-        .def_property("use_auto_formatting", &PivotTable::useAutoFormatting, &PivotTable::setUseAutoFormatting)
-        .def_property("data_caption", &PivotTable::dataCaption, &PivotTable::setDataCaption)
-        .def_property("style_name", &PivotTable::styleName, &PivotTable::setStyleName)
-        .def_property("show_row_headers", &PivotTable::showRowHeaders, &PivotTable::setShowRowHeaders)
-        .def_property("show_column_headers", &PivotTable::showColumnHeaders, &PivotTable::setShowColumnHeaders)
-        .def_property("show_row_stripes", &PivotTable::showRowStripes, &PivotTable::setShowRowStripes)
-        .def_property("show_column_stripes", &PivotTable::showColumnStripes, &PivotTable::setShowColumnStripes)
-        .def_property("show_last_column", &PivotTable::showLastColumn, &PivotTable::setShowLastColumn)
-        .def_property("show_empty_row", &PivotTable::showEmptyRow, &PivotTable::setShowEmptyRow)
-        .def_property("show_empty_column", &PivotTable::showEmptyColumn, &PivotTable::setShowEmptyColumn)
-        .def_property("show_drill", &PivotTable::showDrill, &PivotTable::setShowDrill)
-        .def_property("enable_drill", &PivotTable::enableDrill, &PivotTable::setEnableDrill)
-        .def_property("show_data_tips", &PivotTable::showDataTips, &PivotTable::setShowDataTips)
-        .def_property("show_member_property_tips", &PivotTable::showMemberPropertyTips, &PivotTable::setShowMemberPropertyTips)
-        .def_property("show_headers", &PivotTable::showHeaders, &PivotTable::setShowHeaders)
-        .def_property("multiple_field_filters", &PivotTable::multipleFieldFilters, &PivotTable::setMultipleFieldFilters)
-        .def_property("show_values_row", &PivotTable::showValuesRow, &PivotTable::setShowValuesRow)
-        .def_property("subtotal_hidden_items", &PivotTable::subtotalHiddenItems, &PivotTable::setSubtotalHiddenItems)
-        .def_property("page_wrap", &PivotTable::pageWrap, &PivotTable::setPageWrap)
-        .def_property("page_over_then_down", &PivotTable::pageOverThenDown, &PivotTable::setPageOverThenDown)
         .def_property_readonly("cache", [](PivotTable& p) -> PivotCache& { return p.cache(); }, py::return_value_policy::reference_internal)
-        .def("add_row_field", &PivotTable::addRowField, py::return_value_policy::reference_internal)
-        .def("add_column_field", &PivotTable::addColumnField, py::return_value_policy::reference_internal)
-        .def("add_page_field", &PivotTable::addPageField, py::return_value_policy::reference_internal)
-        .def("add_data_field", [](PivotTable& p, const std::string& name, const std::string& subtotal) -> PivotFieldReference& { return p.addDataField(name, subtotal); },
-             py::arg("name"), py::arg("subtotal") = "sum", py::return_value_policy::reference_internal)
-        .def("add_data_field_by_index", [](PivotTable& p, int index) -> PivotFieldReference& { return p.addDataField(index); }, py::arg("field_index") = 0,
-             py::return_value_policy::reference_internal)
-        .def("add_filter", &PivotTable::addFilter, py::return_value_policy::reference_internal)
+        .def("add_row_field", &PivotTable::addRowField)
+        .def("add_column_field", &PivotTable::addColumnField)
+        .def("add_page_field", &PivotTable::addPageField)
+        .def("add_data_field", [](PivotTable& p) { p.addDataField(); })
         .def_property_readonly("row_fields", [](PivotTable& p) -> std::vector<PivotField>& { return p.rowFields(); }, py::return_value_policy::reference_internal)
         .def_property_readonly("column_fields", [](PivotTable& p) -> std::vector<PivotField>& { return p.columnFields(); }, py::return_value_policy::reference_internal)
         .def_property_readonly("page_fields", [](PivotTable& p) -> std::vector<PivotField>& { return p.pageFields(); }, py::return_value_policy::reference_internal)
-        .def_property_readonly("data_fields", [](PivotTable& p) -> std::vector<PivotFieldReference>& { return p.dataFields(); }, py::return_value_policy::reference_internal)
-        .def_property_readonly("filters", [](PivotTable& p) -> std::vector<PivotFilter>& { return p.filters(); }, py::return_value_policy::reference_internal);
+        .def_property_readonly("data_fields", [](PivotTable& p) -> std::vector<PivotFieldReference>& { return p.dataFields(); }, py::return_value_policy::reference_internal);
 
     // === Table ===
     py::class_<TableColumn>(m, "TableColumn")
-        .def(py::init<>())
-        .def(py::init<std::size_t, std::string>(), py::arg("id"), py::arg("name"))
         .def_property_readonly("id", &TableColumn::id)
         .def_property("name", &TableColumn::name, &TableColumn::setName);
 
@@ -1398,7 +633,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("reference", &Table::reference, &Table::setReference)
         .def_property("show_header_row", &Table::showHeaderRow, &Table::setShowHeaderRow)
         .def_property("show_totals_row", &Table::showTotalsRow, &Table::setShowTotalsRow)
-        .def_property_readonly("columns", [](const Table& t) { return stable_vector_copy(t.columns()); }, py::return_value_policy::reference_internal)
+        .def_property_readonly("columns", [](Table& t) -> std::vector<TableColumn>& { return t.columns(); }, py::return_value_policy::reference_internal)
         .def_property_readonly("style_info", [](Table& t) -> TableStyleInfo& { return t.styleInfo(); }, py::return_value_policy::reference_internal)
         .def("add_column", &Table::addColumn, py::return_value_policy::reference_internal)
         .def("__repr__", [](const Table& t) { return "<Table " + t.name() + ">"; });
@@ -1414,7 +649,6 @@ PYBIND11_MODULE(xlpp, m) {
 
     // === DefinedName ===
     py::class_<DefinedName>(m, "DefinedName")
-        .def(py::init<>())
         .def(py::init<std::string, std::string>())
         .def_property_readonly("name", &DefinedName::name)
         .def_property("value", &DefinedName::value, &DefinedName::setValue)
@@ -1499,7 +733,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def_readwrite("style", &IconSet::style);
 
     py::class_<ConditionalRule>(m, "ConditionalRule")
-        .def(py::init<>())
         .def_static("formula", &ConditionalRule::formula, py::arg("expression"))
         .def_static("cell_is", &ConditionalRule::cellIs, py::arg("op"), py::arg("value"))
         .def_static("cell_is_between", &ConditionalRule::cellIsBetween,
@@ -1528,11 +761,10 @@ PYBIND11_MODULE(xlpp, m) {
         .def(py::init<std::string>(), py::arg("reference"))
         .def_property("reference", &ConditionalFormattingEntry::reference, &ConditionalFormattingEntry::setReference)
         .def("add_rule", &ConditionalFormattingEntry::addRule, py::return_value_policy::reference_internal)
-        .def_property_readonly("rules", [](const ConditionalFormattingEntry& e) { return stable_vector_copy(e.rules()); }, py::return_value_policy::reference_internal)
+        .def_property_readonly("rules", [](ConditionalFormattingEntry& e) -> std::vector<ConditionalRule>& { return e.rules(); }, py::return_value_policy::reference_internal)
         .def("empty", &ConditionalFormattingEntry::empty);
 
     py::class_<ConditionalFormattingCollection>(m, "ConditionalFormattingCollection")
-        .def(py::init<>())
         .def("__call__", [](ConditionalFormattingCollection& c) -> ConditionalFormattingCollection& { return c; }, py::return_value_policy::reference_internal)
         .def("add", &ConditionalFormattingCollection::add, py::return_value_policy::reference_internal)
         .def("add_rule", [](ConditionalFormattingCollection& c, const std::string& ref,
@@ -1545,7 +777,7 @@ PYBIND11_MODULE(xlpp, m) {
                 return c.addRule(ref, ConditionalRule::formula(formula));
             }, py::arg("reference"), py::arg("type"), py::arg("formula"),
             py::return_value_policy::reference_internal)
-        .def_property_readonly("entries", [](const ConditionalFormattingCollection& c) { return stable_vector_copy(c.entries()); }, py::return_value_policy::reference_internal)
+        .def_property_readonly("entries", [](ConditionalFormattingCollection& c) -> std::vector<ConditionalFormattingEntry>& { return c.entries(); }, py::return_value_policy::reference_internal)
         .def("empty", &ConditionalFormattingCollection::empty)
         .def("clear", &ConditionalFormattingCollection::clear);
 
@@ -1596,7 +828,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def("__repr__", [](const DataValidation& v) { return "<DataValidation>"; });
 
     py::class_<DataValidationCollection>(m, "DataValidationCollection")
-        .def(py::init<>())
         .def("__call__", [](DataValidationCollection& c) -> DataValidationCollection& { return c; }, py::return_value_policy::reference_internal)
         .def("add", [](DataValidationCollection& c, DataValidationType type,
                        const std::string& reference) -> DataValidation& {
@@ -1606,7 +837,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def("add_validation", [](DataValidationCollection& c, DataValidation v) -> DataValidation& {
                 return c.add(std::move(v));
             }, py::arg("validation"), py::return_value_policy::reference_internal)
-        .def_property_readonly("items", [](const DataValidationCollection& c) { return stable_vector_copy(c.items()); }, py::return_value_policy::reference_internal)
+        .def_property_readonly("items", [](DataValidationCollection& c) -> std::vector<DataValidation>& { return c.items(); }, py::return_value_policy::reference_internal)
         .def("empty", &DataValidationCollection::empty)
         .def("clear", &DataValidationCollection::clear);
 
@@ -1615,9 +846,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def(py::init<>())
         .def_property("enabled", &WorksheetProtection::enabled, &WorksheetProtection::setEnabled)
         .def_property("password_hash", &WorksheetProtection::passwordHash, &WorksheetProtection::setPasswordHash)
-        .def("has_password", &WorksheetProtection::hasPassword)
-        .def("set_password", &WorksheetProtection::setPassword)
-        .def("clear_password", &WorksheetProtection::clearPassword)
         .def_property("select_locked_cells", &WorksheetProtection::selectLockedCells, &WorksheetProtection::setSelectLockedCells)
         .def_property("select_unlocked_cells", &WorksheetProtection::selectUnlockedCells, &WorksheetProtection::setSelectUnlockedCells)
         .def_property("format_cells", &WorksheetProtection::formatCells, &WorksheetProtection::setFormatCells)
@@ -1635,10 +863,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("lock_structure", &WorkbookProtection::lockStructure, &WorkbookProtection::setLockStructure)
         .def_property("lock_windows", &WorkbookProtection::lockWindows, &WorkbookProtection::setLockWindows)
         .def_property("lock_revision", &WorkbookProtection::lockRevision, &WorkbookProtection::setLockRevision)
-        .def_property("workbook_password_hash", &WorkbookProtection::workbookPasswordHash, &WorkbookProtection::setWorkbookPasswordHash)
-        .def("has_password", &WorkbookProtection::hasPassword)
-        .def("set_password", &WorkbookProtection::setPassword)
-        .def("clear_password", &WorkbookProtection::clearPassword);
+        .def_property("workbook_password_hash", &WorkbookProtection::workbookPasswordHash, &WorkbookProtection::setWorkbookPasswordHash);
 
     // === Dimensions ===
     py::class_<RowDimension>(m, "RowDimension")
@@ -1676,15 +901,10 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("y_split", &SheetView::ySplit, &SheetView::setYSplit);
 
     // === CalcProperties / CustomProperties ===
-    py::enum_<CalculationMode>(m, "CalculationMode")
-        .value("AUTOMATIC", CalculationMode::Automatic)
-        .value("AUTOMATIC_EXCEPT_DATA_TABLES", CalculationMode::AutomaticExceptDataTables)
-        .value("MANUAL", CalculationMode::Manual);
     py::class_<CalcProperties>(m, "CalcProperties")
         .def(py::init<>())
         .def_property("calc_id", &CalcProperties::calcId, &CalcProperties::setCalcId)
         .def_property("calc_mode", &CalcProperties::calcMode, &CalcProperties::setCalcMode)
-        .def_property("calculation_mode", &CalcProperties::calculationMode, &CalcProperties::setCalculationMode)
         .def_property("calc_on_save", &CalcProperties::calcOnSave, &CalcProperties::setCalcOnSave)
         .def_property("full_calc_on_load", &CalcProperties::fullCalcOnLoad, &CalcProperties::setFullCalcOnLoad)
         .def_property("full_precision", &CalcProperties::fullPrecision, &CalcProperties::setFullPrecision)
@@ -1705,7 +925,7 @@ PYBIND11_MODULE(xlpp, m) {
     py::class_<CustomProperties>(m, "CustomProperties")
         .def(py::init<>())
         .def("add", &CustomProperties::add)
-        .def_property_readonly("items", [](const CustomProperties& c) { return stable_vector_copy(c.items()); }, py::return_value_policy::reference_internal)
+        .def_property_readonly("items", [](CustomProperties& c) -> std::vector<CustomProperty>& { return c.items(); }, py::return_value_policy::reference_internal)
         .def("empty", &CustomProperties::empty);
 
     // === PreservedPart / LoadDiagnostics ===
@@ -1717,13 +937,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def_readwrite("extension", &PreservedPart::extension)
         .def_readwrite("default_type", &PreservedPart::defaultType)
         .def_readwrite("compress", &PreservedPart::compress);
-    py::class_<PreservedRelationship>(m, "PreservedRelationship")
-        .def(py::init<>())
-        .def_readwrite("source_part", &PreservedRelationship::sourcePart)
-        .def_readwrite("id", &PreservedRelationship::id)
-        .def_readwrite("type", &PreservedRelationship::type)
-        .def_readwrite("target", &PreservedRelationship::target)
-        .def_readwrite("target_mode", &PreservedRelationship::targetMode);
 
     py::class_<LoadDiagnostics>(m, "LoadDiagnostics")
         .def(py::init<>())
@@ -1787,8 +1000,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def("set_bool_value", [](Cell& c, bool v) { c.setBoolValue(v); })
         .def("set_error", [](Cell& c, const py::object& e) { c.setError(py_to_cellerror(e)); })
         .def("set_date", [](Cell& c, const DateTime& d) { c.setDate(d); })
-        .def("set_date", [](Cell& c, int year, int month, int day) { c.setDate(year, month, day); },
-             py::arg("year"), py::arg("month"), py::arg("day"))
         .def("set_datetime", [](Cell& c, const DateTime& d) { c.setDateTime(d); })
         .def("date", [](const Cell& c) -> std::optional<DateTime> { return c.date(); })
         .def("numeric_value_or", &Cell::numericValueOr, py::arg("fallback") = 0.0)
@@ -1816,11 +1027,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def("is_bool", &Cell::isBoolean)
         .def("is_date", &Cell::isDate)
         .def("value_type", &Cell::valueType)
-        .def_property_readonly("has_rich_text", &Cell::hasRichText)
-        .def("rich_text", &Cell::richText, py::return_value_policy::reference_internal)
-        .def_property_readonly("rich_text_value", &Cell::richTextValue)
-        .def("set_rich_text", &Cell::setRichText)
-        .def("clear_rich_text", &Cell::clearRichText)
         .def("style", static_cast<Style& (Cell::*)()>(&Cell::style), py::return_value_policy::reference_internal)
         .def("font", static_cast<Font& (Cell::*)()>(&Cell::font), py::return_value_policy::reference_internal)
         .def("fill", static_cast<Fill& (Cell::*)()>(&Cell::fill), py::return_value_policy::reference_internal)
@@ -1850,8 +1056,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def(py::init<>())
         .def(py::init<std::string>())
         .def_property("name", &Worksheet::name, &Worksheet::rename)
-        .def("rename", &Worksheet::rename, py::arg("name"))
-        .def_property("vba_code_name", &Worksheet::vbaCodeName, &Worksheet::setVbaCodeName)
         .def("cell",
             [](Worksheet& ws, const py::object& key) -> Cell& {
                 if (py::isinstance<py::str>(key))
@@ -1974,8 +1178,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property_readonly("print_area", &Worksheet::printArea)
         .def_property("print_titles_rows", &Worksheet::printTitlesRows, &Worksheet::setPrintTitlesRows)
         .def_property("print_titles_cols", &Worksheet::printTitlesCols, &Worksheet::setPrintTitlesCols)
-        .def("set_print_titles_rows", &Worksheet::setPrintTitlesRows, py::arg("value"))
-        .def("set_print_titles_cols", &Worksheet::setPrintTitlesCols, py::arg("value"))
         .def_property_readonly("max_row", &Worksheet::maxRow)
         .def_property_readonly("max_column", &Worksheet::maxColumn)
         .def("dimensions", &Worksheet::dimensions)
@@ -1987,7 +1189,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def("delete_rows", &Worksheet::deleteRows, py::arg("index"), py::arg("amount") = 1)
         .def("insert_columns", &Worksheet::insertColumns, py::arg("index"), py::arg("amount") = 1)
         .def("delete_columns", &Worksheet::deleteColumns, py::arg("index"), py::arg("amount") = 1)
-        .def("apply_structural_edit", &Worksheet::applyStructuralEdit, py::arg("edit"))
         .def("auto_filter", py::overload_cast<>(&Worksheet::autoFilter),
              py::return_value_policy::reference_internal)
         .def_property_readonly("conditional_formatting", py::overload_cast<>(&Worksheet::conditionalFormatting),
@@ -2009,160 +1210,23 @@ PYBIND11_MODULE(xlpp, m) {
             auto* t = ws.table(name);
             return t ? py::cast(*t, py::return_value_policy::reference) : py::none{};
         })
-        .def_property_readonly("tables", [](const Worksheet& ws) { return stable_vector_copy(ws.tables()); }, py::return_value_policy::reference_internal)
+        .def_property_readonly("tables", [](Worksheet& ws) -> std::vector<Table>& { return ws.tables(); }, py::return_value_policy::reference_internal)
         .def("add_image", [](Worksheet& ws, const std::string& path, const std::string& anchor) -> Image& {
             return ws.addImage(path, anchor);
         }, py::return_value_policy::reference_internal)
         .def("add_image", [](Worksheet& ws, const Image& image) -> Image& {
             return ws.addImage(image);
         }, py::return_value_policy::reference_internal)
-        .def_property_readonly("image_count", [](const Worksheet& ws) { return ws.images().size(); })
-        .def_property_readonly("images", [](const Worksheet& ws) { return stable_vector_copy(ws.images()); }, py::return_value_policy::reference_internal)
+        .def_property_readonly("images", [](Worksheet& ws) -> std::vector<Image>& { return ws.images(); }, py::return_value_policy::reference_internal)
         .def("sheet_view", py::overload_cast<>(&Worksheet::sheetView),
              py::return_value_policy::reference_internal)
         .def("set_sheet_view", &Worksheet::setSheetView)
         .def("add_chart", &Worksheet::addChart)
         .def("chart", py::overload_cast<std::size_t>(&Worksheet::chart), py::return_value_policy::reference_internal)
         .def_property_readonly("chart_count", &Worksheet::chartCount)
-        .def_property_readonly("charts", [](const Worksheet& ws) { return stable_vector_copy(ws.charts()); }, py::return_value_policy::reference_internal)
+        .def_property_readonly("charts", [](Worksheet& ws) -> std::vector<Chart>& { return ws.charts(); }, py::return_value_policy::reference_internal)
         .def("add_pivot_table", &Worksheet::addPivotTable)
-        .def("add_loaded_pivot_table", &Worksheet::addLoadedPivotTable, py::return_value_policy::reference_internal)
-        .def_property_readonly("loaded_pivot_count", &Worksheet::loadedPivotCount)
-        .def_property_readonly("generated_pivot_start", &Worksheet::generatedPivotStart)
-        .def_property_readonly("pivot_tables", [](const Worksheet& ws) { return stable_vector_copy(ws.pivotTables()); }, py::return_value_policy::reference_internal)
-        .def("add_loaded_image", &Worksheet::addLoadedImage, py::return_value_policy::reference_internal)
-        .def_property_readonly("loaded_image_count", &Worksheet::loadedImageCount)
-        .def_property_readonly("appended_image_count", &Worksheet::appendedImageCount)
-        .def("image_by_stable_id", [](const Worksheet& ws, const std::string& id) -> py::object {
-            const auto* image = ws.imageByStableId(id);
-            return image ? py::cast(*image, py::return_value_policy::reference) : py::none{};
-        })
-        .def("move_image", &Worksheet::moveImage)
-        .def("move_image_absolute", &Worksheet::moveImageAbsolute)
-        .def("resize_image", &Worksheet::resizeImage)
-        .def("replace_image", py::overload_cast<const std::string&, Image>(&Worksheet::replaceImage))
-        .def("replace_image", [](Worksheet& ws, const std::string& stableId, const std::string& path) {
-            return ws.replaceImage(stableId, std::filesystem::path(path));
-        }, py::arg("stable_id"), py::arg("path"))
-        .def("remove_image", &Worksheet::removeImage)
-        .def("add_loaded_chart", &Worksheet::addLoadedChart, py::return_value_policy::reference_internal)
-        .def_property_readonly("loaded_chart_count", &Worksheet::loadedChartCount)
-        .def_property_readonly("appended_chart_count", &Worksheet::appendedChartCount)
-        .def("chart_by_stable_id", [](const Worksheet& ws, const std::string& id) -> py::object {
-            const auto* chart = ws.chartByStableId(id);
-            return chart ? py::cast(*chart, py::return_value_policy::reference) : py::none{};
-        })
-        .def("move_chart", &Worksheet::moveChart)
-        .def("move_chart_absolute", &Worksheet::moveChartAbsolute)
-        .def("resize_chart", &Worksheet::resizeChart)
-        .def("set_chart_title", &Worksheet::setChartTitle)
-        .def("set_chart_style", &Worksheet::setChartStyle)
-        .def("set_chart_title_rich_text", &Worksheet::setChartTitleRichText)
-        .def("set_chart_x_axis_title", &Worksheet::setChartXAxisTitle)
-        .def("set_chart_y_axis_title", &Worksheet::setChartYAxisTitle)
-        .def("set_chart_axis_title", &Worksheet::setChartAxisTitle)
-        .def("set_chart_axis_title_rich_text", &Worksheet::setChartAxisTitleRichText)
-        .def("set_chart_axis_number_format", &Worksheet::setChartAxisNumberFormat,
-             py::arg("stable_id"), py::arg("axis_id"), py::arg("format_code"), py::arg("source_linked") = false)
-        .def("set_chart_axis_ticks", &Worksheet::setChartAxisTicks)
-        .def("set_chart_axis_units", &Worksheet::setChartAxisUnits,
-             py::arg("stable_id"), py::arg("axis_id"), py::arg("major_unit"), py::arg("minor_unit") = 0.0)
-        .def("set_chart_axis_crossing", &Worksheet::setChartAxisCrossing,
-             py::arg("stable_id"), py::arg("axis_id"), py::arg("crosses"), py::arg("cross_between") = std::string{})
-        .def("set_chart_axis_crosses_at", &Worksheet::setChartAxisCrossesAt)
-        .def("clear_chart_axis_crosses_at", &Worksheet::clearChartAxisCrossesAt)
-        .def("set_chart_axis_scaling", &Worksheet::setChartAxisScaling)
-        .def("set_chart_axis_display_units", &Worksheet::setChartAxisDisplayUnits)
-        .def("clear_chart_axis_display_units", &Worksheet::clearChartAxisDisplayUnits)
-        .def("set_chart_axis_line_format", &Worksheet::setChartAxisLineFormat)
-        .def("set_chart_axis_gridline_format", &Worksheet::setChartAxisGridlineFormat)
-        .def("remove_chart_axis_gridlines", &Worksheet::removeChartAxisGridlines)
-        .def("set_chart_area_line_format", &Worksheet::setChartAreaLineFormat)
-        .def("set_chart_area_fill_format", &Worksheet::setChartAreaFillFormat)
-        .def("set_chart_plot_area_line_format", &Worksheet::setChartPlotAreaLineFormat)
-        .def("set_chart_plot_area_fill_format", &Worksheet::setChartPlotAreaFillFormat)
-        .def("set_chart_plot_area_layout", &Worksheet::setChartPlotAreaLayout)
-        .def("set_chart_view_3d", &Worksheet::setChartView3D)
-        .def("set_chart_view3_d", &Worksheet::setChartView3D)
-        .def("set_chart_floor_format", &Worksheet::setChartFloorFormat)
-        .def("set_chart_side_wall_format", &Worksheet::setChartSideWallFormat)
-        .def("set_chart_back_wall_format", &Worksheet::setChartBackWallFormat)
-        .def("set_chart_data_table", &Worksheet::setChartDataTable)
-        .def("remove_chart_data_table", &Worksheet::removeChartDataTable)
-        .def("set_chart_legend", &Worksheet::setChartLegend,
-             py::arg("stable_id"), py::arg("show"), py::arg("position") = "r")
-        .def("set_chart_legend_overlay", &Worksheet::setChartLegendOverlay)
-        .def("set_chart_legend_layout", &Worksheet::setChartLegendLayout)
-        .def("set_chart_legend_line_format", &Worksheet::setChartLegendLineFormat)
-        .def("set_chart_legend_fill_format", &Worksheet::setChartLegendFillFormat)
-        .def("set_chart_plot_drop_lines", &Worksheet::setChartPlotDropLines)
-        .def("remove_chart_plot_drop_lines", &Worksheet::removeChartPlotDropLines)
-        .def("set_chart_plot_high_low_lines", &Worksheet::setChartPlotHighLowLines)
-        .def("remove_chart_plot_high_low_lines", &Worksheet::removeChartPlotHighLowLines)
-        .def("remove_chart_plot_up_down_bars", &Worksheet::removeChartPlotUpDownBars)
-        .def("set_chart_plot_up_down_bars", &Worksheet::setChartPlotUpDownBars)
-        .def("set_chart_plot_first_slice_angle", &Worksheet::setChartPlotFirstSliceAngle)
-        .def("set_chart_plot_doughnut_hole_size", &Worksheet::setChartPlotDoughnutHoleSize)
-        .def("set_chart_plot_radar_style", &Worksheet::setChartPlotRadarStyle)
-        .def("set_chart_plot_projected_pie_options", &Worksheet::setChartPlotProjectedPieOptions)
-        .def("set_chart_plot_leader_line_format", &Worksheet::setChartPlotLeaderLineFormat)
-        .def("remove_chart_plot_leader_lines", &Worksheet::removeChartPlotLeaderLines)
-        .def("remove_chart_series_leader_lines", &Worksheet::removeChartSeriesLeaderLines)
-        .def("set_chart_series_title", &Worksheet::setChartSeriesTitle)
-        .def("set_chart_series_references", &Worksheet::setChartSeriesReferences)
-        .def("set_chart_series_category_cache", &Worksheet::setChartSeriesCategoryCache)
-        .def("set_chart_series_value_cache", &Worksheet::setChartSeriesValueCache)
-        .def("set_chart_series_title_cache", &Worksheet::setChartSeriesTitleCache)
-        .def("clear_chart_series_caches", &Worksheet::clearChartSeriesCaches)
-        .def("remove_chart_plot_data_label_point", &Worksheet::removeChartPlotDataLabelPoint)
-        .def("remove_chart_series_data_label_point", &Worksheet::removeChartSeriesDataLabelPoint)
-        .def("set_chart_plot_data_labels", &Worksheet::setChartPlotDataLabels)
-        .def("set_chart_series_data_labels", &Worksheet::setChartSeriesDataLabels)
-        .def("set_chart_plot_data_label_point", &Worksheet::setChartPlotDataLabelPoint)
-        .def("set_chart_series_data_label_point", &Worksheet::setChartSeriesDataLabelPoint)
-        .def("set_chart_series_data_label_point_rich_text", &Worksheet::setChartSeriesDataLabelPointRichText)
-        .def("remove_chart_series_data_point_format", &Worksheet::removeChartSeriesDataPointFormat)
-        .def("set_chart_series_data_point_format", &Worksheet::setChartSeriesDataPointFormat)
-        .def("set_chart_series_line_format", &Worksheet::setChartSeriesLineFormat)
-        .def("set_chart_series_fill_format", &Worksheet::setChartSeriesFillFormat)
-        .def("set_chart_series_marker_format", &Worksheet::setChartSeriesMarkerFormat)
-        .def("set_chart_series_leader_line_format", &Worksheet::setChartSeriesLeaderLineFormat)
-        .def("remove_chart_series_trendline", &Worksheet::removeChartSeriesTrendline)
-        .def("set_chart_series_trendline_line_format", &Worksheet::setChartSeriesTrendlineLineFormat)
-        .def("set_chart_series_trendline", &Worksheet::setChartSeriesTrendline)
-        .def("add_chart_series_trendline", &Worksheet::addChartSeriesTrendline)
-        .def("remove_chart_series_error_bars", &Worksheet::removeChartSeriesErrorBars)
-        .def("set_chart_series_error_bars_line_format", &Worksheet::setChartSeriesErrorBarsLineFormat)
-        .def("set_chart_series_error_bars", &Worksheet::setChartSeriesErrorBars)
-        .def("remove_chart", &Worksheet::removeChart)
-        .def("set_vba_code_name", &Worksheet::setVbaCodeName)
-        .def_property_readonly("preserved_sheet_format_pr_xml", &Worksheet::preservedSheetFormatPrXml)
-        .def("set_loaded_sheet_format_pr_xml", &Worksheet::setLoadedSheetFormatPrXml)
-        .def_property_readonly("drawings_dirty", &Worksheet::drawingsDirty)
-        .def_property_readonly("drawing_append_dirty", &Worksheet::drawingAppendDirty)
-        .def_property_readonly("pivots_dirty", &Worksheet::pivotsDirty)
-        .def("clear_dirty", &Worksheet::clearDirty)
-        .def_property_readonly("row_dimensions", [](const Worksheet& ws) {
-            py::dict result;
-            for (const auto& [index, dimension] : ws.rowDimensions()) result[py::int_(index)] = py::cast(&dimension, py::return_value_policy::reference);
-            return result;
-        })
-        .def_property_readonly("column_dimensions", [](const Worksheet& ws) {
-            py::dict result;
-            for (const auto& [index, dimension] : ws.columnDimensions()) result[py::int_(index)] = py::cast(&dimension, py::return_value_policy::reference);
-            return result;
-        })
-        .def_property_readonly("cells", [](const Worksheet& ws) -> py::list {
-            py::list result;
-            for (const auto& [key, cell] : ws.cells())
-                result.append(py::cast(&cell, py::return_value_policy::reference));
-            return result;
-        })
-        .def_property_readonly("rows", [](Worksheet& ws) {
-            py::list result;
-            for (auto& row : ws.rows()) result.append(py::cast(row));
-            return result;
-        })
+        .def_property_readonly("pivot_tables", [](Worksheet& ws) -> std::vector<PivotTable>& { return ws.pivotTables(); }, py::return_value_policy::reference_internal)
         .def("row", [](Worksheet& ws, std::size_t n) { return ws.row(n); })
         .def("iter_rows", [](const Worksheet& ws, std::size_t minRow, std::size_t maxRow, std::size_t minCol, std::size_t maxCol) {
             return ws.iterRows(minRow, maxRow, minCol, maxCol);
@@ -2182,27 +1246,18 @@ PYBIND11_MODULE(xlpp, m) {
 
     // === WorksheetExtents ===
     py::class_<WorksheetExtents>(m, "WorksheetExtents")
-        .def(py::init<>())
-        .def(py::init<std::size_t, std::size_t, std::size_t, std::size_t>(),
-             py::arg("min_row"), py::arg("min_column"), py::arg("max_row"), py::arg("max_column"))
-        .def_readwrite("min_row", &WorksheetExtents::minRow)
-        .def_readwrite("min_column", &WorksheetExtents::minColumn)
-        .def_readwrite("max_row", &WorksheetExtents::maxRow)
-        .def_readwrite("max_column", &WorksheetExtents::maxColumn);
+        .def_readonly("min_row", &WorksheetExtents::minRow)
+        .def_readonly("min_column", &WorksheetExtents::minColumn)
+        .def_readonly("max_row", &WorksheetExtents::maxRow)
+        .def_readonly("max_column", &WorksheetExtents::maxColumn);
 
     // === Row ===
     py::class_<Row>(m, "Row")
-        .def(py::init<Worksheet&, std::size_t>(), py::arg("worksheet"), py::arg("row_number"), py::keep_alive<1, 2>())
         .def_property_readonly("number", &Row::number)
         .def("cell", &Row::cell, py::return_value_policy::reference_internal)
         .def("try_cell", [](const Row& r, std::size_t col) -> py::object {
             const auto* c = r.tryCell(col);
             return c ? py::cast(*c, py::return_value_policy::reference) : py::none{};
-        })
-        .def_property_readonly("cells", [](Row& r) -> py::list {
-            py::list result;
-            for (auto* cell : r.cells()) result.append(py::cast(cell, py::return_value_policy::reference));
-            return result;
         })
         .def("__iter__", [](Row& r) {
             auto cells = r.cells();
@@ -2220,7 +1275,6 @@ PYBIND11_MODULE(xlpp, m) {
         .value("BOUNDED_LRU", SharedStringMode::BoundedLru);
 
     py::class_<StreamingCell>(m, "StreamingCell")
-        .def(py::init<>())
         .def_readwrite("address", &StreamingCell::address)
         .def_property("value", [](const StreamingCell& c) { return cellvalue_to_py(c.value); },
             [](StreamingCell& c, const py::object& v) { c.value = py_to_cellvalue(v); })
@@ -2231,16 +1285,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def(py::init<>())
         .def("row_number", &StreamingRowIterator::rowNumber);
 
-    py::class_<StreamingReaderOptions>(m, "StreamingReaderOptions")
-        .def(py::init<>())
-        .def_readwrite("max_file_bytes", &StreamingReaderOptions::maxFileBytes)
-        .def_readwrite("max_entry_bytes", &StreamingReaderOptions::maxEntryBytes)
-        .def_readwrite("max_total_bytes", &StreamingReaderOptions::maxTotalBytes)
-        .def_readwrite("max_entries", &StreamingReaderOptions::maxEntries)
-        .def_readwrite("validate_cell_references", &StreamingReaderOptions::validateCellReferences);
-
     py::class_<StreamingWorksheetReader>(m, "StreamingWorksheetReader")
-        .def(py::init<>())
         .def("for_each_row", &StreamingWorksheetReader::forEachRow,
              py::arg("callback"), "Callback receives (row_number, StreamingRow); return False to stop early.")
         .def("__iter__", [](StreamingWorksheetReader& r) {
@@ -2258,8 +1303,6 @@ PYBIND11_MODULE(xlpp, m) {
 
     py::class_<StreamingWorkbookReader>(m, "StreamingWorkbookReader")
         .def(py::init<std::filesystem::path>(), py::arg("path"))
-        .def(py::init<std::filesystem::path, const StreamingReaderOptions&>(),
-             py::arg("path"), py::arg("options"))
         .def("worksheet_names", &StreamingWorkbookReader::worksheetNames)
         .def("worksheet", [](StreamingWorkbookReader& r, const std::string& name) {
             return r.worksheet(name);
@@ -2267,7 +1310,6 @@ PYBIND11_MODULE(xlpp, m) {
         .def("for_each_row", &StreamingWorkbookReader::forEachRow, py::arg("worksheet_name"), py::arg("callback"));
 
     py::class_<StreamingWorksheetWriter>(m, "StreamingWorksheetWriter")
-        .def(py::init<>())
         .def("append", [](StreamingWorksheetWriter& w, const py::list& values) {
             std::vector<CellValue> cv;
             cv.reserve(values.size());
@@ -2291,94 +1333,14 @@ PYBIND11_MODULE(xlpp, m) {
         .def("set_compression_strategy", &StreamingWorkbookWriter::setCompressionStrategy)
         .def("set_parallel_workers", &StreamingWorkbookWriter::setParallelWorkers);
 
-    // === Preservation-first external data / Data Model inspection ===
-    py::class_<ExternalWorkbookLinkInfo>(m, "ExternalWorkbookLinkInfo")
-        .def(py::init<>())
-        .def_readwrite("part_name", &ExternalWorkbookLinkInfo::partName).def_readwrite("sheet_names", &ExternalWorkbookLinkInfo::sheetNames).def_readwrite("defined_names", &ExternalWorkbookLinkInfo::definedNames);
-    py::class_<WorkbookConnectionInfo>(m, "WorkbookConnectionInfo")
-        .def(py::init<>())
-        .def_readwrite("part_name", &WorkbookConnectionInfo::partName).def_readwrite("id", &WorkbookConnectionInfo::id).def_readwrite("name", &WorkbookConnectionInfo::name)
-        .def_readwrite("description", &WorkbookConnectionInfo::description).def_readwrite("type", &WorkbookConnectionInfo::type)
-        .def_readwrite("refresh_on_load", &WorkbookConnectionInfo::refreshOnLoad).def_readwrite("background", &WorkbookConnectionInfo::background).def_readwrite("deleted", &WorkbookConnectionInfo::deleted);
-    py::class_<QueryTableInfo>(m, "QueryTableInfo")
-        .def(py::init<>())
-        .def_readwrite("part_name", &QueryTableInfo::partName).def_readwrite("name", &QueryTableInfo::name).def_readwrite("connection_id", &QueryTableInfo::connectionId).def_readwrite("refresh_on_load", &QueryTableInfo::refreshOnLoad);
-    py::class_<ExternalDataInspection>(m, "ExternalDataInspection")
-        .def(py::init<>())
-        .def_readwrite("external_workbooks", &ExternalDataInspection::externalWorkbooks).def_readwrite("connections", &ExternalDataInspection::connections)
-        .def_readwrite("query_tables", &ExternalDataInspection::queryTables).def_readwrite("power_query_parts", &ExternalDataInspection::powerQueryParts)
-        .def_readwrite("web_query_parts", &ExternalDataInspection::webQueryParts)
-        .def_readwrite("unknown_connection_parts", &ExternalDataInspection::unknownConnectionParts)
-        .def_property_readonly("has_external_workbooks", &ExternalDataInspection::hasExternalWorkbooks)
-        .def_property_readonly("has_connections", &ExternalDataInspection::hasConnections)
-        .def_property_readonly("has_query_tables", &ExternalDataInspection::hasQueryTables)
-        .def_property_readonly("has_power_query", &ExternalDataInspection::hasPowerQuery);
-    py::class_<DataModelInspection>(m, "DataModelInspection")
-        .def(py::init<>())
-        .def_readwrite("present", &DataModelInspection::present).def_readwrite("has_olap_pivot_caches", &DataModelInspection::hasOlapPivotCaches)
-        .def_readwrite("model_parts", &DataModelInspection::modelParts).def_readwrite("model_relationships", &DataModelInspection::modelRelationships)
-        .def_readwrite("olap_pivot_cache_parts", &DataModelInspection::olapPivotCacheParts).def_readwrite("warnings", &DataModelInspection::warnings);
-    py::enum_<EnterpriseFeatureKind>(m, "EnterpriseFeatureKind")
-        .value("PIVOT_CHART", EnterpriseFeatureKind::PivotChart)
-        .value("SLICER", EnterpriseFeatureKind::Slicer)
-        .value("SLICER_CACHE", EnterpriseFeatureKind::SlicerCache)
-        .value("TIMELINE", EnterpriseFeatureKind::Timeline)
-        .value("TIMELINE_CACHE", EnterpriseFeatureKind::TimelineCache)
-        .value("OLAP_PIVOT_CACHE", EnterpriseFeatureKind::OlapPivotCache)
-        .value("DATA_MODEL", EnterpriseFeatureKind::DataModel)
-        .value("POWER_QUERY", EnterpriseFeatureKind::PowerQuery)
-        .value("SMART_ART", EnterpriseFeatureKind::SmartArt)
-        .value("ACTIVE_X", EnterpriseFeatureKind::ActiveX)
-        .value("VBA_USER_FORM", EnterpriseFeatureKind::VbaUserForm);
-    py::class_<EnterpriseFeatureRelationship>(m, "EnterpriseFeatureRelationship")
-        .def(py::init<>())
-        .def_readwrite("source_part", &EnterpriseFeatureRelationship::sourcePart)
-        .def_readwrite("id", &EnterpriseFeatureRelationship::id)
-        .def_readwrite("type", &EnterpriseFeatureRelationship::type)
-        .def_readwrite("target_mode", &EnterpriseFeatureRelationship::targetMode)
-        .def_readwrite("target_part", &EnterpriseFeatureRelationship::targetPart)
-        .def_readwrite("outgoing", &EnterpriseFeatureRelationship::outgoing);
-    py::class_<EnterpriseFeatureInfo>(m, "EnterpriseFeatureInfo")
-        .def(py::init<>())
-        .def_readwrite("kind", &EnterpriseFeatureInfo::kind)
-        .def_readwrite("part_name", &EnterpriseFeatureInfo::partName)
-        .def_readwrite("content_type", &EnterpriseFeatureInfo::contentType)
-        .def_readwrite("name", &EnterpriseFeatureInfo::name)
-        .def_readwrite("source_name", &EnterpriseFeatureInfo::sourceName)
-        .def_readwrite("connection_id", &EnterpriseFeatureInfo::connectionId)
-        .def_readwrite("cache_id", &EnterpriseFeatureInfo::cacheId)
-        .def_readwrite("referenced_pivot_tables", &EnterpriseFeatureInfo::referencedPivotTables)
-        .def_readwrite("relationships", &EnterpriseFeatureInfo::relationships)
-        .def_readwrite("binary", &EnterpriseFeatureInfo::binary)
-        .def_readwrite("semantic_editable", &EnterpriseFeatureInfo::semanticEditable)
-        .def_readwrite("has_refresh_on_load", &EnterpriseFeatureInfo::hasRefreshOnLoad)
-        .def_readwrite("refresh_on_load", &EnterpriseFeatureInfo::refreshOnLoad);
-    py::class_<EnterpriseFeatureInspection>(m, "EnterpriseFeatureInspection")
-        .def(py::init<>())
-        .def_readwrite("features", &EnterpriseFeatureInspection::features)
-        .def_readwrite("warnings", &EnterpriseFeatureInspection::warnings)
-        .def("count", &EnterpriseFeatureInspection::count)
-        .def("has", &EnterpriseFeatureInspection::has);
-    py::class_<EnterpriseEditReport>(m, "EnterpriseEditReport")
-        .def(py::init<>())
-        .def_readwrite("matched", &EnterpriseEditReport::matched)
-        .def_readwrite("modified", &EnterpriseEditReport::modified)
-        .def_readwrite("warnings", &EnterpriseEditReport::warnings)
-        .def_property_readonly("success", &EnterpriseEditReport::success);
-
     // === Workbook ===
     py::class_<Workbook>(m, "Workbook")
         .def(py::init<>())
-        .def_static("open", [](const std::string& path, const LoadOptions* opts) { Workbook wb; if (opts) wb.load(std::filesystem::path(path), *opts); else wb.load(std::filesystem::path(path)); return wb; }, py::arg("path"), py::arg("options") = nullptr)
-        .def("__enter__", [](Workbook& wb) -> Workbook& { return wb; }, py::return_value_policy::reference_internal)
-        .def("__exit__", [](Workbook&, py::object, py::object, py::object) { return false; })
         .def("add_worksheet", &Workbook::addWorksheet, py::return_value_policy::reference_internal)
         .def("copy_worksheet", &Workbook::copyWorksheet, py::return_value_policy::reference_internal)
         .def("remove_worksheet", &Workbook::removeWorksheet)
+        .def("rename_worksheet", &Workbook::renameWorksheet, py::arg("old_name"), py::arg("new_name"))
         .def("worksheet",
-            [](Workbook& wb, const std::string& name) -> Worksheet* { return wb.worksheet(name); },
-            py::return_value_policy::reference_internal)
-        .def("get_worksheet",
             [](Workbook& wb, const std::string& name) -> Worksheet* { return wb.worksheet(name); },
             py::return_value_policy::reference_internal)
         .def("__getitem__",
@@ -2393,8 +1355,13 @@ PYBIND11_MODULE(xlpp, m) {
                 throw std::invalid_argument("key must be str or int");
             }, py::return_value_policy::reference_internal)
         .def("__len__", &Workbook::sheetCount)
-        .def_property_readonly("sheet_count", &Workbook::sheetCount)
         .def_property_readonly("sheet_names", &Workbook::sheetNames)
+        .def_static("is_password_encrypted_file", [](const std::string& path) {
+            return Workbook::isPasswordEncryptedFile(std::filesystem::path(path));
+        })
+        .def_static("inspect_password_encryption_file", [](const std::string& path) {
+            return Workbook::inspectPasswordEncryptionFile(std::filesystem::path(path));
+        })
         .def_property_readonly("active", [](Workbook& wb) -> Worksheet& { return wb[0]; },
                                py::return_value_policy::reference_internal)
         .def("index", &Workbook::index)
@@ -2423,12 +1390,6 @@ PYBIND11_MODULE(xlpp, m) {
                 else wb.save(stream);
                 return py::bytes(stream.str());
             }, py::arg("options") = nullptr)
-        .def("load_in_place", [](Workbook& wb, const std::string& path, const LoadOptions& opts) {
-            wb.load(std::filesystem::path(path), opts);
-        }, py::arg("path"), py::arg("options"))
-        .def("save_in_place", [](const Workbook& wb, const std::string& path, const SaveOptions& opts) {
-            wb.save(std::filesystem::path(path), opts);
-        }, py::arg("path"), py::arg("options"))
         .def_property_readonly("properties", py::overload_cast<>(&Workbook::properties))
         .def("protection", py::overload_cast<>(&Workbook::protection),
              py::return_value_policy::reference_internal)
@@ -2447,69 +1408,17 @@ PYBIND11_MODULE(xlpp, m) {
         })
         .def("apply_named_style", &Workbook::applyNamedStyle)
         .def("add_defined_name", &Workbook::addDefinedName, py::return_value_policy::reference_internal)
-        .def("defined_name", [](Workbook& wb, const std::string& name, std::optional<std::size_t> local_sheet_id) -> DefinedName* {
-            return wb.definedName(name, local_sheet_id);
-        }, py::arg("name"), py::arg("local_sheet_id") = std::nullopt,
-           py::return_value_policy::reference_internal)
+        .def("defined_name", py::overload_cast<const std::string&>(&Workbook::definedName),
+             py::return_value_policy::reference_internal)
         .def_property_readonly("defined_names", [](Workbook& wb) -> py::list {
             py::list out;
             for (auto& n : wb.definedNames())
                 out.append(py::cast(&n, py::return_value_policy::reference));
             return out;
         })
-        .def("calculate_formulas", &Workbook::calculateFormulas, py::arg("options") = CalculationOptions{})
-        .def("dependency_graph", &Workbook::dependencyGraph)
-        .def("rename_worksheet", &Workbook::renameWorksheet, py::arg("old_name"), py::arg("new_name"), py::arg("options") = WorksheetRenameOptions{})
-        .def("synchronize_chart_caches", &Workbook::synchronizeChartCaches, py::arg("options") = ChartCacheSyncOptions{})
-        .def("reset_chart_cache_dependency_tracking", &Workbook::resetChartCacheDependencyTracking)
-        .def_property_readonly("tracked_chart_cache_dependency_count", &Workbook::trackedChartCacheDependencyCount)
-        .def("validate", &Workbook::validate, py::arg("options") = WorkbookValidationOptions{})
-        .def("inspect_external_data", &Workbook::inspectExternalData)
-        .def("inspect_data_model", &Workbook::inspectDataModel)
-        .def("inspect_enterprise_features", &Workbook::inspectEnterpriseFeatures)
-        .def("set_connection_refresh_on_load", &Workbook::setConnectionRefreshOnLoad, py::arg("connection_id"), py::arg("enabled"))
-        .def("set_query_table_refresh_on_load", &Workbook::setQueryTableRefreshOnLoad, py::arg("query_name"), py::arg("enabled"))
-        .def("set_olap_pivot_cache_refresh_on_load", &Workbook::setOlapPivotCacheRefreshOnLoad, py::arg("part_name"), py::arg("enabled"))
-        .def("set_pivot_chart_source_name", &Workbook::setPivotChartSourceName, py::arg("part_name"), py::arg("source_name"))
-        .def("add_vba_project", [](Workbook& wb, const std::string& path) { wb.addVbaProject(std::filesystem::path(path)); }, py::arg("path"))
-        .def("set_vba_project", [](Workbook& wb, const py::bytes& data) {
-            const std::string raw = data.cast<std::string>();
-            wb.setVbaProject(std::vector<unsigned char>(raw.begin(), raw.end()));
-        }, py::arg("data"))
-        .def_property_readonly("has_vba_project", &Workbook::hasVbaProject)
-        .def("remove_vba_project", &Workbook::removeVbaProject)
-        .def("set_vba_module", &Workbook::setVbaModule, py::arg("module"))
-        .def("set_vba_module_text", &Workbook::setVbaModuleText, py::arg("module_name"), py::arg("source"))
-        .def("set_vba_class_module_text", &Workbook::setVbaClassModuleText, py::arg("module_name"), py::arg("source"), py::arg("read_only") = false, py::arg("private_module") = false)
-        .def("set_vba_document_module_text", &Workbook::setVbaDocumentModuleText, py::arg("module_name"), py::arg("source"))
-        .def("vba_module_text", &Workbook::vbaModuleText, py::arg("module_name"))
-        .def_property_readonly("vba_modules", &Workbook::vbaModules)
-        .def_property_readonly("vba_project_bytes", [](const Workbook& wb) {
-            const auto bytes = wb.vbaProjectBytes();
-            return py::bytes(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-        })
-        .def("save_vba_project", [](const Workbook& wb, const std::string& path) { wb.saveVbaProject(std::filesystem::path(path)); }, py::arg("path"))
-        .def_property_readonly("has_vba_signature", &Workbook::hasVbaSignature)
-        .def_property_readonly("vba_source_editable", &Workbook::vbaSourceEditable)
-        .def_property("vba_project_properties", &Workbook::vbaProjectProperties, &Workbook::setVbaProjectProperties)
-        .def("set_vba_project_properties", &Workbook::setVbaProjectProperties, py::arg("properties"))
-        .def("remove_vba_module", &Workbook::removeVbaModule, py::arg("module_name"))
-        .def("apply_structural_edit", &Workbook::applyStructuralEdit, py::arg("edit"), py::arg("options") = StructuralEditOptions{})
-        .def("insert_rows", &Workbook::insertRows, py::arg("sheet_name"), py::arg("index"), py::arg("amount") = 1, py::arg("options") = StructuralEditOptions{})
-        .def("delete_rows", &Workbook::deleteRows, py::arg("sheet_name"), py::arg("index"), py::arg("amount") = 1, py::arg("options") = StructuralEditOptions{})
-        .def("insert_columns", &Workbook::insertColumns, py::arg("sheet_name"), py::arg("index"), py::arg("amount") = 1, py::arg("options") = StructuralEditOptions{})
-        .def("delete_columns", &Workbook::deleteColumns, py::arg("sheet_name"), py::arg("index"), py::arg("amount") = 1, py::arg("options") = StructuralEditOptions{})
         .def_property("date_1904", &Workbook::date1904, &Workbook::setDate1904)
-        .def_property("date1904", &Workbook::date1904, &Workbook::setDate1904)
         .def("clear", &Workbook::clear)
         .def_property_readonly("preserved_parts", [](Workbook& wb) -> std::vector<PreservedPart>& { return wb.preservedParts(); }, py::return_value_policy::reference_internal)
-        .def_property_readonly("preserved_relationships", [](const Workbook& wb) { return wb.preservedRelationships(); })
-        .def_property_readonly("worksheets", [](Workbook& wb) -> py::list {
-            py::list result;
-            for (auto& ws : wb.worksheets())
-                result.append(py::cast(&ws, py::return_value_policy::reference));
-            return result;
-        })
         .def_property_readonly("strict_namespaces", &Workbook::strictNamespaces)
         .def_property_readonly("diagnostics", [](const Workbook& wb) -> const LoadDiagnostics& { return wb.diagnostics(); }, py::return_value_policy::reference_internal)
         .def("__iter__", [](Workbook& wb) {
@@ -2522,28 +1431,10 @@ PYBIND11_MODULE(xlpp, m) {
             return "<Workbook sheets=" + std::to_string(wb.sheetCount()) + ">";
         });
 
-    m.attr("__version__") = "1.12.0";
+    m.attr("__version__") = "1.1.2";
 
     // Excel 365 dynamic-array function prefix helper
     m.def("xlfn", [](const std::string& f) { return xlpp::xlfn(f); },
           py::arg("function"),
           "Prefix an Excel 365 function name with _xlfn. (e.g. SORT -> _xlfn.SORT)");
-    m.def("looks_like_encrypted_office_file", [](const std::string& path) {
-        return xlpp::looksLikeEncryptedOfficeFile(std::filesystem::path(path));
-    }, py::arg("path"));
-    m.def("inspect_office_encryption", [](const std::string& path) {
-        return xlpp::inspectOfficeEncryption(std::filesystem::path(path));
-    }, py::arg("path"));
-    m.def("legacy_protection_password_hash", &xlpp::legacyProtectionPasswordHash,
-          py::arg("password"));
-    m.def("translate_formula_references", &xlpp::translateFormulaReferences,
-          py::arg("formula"), py::arg("context_sheet"), py::arg("edit"));
-    m.def("translate_range_references", &xlpp::translateRangeReferences,
-          py::arg("reference"), py::arg("context_sheet"), py::arg("edit"));
-    m.def("rename_worksheet_references", &xlpp::renameWorksheetReferences,
-          py::arg("expression"), py::arg("old_worksheet_name"), py::arg("new_worksheet_name"));
-    m.def("invalidate_worksheet_references", &xlpp::invalidateWorksheetReferences,
-          py::arg("expression"), py::arg("removed_worksheet_name"));
-    m.def("build_formula_dependency_graph", &xlpp::buildFormulaDependencyGraph,
-          py::arg("workbook"));
 }

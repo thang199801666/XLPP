@@ -21,6 +21,8 @@ XLPP maintains four public access layers: native C++, C ABI, Python, and C#. Hig
 
 Verification rules:
 
+- C# declares every exported C ABI function. The current bridge covers all 869 exports, including rich text, formula metadata/reference translation, drawing anchors, streaming reader options, nested Chart line/fill/rich-text/cache/layout/3D/trendline/error-bar editing, encryption inspection, and enterprise feature inspection/editing.
+
 - C ABI must compile as C and pass `xlpp_capi_smoke`.
 - Python must binary-build and run `bindings/python/tests` in binding CI/release verification.
 - C# must build and run its managed executable/test project in the .NET binding CI job.

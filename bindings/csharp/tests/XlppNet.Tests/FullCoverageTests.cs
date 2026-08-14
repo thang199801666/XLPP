@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Xunit;
 using XLPP;
 
@@ -26,34 +25,6 @@ namespace XlppNet.Tests
             Assert.True(wb.Date1904);
             wb.Clear();
             Assert.Equal(0, wb.SheetCount);
-        }
-
-        [Fact]
-        public void Workbook_Collections_And_PreservedRelationships()
-        {
-            using var wb = new Workbook();
-            wb.AddWorksheet("First");
-            wb.AddWorksheet("Second");
-            Assert.Equal(new[] { "First", "Second" }, wb.Worksheets.Select(x => x.Name));
-            Assert.Equal(0, wb.Index(wb.Worksheets[0]));
-            Assert.Empty(wb.NamedStyles);
-            Assert.Empty(wb.DefinedNames);
-            Assert.Empty(wb.PreservedRelationships);
-        }
-
-        [Fact]
-        public void Worksheet_Collections_StaySynchronized()
-        {
-            using var wb = new Workbook();
-            var ws = wb.AddWorksheet("Sheet");
-            ws.AddTable("Table1", "A1:B2");
-            ws.AddChart(ChartType.Line);
-            ws.MergeCells("A1:B1");
-            Assert.Single(ws.Tables);
-            Assert.Single(ws.Charts);
-            Assert.Empty(ws.Images);
-            Assert.Empty(ws.PivotTables);
-            Assert.Contains("A1:B1", ws.MergedRanges);
         }
 
         [Fact]

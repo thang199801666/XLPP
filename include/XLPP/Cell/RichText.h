@@ -1,5 +1,4 @@
 #pragma once
-#include <XLPP/Core/StableVector.h>
 #include <string>
 #include <optional>
 #include <vector>
@@ -31,8 +30,8 @@ private:
 class RichText {
 public:
     void addRun(RichTextRun run) { runs_.push_back(std::move(run)); }
-    const StableVector<RichTextRun>& runs() const noexcept { return runs_; }
-    StableVector<RichTextRun>& runs() noexcept { return runs_; }
+    const std::vector<RichTextRun>& runs() const noexcept { return runs_; }
+    std::vector<RichTextRun>& runs() noexcept { return runs_; }
     bool empty() const noexcept { return runs_.empty(); }
     std::string plainText() const {
         std::string result;
@@ -47,7 +46,7 @@ public:
     }
 
 private:
-    StableVector<RichTextRun> runs_;
+    std::vector<RichTextRun> runs_;
 };
 
 }

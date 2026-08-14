@@ -1,6 +1,6 @@
 #pragma once
-#include <XLPP/Core/StableVector.h>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <memory>
 #include <cstdint>
@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <sstream>
 #include <set>
+#include <stdexcept>
 #include <XLPP/Worksheet/Drawings/Image.h>
 
 namespace xlpp {
@@ -158,6 +159,32 @@ struct ChartThemeFontScheme {
     std::string minorLatinTypeface;
 };
 
+struct ChartThemeEffectStyle {
+    bool present{false};
+    bool outerShadow{false};
+    bool innerShadow{false};
+    bool glow{false};
+    bool softEdge{false};
+    bool reflection{false};
+    bool blur{false};
+    ChartColor outerShadowColor{};
+    ChartColor innerShadowColor{};
+    ChartColor glowColor{};
+    double outerShadowBlurPoints{0.0};
+    double outerShadowDistancePoints{0.0};
+    double outerShadowDirectionDegrees{0.0};
+    double innerShadowBlurPoints{0.0};
+    double innerShadowDistancePoints{0.0};
+    double innerShadowDirectionDegrees{0.0};
+    double glowRadiusPoints{0.0};
+    double softEdgeRadiusPoints{0.0};
+    double reflectionBlurPoints{0.0};
+    double reflectionDistancePoints{0.0};
+    double reflectionDirectionDegrees{0.0};
+    double blurRadiusPoints{0.0};
+    bool blurGrow{false};
+};
+
 struct ChartThemeEffectScheme {
     bool present{false};
     std::string name;
@@ -165,6 +192,13 @@ struct ChartThemeEffectScheme {
     std::size_t lineStyleCount{0};
     std::size_t effectStyleCount{0};
     std::size_t backgroundFillStyleCount{0};
+    // P0Y materializes the theme style matrix instead of exposing only counts.
+    // Entries retain DrawingML scheme colors/transforms so callers may either
+    // serialize them unchanged or resolve final colors through ChartThemePalette.
+    std::vector<ChartFillFormat> fillStyles;
+    std::vector<ChartLineFormat> lineStyles;
+    std::vector<ChartThemeEffectStyle> effectStyles;
+    std::vector<ChartFillFormat> backgroundFillStyles;
 };
 
 struct ChartThemeColor {
@@ -236,6 +270,53 @@ struct ChartThemePalette {
         result.green=static_cast<int>(std::lround(gd*255.0)); result.blue=static_cast<int>(std::lround(bd*255.0)); result.alpha=alpha; return result;
     }
     std::string resolveFinalRgb(const ChartColor& color) const { return resolve(color).srgb(); }
+    std::string resolveTypeface(const std::string& typeface) const {
+        if (typeface == "+mj-lt" && !fontScheme.majorLatinTypeface.empty()) return fontScheme.majorLatinTypeface;
+        if (typeface == "+mn-lt" && !fontScheme.minorLatinTypeface.empty()) return fontScheme.minorLatinTypeface;
+        return typeface;
+    }
+};
+
+struct ChartStyleReference {
+    bool present{false};
+    // Raw Office chart-style matrix index. Style matrix references are stored
+    // exactly as authored; consumers may map them to the theme fmtScheme.
+    int index{-1};
+    std::string modifiers;
+    ChartColor color{};
+    // cs:styleClr resolves through the associated chart color-style resource.
+    bool styleColor{false};
+    std::string styleColorValue;
+    std::vector<ChartColorTransform> styleColorTransforms;
+};
+
+struct ChartStyleRule {
+    // Local chart-style element name: chartArea, plotArea, dataPoint,
+    // dataPointLine, dataPointMarker, legend, categoryAxis, valueAxis, ...
+    std::string target;
+    std::string modifiers;
+    ChartStyleReference lineReference{};
+    ChartStyleReference fillReference{};
+    ChartStyleReference effectReference{};
+    bool hasLineWidthScale{false};
+    double lineWidthScale{1.0};
+    std::string fontIndex;
+    std::string fontModifiers;
+    ChartColor fontColor{};
+    bool fontStyleColor{false};
+    std::string fontStyleColorValue;
+    std::vector<ChartColorTransform> fontStyleColorTransforms;
+    // Explicit cs:spPr overrides matrix references according to the Office
+    // chart-style model. Only fill/line properties are materialized here;
+    // unknown DrawingML children remain preserved in the original package.
+    ChartFillFormat shapeFill{};
+    ChartLineFormat shapeLine{};
+};
+
+struct ChartStyleMarkerLayout {
+    bool present{false};
+    std::string symbol;
+    int size{0};
 };
 
 struct ChartStyleResources {
@@ -243,6 +324,28 @@ struct ChartStyleResources {
     bool colorStylePresent{false};
     std::string chartStylePart;
     std::string colorStylePart;
+    int chartStyleId{-1};
+    int colorStyleId{-1};
+    std::string colorStyleMethod;
+    std::vector<ChartColor> colorStyleColors;
+    // P0Z: parsed Office 2013 chart-style targeting rules. The original XML
+    // part is still preserved byte-for-byte unless another chart edit requires
+    // package mutation.
+    std::vector<ChartStyleRule> chartStyleRules;
+    ChartStyleMarkerLayout markerLayout{};
+
+    const ChartStyleRule* rule(std::string_view target) const noexcept {
+        const auto it = std::find_if(chartStyleRules.begin(), chartStyleRules.end(), [&](const auto& item) {
+            return item.target == target;
+        });
+        return it == chartStyleRules.end() ? nullptr : &*it;
+    }
+    std::vector<ChartResolvedColor> resolveColorStyle(const ChartThemePalette& theme) const {
+        std::vector<ChartResolvedColor> result;
+        result.reserve(colorStyleColors.size());
+        for (const auto& color : colorStyleColors) result.push_back(theme.resolve(color));
+        return result;
+    }
 };
 
 struct ChartMarkerFormat {
@@ -430,6 +533,8 @@ public:
     void setValuesReference(std::string v) { valuesReference_ = std::move(v); }
     const std::string& categoriesReference() const noexcept { return categoriesReference_; }
     void setCategoriesReference(std::string v) { categoriesReference_ = std::move(v); }
+    const std::string& bubbleSizeReference() const noexcept { return bubbleSizeReference_; }
+    void setBubbleSizeReference(std::string v) { bubbleSizeReference_ = std::move(v); }
     const std::string& titleReference() const noexcept { return titleReference_; }
     void setTitleReference(std::string v) { titleReference_ = std::move(v); }
     const ChartSeriesCache& titleCache() const noexcept { return titleCache_; }
@@ -440,12 +545,6 @@ public:
     void setCategoriesCache(ChartSeriesCache v) { categoriesCache_ = std::move(v); }
     void setValuesCache(ChartSeriesCache v) { valuesCache_ = std::move(v); }
     void setBubbleSizeCache(ChartSeriesCache v) { bubbleSizeCache_ = std::move(v); }
-    const std::string& bubbleSizeReference() const noexcept { return bubbleSizeReference_; }
-    void setBubbleSizeReference(std::string v) { bubbleSizeReference_ = std::move(v); }
-    bool smooth() const noexcept { return smooth_; }
-    bool hasSmooth() const noexcept { return hasSmooth_; }
-    void setSmooth(bool v) noexcept { smooth_ = v; hasSmooth_ = true; }
-    void clearSmooth() noexcept { hasSmooth_ = false; smooth_ = false; }
     const std::vector<Trendline>& trendlines() const noexcept { return trendlines_; }
     const std::vector<ErrorBars>& errorBars() const noexcept { return errorBars_; }
     const ChartDataLabels& dataLabels() const noexcept { return dataLabels_; }
@@ -476,8 +575,6 @@ public:
 private:
     std::string title_, titleReference_, valuesReference_, categoriesReference_, bubbleSizeReference_;
     ChartSeriesCache titleCache_{}, categoriesCache_{}, valuesCache_{}, bubbleSizeCache_{};
-    bool smooth_{false};
-    bool hasSmooth_{false};
     std::vector<Trendline> trendlines_;
     std::vector<ErrorBars> errorBars_;
     ChartDataLabels dataLabels_{};
@@ -487,23 +584,22 @@ private:
     std::vector<ChartDataPointFormat> dataPoints_;
 };
 
+struct ChartPivotSource {
+    bool present{false};
+    std::string pivotTableName;
+    int formatId{0};
+};
+
 class Chart {
     friend class Worksheet;
 public:
-    // Numeric values 0..16 are kept stable for the public C ABI and existing bindings.
     enum class Type {
-        Bar = 0, Line = 1, Pie = 2, Scatter = 3, Doughnut = 4, Radar = 5, Area = 6, Bubble = 7, Stock = 8,
-        Bar3D = 9, Line3D = 10, Area3D = 11, Pie3D = 12, Surface = 13, Surface3D = 14,
-        PieOfPie = 15, BarOfPie = 16,
-        HorizontalBar = 17,
-        Histogram = 18, Pareto = 19, BoxWhisker = 20, Waterfall = 21, Funnel = 22,
-        Treemap = 23, Sunburst = 24, FilledMap = 25
+        Bar, Line, Pie, Scatter, Doughnut, Radar, Area, Bubble, Stock,
+        Bar3D, Line3D, Area3D, Pie3D, Surface, Surface3D,
+        PieOfPie, BarOfPie
     };
     enum class Grouping { Standard, Stacked, PercentStacked, Clustered };
     enum class AxisKind { Category, Value, Date, Series };
-    enum class BarDirection { Column, Bar };
-    enum class ScatterStyle { None, Line, LineMarker, Marker, Smooth, SmoothMarker };
-    enum class BubbleSizeRepresents { Area, Width };
 
     struct Axis {
         AxisKind kind{AxisKind::Value};
@@ -561,30 +657,6 @@ public:
         int holeSize{10};
         std::string radarStyle;
         ChartProjectedPieOptions projectedPie{};
-        BarDirection barDirection{BarDirection::Column};
-        ScatterStyle scatterStyle{ScatterStyle::Marker};
-        bool hasBubbleScale{false};
-        int bubbleScale{100};
-        bool showNegativeBubbles{false};
-        BubbleSizeRepresents bubbleSizeRepresents{BubbleSizeRepresents::Area};
-        bool bubble3D{false};
-        // ChartEx options.  These are ignored by legacy ChartML types.
-        double histogramBinWidth{0.0};
-        int histogramBinCount{0};
-        bool histogramAutomaticBins{true};
-        bool histogramHasUnderflow{false};
-        double histogramUnderflow{0.0};
-        bool histogramHasOverflow{false};
-        double histogramOverflow{0.0};
-        bool boxWhiskerShowInnerPoints{true};
-        bool boxWhiskerShowOutlierPoints{true};
-        bool boxWhiskerShowMeanLine{false};
-        bool boxWhiskerShowMeanMarker{true};
-        bool boxWhiskerQuartileInclusive{false};
-        bool waterfallShowConnectorLines{true};
-        std::string mapProjection{"automatic"};
-        std::string mapArea{"automatic"};
-        std::string mapLabels{"bestFitOnly"};
     };
 
     Chart(Type type = Type::Bar) : type_(type) {}
@@ -592,6 +664,12 @@ public:
     Type type() const noexcept { return type_; }
     Grouping grouping() const noexcept { return grouping_; }
     void setGrouping(Grouping v) noexcept { grouping_ = v; }
+    const std::string& scatterStyle() const noexcept { return scatterStyle_; }
+    void setScatterStyle(std::string value) {
+        static const std::set<std::string> allowed{"none", "line", "lineMarker", "marker", "smooth", "smoothMarker"};
+        if (allowed.find(value) == allowed.end()) throw std::invalid_argument("Unsupported scatter style: " + value);
+        scatterStyle_ = std::move(value);
+    }
 
     const std::string& title() const noexcept { return title_; }
     void setTitle(std::string v) { title_ = std::move(v); }
@@ -608,6 +686,15 @@ public:
     void setThemePalette(ChartThemePalette v) { themePalette_ = std::move(v); }
     const ChartStyleResources& styleResources() const noexcept { return styleResources_; }
     void setStyleResources(ChartStyleResources v) { styleResources_ = std::move(v); }
+    const ChartPivotSource& pivotSource() const noexcept { return pivotSource_; }
+    void setPivotSource(ChartPivotSource value) { pivotSource_ = std::move(value); }
+    void linkPivotTable(std::string pivotTableName, int formatId = 0) {
+        if (pivotTableName.empty()) throw std::invalid_argument("Pivot chart source name cannot be empty");
+        pivotSource_.present = true;
+        pivotSource_.pivotTableName = std::move(pivotTableName);
+        pivotSource_.formatId = formatId;
+    }
+    void clearPivotSource() noexcept { pivotSource_ = {}; }
     std::string resolveThemeBaseColor(const ChartColor& color) const { return themePalette_.resolveBase(color); }
     ChartResolvedColor resolveThemeColor(const ChartColor& color) const { return themePalette_.resolve(color); }
     std::string resolveThemeFinalRgb(const ChartColor& color) const { return themePalette_.resolveFinalRgb(color); }
@@ -616,8 +703,8 @@ public:
     int height() const noexcept { return height_; } void setHeight(int v) noexcept { height_ = v; }
 
     ChartSeries& addSeries(ChartSeries series) { series_.push_back(std::move(series)); return series_.back(); }
-    const StableVector<ChartSeries>& series() const noexcept { return series_; }
-    StableVector<ChartSeries>& series() noexcept { return series_; }
+    const std::vector<ChartSeries>& series() const noexcept { return series_; }
+    std::vector<ChartSeries>& series() noexcept { return series_; }
 
     bool showLegend() const noexcept { return showLegend_; }
     void setShowLegend(bool v) noexcept { showLegend_ = v; }
@@ -651,35 +738,40 @@ public:
     // OOXML c:axId values and remain stable across selective edits.
     const std::vector<Axis>& axes() const noexcept { return axes_; }
     const std::vector<Plot>& plots() const noexcept { return plots_; }
-    std::vector<Plot>& plots() noexcept { return plots_; }
-    Plot& addPlot(Type type, std::size_t firstSeries, std::size_t seriesCount, bool secondaryAxes = false) {
-        Plot plot;
-        plot.type = type;
-        plot.firstSeries = firstSeries;
-        plot.seriesCount = seriesCount;
-        plot.usesSecondaryAxes = secondaryAxes;
-        if (type == Type::HorizontalBar) plot.barDirection = BarDirection::Bar;
-        plots_.push_back(std::move(plot));
-        return plots_.back();
-    }
     Plot& primaryPlot() {
         if (plots_.empty()) {
             Plot plot;
             plot.type = type_;
             plot.grouping = grouping_;
-            if (type_ == Type::HorizontalBar) plot.barDirection = BarDirection::Bar;
+            plot.firstSeries = 0;
+            plot.seriesCount = series_.size();
             plots_.push_back(std::move(plot));
         }
         return plots_.front();
     }
+    Plot& addPlot(Type type, Grouping grouping = Grouping::Standard, bool secondaryAxes = false) {
+        Plot plot;
+        plot.type = type;
+        plot.grouping = grouping;
+        plot.usesSecondaryAxes = secondaryAxes;
+        plot.firstSeries = series_.size();
+        plot.seriesCount = 0;
+        plots_.push_back(std::move(plot));
+        return plots_.back();
+    }
+    ChartSeries& addSeriesToPlot(std::size_t plotIndex, ChartSeries series) {
+        if (plotIndex >= plots_.size()) throw std::out_of_range("Chart plot index is out of range");
+        auto& plot = plots_[plotIndex];
+        const std::size_t expected = plot.firstSeries + plot.seriesCount;
+        if (expected != series_.size())
+            throw std::logic_error("Generated chart plot series must be appended contiguously");
+        series_.push_back(std::move(series));
+        ++plot.seriesCount;
+        return series_.back();
+    }
+    void clearPlots() noexcept { plots_.clear(); }
     const Plot* primaryPlotOrNull() const noexcept { return plots_.empty() ? nullptr : &plots_.front(); }
     bool combined() const noexcept { return plots_.size() > 1; }
-    bool modern() const noexcept { return isModernType(type_); }
-    static bool isModernType(Type type) noexcept {
-        return type == Type::Histogram || type == Type::Pareto || type == Type::BoxWhisker ||
-               type == Type::Waterfall || type == Type::Funnel || type == Type::Treemap ||
-               type == Type::Sunburst || type == Type::FilledMap;
-    }
     bool hasSecondaryAxes() const noexcept {
         return std::any_of(axes_.begin(), axes_.end(), [](const Axis& axis) { return axis.secondary; });
     }
@@ -721,13 +813,15 @@ public:
 private:
     Type type_{Type::Bar};
     Grouping grouping_{Grouping::Standard};
+    std::string scatterStyle_{"lineMarker"};
     std::string title_, xAxisTitle_, yAxisTitle_;
     ChartRichText titleRichText_{};
     std::string style_{"2"};
     ChartThemePalette themePalette_{};
     ChartStyleResources styleResources_{};
+    ChartPivotSource pivotSource_{};
     int width_{600}, height_{400};
-    StableVector<ChartSeries> series_;
+    std::vector<ChartSeries> series_;
     bool showLegend_{true};
     std::string legendPosition_{"r"};
     ChartLegendFormat legendFormat_{};
@@ -767,21 +861,12 @@ inline std::string Chart::typeName(Chart::Type type, Chart::Grouping grouping) {
     case Type::Stock:      return "stockChart";
     case Type::PieOfPie:   return "ofPieChart";
     case Type::BarOfPie:   return "ofPieChart";
-    case Type::HorizontalBar: return "barChart";
     case Type::Bar3D:      return "bar3DChart";
     case Type::Line3D:     return "line3DChart";
     case Type::Area3D:     return "area3DChart";
     case Type::Pie3D:      return "pie3DChart";
     case Type::Surface:    return "surfaceChart";
     case Type::Surface3D:  return "surface3DChart";
-    case Type::Histogram:  return "histogram";
-    case Type::Pareto:     return "pareto";
-    case Type::BoxWhisker: return "boxWhisker";
-    case Type::Waterfall:  return "waterfall";
-    case Type::Funnel:     return "funnel";
-    case Type::Treemap:    return "treemap";
-    case Type::Sunburst:   return "sunburst";
-    case Type::FilledMap:  return "regionMap";
     }
     return "barChart";
 }

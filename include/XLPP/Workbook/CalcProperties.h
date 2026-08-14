@@ -3,25 +3,11 @@
 
 namespace xlpp {
 
-enum class CalculationMode { Automatic, AutomaticExceptDataTables, Manual };
-
 class CalcProperties {
 public:
     int calcId() const noexcept { return calcId_; } void setCalcId(int v) noexcept { calcId_ = v; }
     const std::string& calcMode() const noexcept { return calcMode_; }
     void setCalcMode(std::string v) { calcMode_ = std::move(v); }
-    CalculationMode calculationMode() const noexcept {
-        if (calcMode_ == "manual") return CalculationMode::Manual;
-        if (calcMode_ == "autoNoTable") return CalculationMode::AutomaticExceptDataTables;
-        return CalculationMode::Automatic;
-    }
-    void setCalculationMode(CalculationMode v) {
-        switch (v) {
-            case CalculationMode::Manual: calcMode_ = "manual"; break;
-            case CalculationMode::AutomaticExceptDataTables: calcMode_ = "autoNoTable"; break;
-            case CalculationMode::Automatic: calcMode_ = "auto"; break;
-        }
-    }
     bool calcOnSave() const noexcept { return calcOnSave_; }
     void setCalcOnSave(bool v) noexcept { calcOnSave_ = v; }
     bool fullCalcOnLoad() const noexcept { return fullCalcOnLoad_; }

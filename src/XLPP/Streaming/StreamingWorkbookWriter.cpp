@@ -1,6 +1,6 @@
 #include <XLPP/Streaming/StreamingWorkbookWriter.h>
-#include "Package/Zip/ZipArchive.h"
-#include "Package/Xml/XmlUtilities.h"
+#include "../Packaging/ZipArchive.h"
+#include "../XML/XmlUtilities.h"
 #include <chrono>
 #include <iomanip>
 #include <list>

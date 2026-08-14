@@ -1,10 +1,9 @@
+# Header files are used via include_dirs and are not auto-included in the
+# sdist, but the extension cannot compile without them.
 include LICENSE
 include README.md
+recursive-include include *.h
+recursive-include src *.h
+recursive-include third_party/zlib *.h
 include VERSION
-include setup.py
-include pyproject.toml
-recursive-include include *.h *.hpp
-recursive-include src *.cpp *.h *.hpp
-recursive-include bindings/python/src *.cpp *.h *.hpp
-recursive-include third_party/zlib *.c *.h
-recursive-exclude third_party/zlib example.c minigzip.c gzclose.c gzlib.c gzread.c gzwrite.c
+include scripts/check-version.py

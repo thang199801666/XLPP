@@ -1,8 +1,6 @@
 // XLPP C API Implementation
-// Binding package version: 1.12.0
 #include "xlpp_capi.h"
 #include <XLPP/XLPP.h>
-#include <XLPP/Version.h>
 #include <XLPP/Cell/RichText.h>
 #include <string>
 #include <vector>
@@ -11,7 +9,6 @@
 #include <cstdio>
 #include <algorithm>
 #include <limits>
-#include <sstream>
 
 // Simple handle wrapping: cast between opaque pointer and C++ pointer
 #define WB(h)   reinterpret_cast<xlpp::Workbook*>(h)
@@ -25,164 +22,11 @@
 #define STY(h)  reinterpret_cast<xlpp::Style*>(h)
 #define PROP(h) reinterpret_cast<xlpp::DocumentProperties*>(h)
 
-struct xlpp_dependency_graph_t {
-    explicit xlpp_dependency_graph_t(xlpp::FormulaDependencyGraph value) : graph(std::move(value)) {}
-    xlpp::FormulaDependencyGraph graph;
-};
-
-struct xlpp_validation_report_t {
-    explicit xlpp_validation_report_t(xlpp::WorkbookValidationReport value) : report(std::move(value)) {}
-    xlpp::WorkbookValidationReport report;
-};
-
-struct xlpp_external_value_t {
-    std::optional<xlpp::CellValue> value;
-};
-
 namespace {
 thread_local std::string g_lastError;
 void clearError() noexcept { g_lastError.clear(); }
 void setError(const char* message) noexcept { g_lastError = message ? message : "XLPP C API error"; }
 void setError(const std::exception& error) noexcept { g_lastError = error.what(); }
-
-xlpp::LoadOptions toLoadOptions(const xlpp_load_options* input) {
-    xlpp::LoadOptions options;
-    if (!input) return options;
-    options.lenient = input->lenient != 0;
-    options.maxEntries = static_cast<std::size_t>(input->max_entries);
-    options.maxEntryBytes = static_cast<std::size_t>(input->max_entry_bytes);
-    options.maxTotalBytes = static_cast<std::size_t>(input->max_total_bytes);
-    options.maxFileBytes = static_cast<std::size_t>(input->max_file_bytes);
-    if (input->password) options.password = input->password;
-    options.verifyEncryptionIntegrity = input->verify_encryption_integrity != 0;
-    if (input->cancel) {
-        const auto callback = input->cancel; void* user = input->callback_user;
-        options.cancel = [callback, user]() { return callback(user) != 0; };
-    }
-    if (input->progress) {
-        const auto callback = input->progress; void* user = input->callback_user;
-        options.progress = [callback, user](std::size_t done, std::size_t total) {
-            callback(user, static_cast<uint64_t>(done), static_cast<uint64_t>(total));
-        };
-    }
-    return options;
-}
-
-xlpp::SaveOptions toSaveOptions(const xlpp_save_options* input) {
-    xlpp::SaveOptions options;
-    if (!input) return options;
-    switch (input->compression_level) {
-        case XLPP_COMPRESS_STORE: options.compressionLevel = xlpp::CompressionLevel::Store; break;
-        case XLPP_COMPRESS_FASTEST: options.compressionLevel = xlpp::CompressionLevel::Fastest; break;
-        case XLPP_COMPRESS_BEST: options.compressionLevel = xlpp::CompressionLevel::Best; break;
-        default: options.compressionLevel = xlpp::CompressionLevel::Default; break;
-    }
-    switch (input->compression_strategy) {
-        case XLPP_STRATEGY_FILTERED: options.compressionStrategy = xlpp::CompressionStrategy::Filtered; break;
-        case XLPP_STRATEGY_HUFFMAN_ONLY: options.compressionStrategy = xlpp::CompressionStrategy::HuffmanOnly; break;
-        case XLPP_STRATEGY_RLE: options.compressionStrategy = xlpp::CompressionStrategy::Rle; break;
-        case XLPP_STRATEGY_FIXED: options.compressionStrategy = xlpp::CompressionStrategy::Fixed; break;
-        default: options.compressionStrategy = xlpp::CompressionStrategy::Default; break;
-    }
-    options.parallelWorkers = static_cast<std::size_t>(input->parallel_workers);
-    options.parallelSheets = input->parallel_sheets != 0;
-    options.parallelRows = input->parallel_rows != 0;
-    options.strictNamespace = input->strict_namespace != 0;
-    options.synchronizeChartCaches = input->synchronize_chart_caches != 0;
-    options.synchronizeChangedChartCachesOnly = input->synchronize_changed_chart_caches_only != 0;
-    options.calculateFormulasBeforeSave = input->calculate_formulas_before_save != 0;
-    options.atomicWrite = input->atomic_write != 0;
-    // Preserve the stable C ABI: durable file synchronization remains enabled
-    // by the C++ SaveOptions default rather than extending xlpp_save_options.
-    options.validateBeforeSave = input->validate_before_save != 0;
-    if (input->encryption_password) options.encryptionPassword = input->encryption_password;
-    switch (input->encryption_mode) {
-        case XLPP_ENCRYPTION_NONE: options.encryptionMode = xlpp::OfficeEncryptionMode::None; break;
-        case XLPP_ENCRYPTION_STANDARD_AES_SHA1: options.encryptionMode = xlpp::OfficeEncryptionMode::StandardAesSha1; break;
-        default: options.encryptionMode = xlpp::OfficeEncryptionMode::AgileAes256Sha512; break;
-    }
-    if (input->encryption_spin_count) options.encryptionSpinCount = static_cast<std::uint32_t>(input->encryption_spin_count);
-    if (input->encryption_key_bits) options.encryptionKeyBits = static_cast<std::uint32_t>(input->encryption_key_bits);
-    return options;
-}
-
-xlpp::StructuralEditOptions toStructuralOptions(const xlpp_structural_options* input) {
-    xlpp::StructuralEditOptions options;
-    if (!input) return options;
-    options.transactional = input->transactional != 0;
-    options.updateDefinedNames = input->update_defined_names != 0;
-    options.recalculateFormulas = input->recalculate_formulas != 0;
-    options.synchronizeChartCaches = input->synchronize_chart_caches != 0;
-    options.changedChartCachesOnly = input->changed_chart_caches_only != 0;
-    options.failOnInvalidReference = input->fail_on_invalid_reference != 0;
-    return options;
-}
-
-xlpp::CalculationOptions toCalculationOptions(const xlpp_calculation_options* input) {
-    xlpp::CalculationOptions options;
-    if (!input) return options;
-    options.recursiveDependencies = input->recursive_dependencies != 0;
-    options.updateCachedValues = input->update_cached_values != 0;
-    options.evaluateVolatileFunctions = input->evaluate_volatile_functions != 0;
-    options.spillDynamicArrays = input->spill_dynamic_arrays != 0;
-    options.iterativeCalculation = input->iterative_calculation != 0;
-    if (input->max_iterations) options.maxIterations = static_cast<std::size_t>(input->max_iterations);
-    if (input->max_change >= 0.0) options.maxChange = input->max_change;
-    if (input->max_depth) options.maxDepth = static_cast<std::size_t>(input->max_depth);
-    if (input->external_reference_resolver) {
-        const auto callback = input->external_reference_resolver;
-        void* user = input->external_reference_user;
-        options.externalReferenceResolver = [callback, user](const std::string& workbookToken,
-                                                             const std::string& sheetName,
-                                                             const std::string& address) -> std::optional<xlpp::CellValue> {
-            xlpp_external_value_t output;
-            if (!callback(user, workbookToken.c_str(), sheetName.c_str(), address.c_str(), &output))
-                return std::nullopt;
-            return output.value;
-        };
-    }
-    return options;
-}
-
-void fillCalculationReport(const xlpp::CalculationReport& r, xlpp_calculation_report* out) {
-    if (!out) return;
-    out->formula_cells_visited = r.formulaCellsVisited;
-    out->formula_cells_evaluated = r.formulaCellsEvaluated;
-    out->cached_values_updated = r.cachedValuesUpdated;
-    out->dependency_evaluations = r.dependencyEvaluations;
-    out->defined_names_resolved = r.definedNamesResolved;
-    out->circular_references = r.circularReferences;
-    out->unsupported_formulas = r.unsupportedFormulas;
-    out->evaluation_errors = r.evaluationErrors;
-    out->dynamic_arrays_spilled = r.dynamicArraysSpilled;
-    out->spill_cells_updated = r.spillCellsUpdated;
-    out->spill_conflicts = r.spillConflicts;
-    out->structured_references_resolved = r.structuredReferencesResolved;
-    out->iterative_iterations = r.iterativeIterations;
-    out->iterative_convergence_failures = r.iterativeConvergenceFailures;
-    out->external_references_resolved = r.externalReferencesResolved;
-    out->unresolved_external_references = r.unresolvedExternalReferences;
-    out->success = r.success() ? 1 : 0;
-}
-
-void fillStructuralReport(const xlpp::StructuralEditReport& r, xlpp_structural_report* out) {
-    if (!out) return;
-    out->worksheets_visited = r.worksheetsVisited;
-    out->cells_moved = r.cellsMoved;
-    out->cells_removed = r.cellsRemoved;
-    out->formulas_updated = r.formulasUpdated;
-    out->formula_metadata_updated = r.formulaMetadataUpdated;
-    out->worksheet_references_updated = r.worksheetReferencesUpdated;
-    out->defined_names_updated = r.definedNamesUpdated;
-    out->chart_references_updated = r.chartReferencesUpdated;
-    out->pivot_references_updated = r.pivotReferencesUpdated;
-    out->drawing_anchors_updated = r.drawingAnchorsUpdated;
-    out->hyperlinks_updated = r.hyperlinksUpdated;
-    out->references_invalidated = r.referencesInvalidated;
-    out->formulas_calculated = r.formulasCalculated;
-    out->chart_caches_updated = r.chartCachesUpdated;
-    out->success = r.success() ? 1 : 0;
-}
 }
 
 // String copy helper into caller buffer.
@@ -193,59 +37,13 @@ static void copyStr(const std::string& s, char* out, int outSize) {
     out[n] = '\0';
 }
 
-static int copyStrSized(const std::string& s, char* out, int outSize) {
-    copyStr(s, out, outSize);
-    const auto required = s.size() + 1;
-    return required > static_cast<std::size_t>((std::numeric_limits<int>::max)())
-        ? (std::numeric_limits<int>::max)() : static_cast<int>(required);
-}
-
 // ============================================================
 // Workbook
 // ============================================================
 extern "C" {
 
 XLPP_API const char* xlpp_version(void) {
-    return XLPP_VERSION_STRING;
-}
-
-XLPP_API uint64_t xlpp_c_abi_version(void) {
-    return static_cast<uint64_t>(XLPP_C_ABI_VERSION);
-}
-
-XLPP_API uint64_t xlpp_capabilities(void) {
-    return XLPP_CAP_FORMULA_ENGINE | XLPP_CAP_STREAMING | XLPP_CAP_ENCRYPTION |
-           XLPP_CAP_CHARTS | XLPP_CAP_PIVOT | XLPP_CAP_VBA |
-           XLPP_CAP_EXTERNAL_DATA_INSPECTION | XLPP_CAP_DATA_MODEL_INSPECTION |
-           XLPP_CAP_DIRTY_RECALC | XLPP_CAP_ADVANCED_AUTOFILTER;
-}
-
-XLPP_API int xlpp_workbook_inspect_external_data(xlpp_workbook wb, xlpp_external_data_summary* out) {
-    if (!wb || !out) return 0;
-    try {
-        const auto info = WB(wb)->inspectExternalData();
-        out->external_workbooks = static_cast<uint64_t>(info.externalWorkbooks.size());
-        out->connections = static_cast<uint64_t>(info.connections.size());
-        out->query_tables = static_cast<uint64_t>(info.queryTables.size());
-        out->power_query_parts = static_cast<uint64_t>(info.powerQueryParts.size());
-        out->web_query_parts = static_cast<uint64_t>(info.webQueryParts.size());
-        out->unknown_connection_parts = static_cast<uint64_t>(info.unknownConnectionParts.size());
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_inspect_data_model(xlpp_workbook wb, xlpp_data_model_summary* out) {
-    if (!wb || !out) return 0;
-    try {
-        const auto info = WB(wb)->inspectDataModel();
-        out->present = info.present ? 1 : 0;
-        out->has_olap_pivot_caches = info.hasOlapPivotCaches ? 1 : 0;
-        out->model_parts = static_cast<uint64_t>(info.modelParts.size());
-        out->model_relationships = static_cast<uint64_t>(info.modelRelationships.size());
-        out->olap_pivot_cache_parts = static_cast<uint64_t>(info.olapPivotCacheParts.size());
-        out->warnings = static_cast<uint64_t>(info.warnings.size());
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
+    return "1.1.2";
 }
 
 XLPP_API xlpp_workbook xlpp_workbook_create(void) {
@@ -280,7 +78,24 @@ XLPP_API xlpp_worksheet xlpp_workbook_sheet_by_name(xlpp_workbook wb, const char
 }
 
 XLPP_API int xlpp_workbook_remove_sheet(xlpp_workbook wb, const char* name) {
-    return WB(wb)->removeWorksheet(name) ? 1 : 0;
+    if (!wb) { setError("Workbook handle is null"); return 0; }
+    if (!name || !name[0]) { setError("Workbook and sheet name are required"); return 0; }
+    try {
+        clearError();
+        return WB(wb)->removeWorksheet(name) ? 1 : 0;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+
+XLPP_API int xlpp_workbook_rename_sheet(xlpp_workbook wb, const char* old_name, const char* new_name) {
+    if (!wb) { setError("Workbook handle is null"); return 0; }
+    if (!old_name || !old_name[0] || !new_name || !new_name[0]) {
+        setError("Workbook, old sheet name, and new sheet name are required");
+        return 0;
+    }
+    try {
+        clearError();
+        return WB(wb)->renameWorksheet(old_name, new_name) ? 1 : 0;
+    } catch (const std::exception& e) { setError(e); return 0; }
 }
 
 XLPP_API xlpp_worksheet xlpp_workbook_copy_sheet(xlpp_workbook wb, xlpp_worksheet src, const char* new_name) {
@@ -306,6 +121,127 @@ XLPP_API int xlpp_workbook_sheet_names_count(xlpp_workbook wb) {
     return static_cast<int>(WB(wb)->sheetNames().size());
 }
 
+#define CSHEET(h) reinterpret_cast<xlpp::Chartsheet*>(h)
+XLPP_API int xlpp_workbook_tab_count(xlpp_workbook wb) {
+    return wb ? static_cast<int>(WB(wb)->workbookSheetCount()) : 0;
+}
+XLPP_API const char* xlpp_workbook_tab_name(xlpp_workbook wb, int index, char* out, int outSize) {
+    try {
+        if (!wb || index < 0) throw std::out_of_range("Workbook tab index is out of range");
+        const auto names = WB(wb)->workbookSheetNames();
+        copyStr(names.at(static_cast<std::size_t>(index)), out, outSize);
+    } catch (const std::exception& e) {
+        setError(e);
+        if (out && outSize > 0) out[0] = '\0';
+    }
+    return out;
+}
+XLPP_API int xlpp_workbook_tab_kind(xlpp_workbook wb, int index) {
+    try {
+        if (!wb || index < 0) return -1;
+        const auto tabs = WB(wb)->workbookSheets();
+        return tabs.at(static_cast<std::size_t>(index)).kind == xlpp::WorkbookSheetKind::Chartsheet ? 1 : 0;
+    } catch (...) { return -1; }
+}
+XLPP_API int xlpp_workbook_tab_visibility(xlpp_workbook wb, int index) {
+    try {
+        if (!wb || index < 0) return -1;
+        return static_cast<int>(WB(wb)->workbookSheetVisibility(static_cast<std::size_t>(index)));
+    } catch (...) { return -1; }
+}
+XLPP_API int xlpp_workbook_set_tab_visibility(xlpp_workbook wb, int index, int visibility) {
+    try {
+        if (!wb || index < 0 || visibility < 0 || visibility > 2) return 0;
+        WB(wb)->setWorkbookSheetVisibility(static_cast<std::size_t>(index), static_cast<xlpp::WorkbookSheetVisibility>(visibility));
+        clearError(); return 1;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+XLPP_API int xlpp_workbook_active_tab(xlpp_workbook wb) {
+    return wb ? static_cast<int>(WB(wb)->activeWorkbookSheetIndex()) : -1;
+}
+XLPP_API int xlpp_workbook_set_active_tab(xlpp_workbook wb, int index) {
+    try {
+        if (!wb || index < 0) return 0;
+        WB(wb)->setActiveWorkbookSheetIndex(static_cast<std::size_t>(index));
+        clearError(); return 1;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+XLPP_API int xlpp_workbook_move_tab(xlpp_workbook wb, int from_index, int to_index) {
+    try {
+        if (!wb || from_index < 0 || to_index < 0) return 0;
+        WB(wb)->moveWorkbookSheet(static_cast<std::size_t>(from_index), static_cast<std::size_t>(to_index));
+        clearError();
+        return 1;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+XLPP_API xlpp_chartsheet xlpp_workbook_add_chartsheet(xlpp_workbook wb, const char* name, int chart_type) {
+    try {
+        if (!wb || !name || !name[0]) throw std::invalid_argument("Workbook and chartsheet name are required");
+        clearError();
+        return reinterpret_cast<xlpp_chartsheet>(&WB(wb)->addChartsheet(name, xlpp::Chart(static_cast<xlpp::Chart::Type>(chart_type))));
+    } catch (const std::exception& e) { setError(e); return nullptr; }
+}
+XLPP_API int xlpp_workbook_chartsheet_count(xlpp_workbook wb) {
+    return wb ? static_cast<int>(WB(wb)->chartsheetCount()) : 0;
+}
+XLPP_API xlpp_chartsheet xlpp_workbook_chartsheet_at(xlpp_workbook wb, int index) {
+    try {
+        if (!wb || index < 0) return nullptr;
+        return reinterpret_cast<xlpp_chartsheet>(&WB(wb)->chartsheets().at(static_cast<std::size_t>(index)));
+    } catch (...) { return nullptr; }
+}
+XLPP_API xlpp_chartsheet xlpp_workbook_chartsheet_by_name(xlpp_workbook wb, const char* name) {
+    if (!wb || !name) return nullptr;
+    return reinterpret_cast<xlpp_chartsheet>(WB(wb)->chartsheet(name));
+}
+XLPP_API int xlpp_workbook_rename_chartsheet(xlpp_workbook wb, const char* old_name, const char* new_name) {
+    try {
+        if (!wb || !old_name || !new_name) return 0;
+        return WB(wb)->renameChartsheet(old_name, new_name) ? 1 : 0;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+XLPP_API int xlpp_workbook_remove_chartsheet(xlpp_workbook wb, const char* name) {
+    try {
+        if (!wb || !name) return 0;
+        return WB(wb)->removeChartsheet(name) ? 1 : 0;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+XLPP_API const char* xlpp_chartsheet_name(xlpp_chartsheet cs) {
+    return cs ? CSHEET(cs)->name().c_str() : "";
+}
+XLPP_API xlpp_chart xlpp_chartsheet_chart(xlpp_chartsheet cs) {
+    try {
+        if (!cs) return nullptr;
+        return reinterpret_cast<xlpp_chart>(&CSHEET(cs)->chart());
+    } catch (const std::exception& e) { setError(e); return nullptr; }
+}
+XLPP_API int xlpp_chartsheet_set_printer_settings(xlpp_chartsheet cs, const unsigned char* data, uint64_t size) {
+    try {
+        if (!cs || (size != 0 && !data)) return 0;
+        CSHEET(cs)->setPrinterSettingsData(size == 0 ? std::string{} : std::string(reinterpret_cast<const char*>(data), static_cast<std::size_t>(size)));
+        clearError();
+        return 1;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+XLPP_API uint64_t xlpp_chartsheet_printer_settings_size(xlpp_chartsheet cs) {
+    if (!cs || !CSHEET(cs)->printerSettingsData()) return 0;
+    return static_cast<uint64_t>(CSHEET(cs)->printerSettingsData()->size());
+}
+XLPP_API uint64_t xlpp_chartsheet_copy_printer_settings(xlpp_chartsheet cs, unsigned char* out, uint64_t capacity) {
+    if (!cs || !CSHEET(cs)->printerSettingsData()) return 0;
+    const auto& data = *CSHEET(cs)->printerSettingsData();
+    const auto needed = static_cast<uint64_t>(data.size());
+    if (!out || capacity < needed) return needed;
+    std::memcpy(out, data.data(), data.size());
+    return needed;
+}
+XLPP_API void xlpp_chartsheet_clear_printer_settings(xlpp_chartsheet cs) {
+    if (cs) CSHEET(cs)->clearPrinterSettings();
+}
+
+XLPP_API void xlpp_workbook_set_template(xlpp_workbook wb, int enabled) { if (wb) WB(wb)->setTemplate(enabled != 0); }
+XLPP_API int xlpp_workbook_is_template(xlpp_workbook wb) { return wb && WB(wb)->isTemplate() ? 1 : 0; }
+
 XLPP_API int xlpp_workbook_load(xlpp_workbook wb, const char* path) {
     try {
         WB(wb)->load(std::filesystem::path(path));
@@ -320,359 +256,107 @@ XLPP_API int xlpp_workbook_save(xlpp_workbook wb, const char* path) {
     } catch (...) { return 0; }
 }
 
-XLPP_API int xlpp_workbook_save_durable(xlpp_workbook wb, const char* path, int durable_write) {
-    clearError();
-    if (!wb || !path) { setError("Workbook handle and path are required"); return 0; }
+XLPP_API int xlpp_workbook_load_password(xlpp_workbook wb, const char* path, const char* password_utf8) {
+    if (!wb || !path || !password_utf8) { setError("Workbook, path, and password are required"); return 0; }
     try {
-        xlpp::SaveOptions options;
-        options.durableWrite = durable_write != 0;
-        WB(wb)->save(std::filesystem::path(path), options);
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_load_password(xlpp_workbook wb, const char* path, const char* password, int verify_integrity) {
-    clearError();
-    if (!wb || !path) { setError("Workbook handle and path are required"); return 0; }
-    try {
+        clearError();
         xlpp::LoadOptions options;
-        if (password) options.password = password;
-        options.verifyEncryptionIntegrity = verify_integrity != 0;
+        options.passwordToOpen = password_utf8;
         WB(wb)->load(std::filesystem::path(path), options);
         return 1;
     } catch (const std::exception& e) { setError(e); return 0; }
 }
 
-XLPP_API int xlpp_workbook_save_encrypted(xlpp_workbook wb, const char* path, const char* password, uint64_t spin_count, int calculate_formulas) {
-    clearError();
-    if (!wb || !path || !password || !password[0]) { setError("Workbook, path, and non-empty password are required"); return 0; }
+XLPP_API int xlpp_workbook_load_password_ex(xlpp_workbook wb, const char* path, const char* password_utf8,
+                                                    uint64_t max_spin_count, uint64_t max_decrypted_package_bytes,
+                                                    int allow_standard_encryption, int require_agile_data_integrity,
+                                                    uint64_t max_encryption_info_bytes) {
+    if (!wb || !path || !password_utf8) { setError("Workbook, path, and password are required"); return 0; }
+    if (max_spin_count > 0xffffffffull) { setError("max_spin_count exceeds the ECMA-376 32-bit range"); return 0; }
+    if (max_decrypted_package_bytes > static_cast<uint64_t>((std::numeric_limits<std::size_t>::max)()) ||
+        max_encryption_info_bytes > static_cast<uint64_t>((std::numeric_limits<std::size_t>::max)())) {
+        setError("Encryption size policy exceeds this platform's size_t range"); return 0;
+    }
     try {
+        clearError();
+        xlpp::LoadOptions options;
+        options.passwordToOpen = password_utf8;
+        options.maxEncryptionSpinCount = static_cast<std::uint32_t>(max_spin_count);
+        options.maxDecryptedPackageBytes = static_cast<std::size_t>(max_decrypted_package_bytes);
+        options.allowStandardEncryption = allow_standard_encryption != 0;
+        options.requireAgileDataIntegrity = require_agile_data_integrity != 0;
+        options.maxEncryptionInfoBytes = static_cast<std::size_t>(max_encryption_info_bytes);
+        WB(wb)->load(std::filesystem::path(path), options);
+        return 1;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+
+XLPP_API int xlpp_workbook_save_password(xlpp_workbook wb, const char* path, const char* password_utf8, uint64_t spin_count) {
+    if (!wb || !path || !password_utf8) { setError("Workbook, path, and password are required"); return 0; }
+    if (spin_count > 0xffffffffull) { setError("spin_count exceeds the ECMA-376 32-bit range"); return 0; }
+    try {
+        clearError();
         xlpp::SaveOptions options;
-        options.encryptionPassword = password;
-        if (spin_count) options.encryptionSpinCount = static_cast<std::uint32_t>(spin_count);
-        options.calculateFormulasBeforeSave = calculate_formulas != 0;
+        options.encryption.enabled = true;
+        options.encryption.password = password_utf8;
+        options.encryption.spinCount = spin_count ? static_cast<std::uint32_t>(spin_count) : 100000u;
         WB(wb)->save(std::filesystem::path(path), options);
         return 1;
     } catch (const std::exception& e) { setError(e); return 0; }
 }
 
-XLPP_API int xlpp_workbook_save_encrypted_ex(xlpp_workbook wb, const char* path, const char* password, int encryption_mode, uint64_t key_bits, uint64_t spin_count, int calculate_formulas) {
-    clearError();
-    if (!wb || !path || !password || !password[0]) { setError("Workbook, path, and non-empty password are required"); return 0; }
+XLPP_API int xlpp_workbook_save_password_ex(xlpp_workbook wb, const char* path, const char* password_utf8, int mode, unsigned key_bits, int hash_algorithm, uint64_t spin_count) {
+    if (!wb || !path || !password_utf8) { setError("Workbook, path, and password are required"); return 0; }
+    if (spin_count > 0xffffffffull) { setError("spin_count exceeds the ECMA-376 32-bit range"); return 0; }
+    if (mode < XLPP_ENCRYPTION_AGILE || mode > XLPP_ENCRYPTION_STANDARD) { setError("Invalid encryption mode"); return 0; }
+    if (hash_algorithm < XLPP_ENCRYPTION_HASH_SHA1 || hash_algorithm > XLPP_ENCRYPTION_HASH_SHA512) { setError("Invalid encryption hash algorithm"); return 0; }
     try {
+        clearError();
         xlpp::SaveOptions options;
-        options.encryptionPassword = password;
-        switch (encryption_mode) {
-            case XLPP_ENCRYPTION_AGILE_AES256_SHA512:
-                options.encryptionMode = xlpp::OfficeEncryptionMode::AgileAes256Sha512;
-                break;
-            case XLPP_ENCRYPTION_STANDARD_AES_SHA1:
-                options.encryptionMode = xlpp::OfficeEncryptionMode::StandardAesSha1;
-                break;
-            default:
-                setError("Unsupported encryption mode");
-                return 0;
-        }
-        if (key_bits) options.encryptionKeyBits = static_cast<std::uint32_t>(key_bits);
-        if (spin_count) options.encryptionSpinCount = static_cast<std::uint32_t>(spin_count);
-        options.calculateFormulasBeforeSave = calculate_formulas != 0;
+        options.encryption.enabled = true;
+        options.encryption.password = password_utf8;
+        options.encryption.mode = mode == XLPP_ENCRYPTION_STANDARD ? xlpp::PackageEncryptionMode::Standard : xlpp::PackageEncryptionMode::Agile;
+        options.encryption.keyBits = key_bits;
+        options.encryption.hashAlgorithm = static_cast<xlpp::PackageEncryptionHash>(hash_algorithm);
+        options.encryption.spinCount = spin_count ? static_cast<std::uint32_t>(spin_count) : 100000u;
         WB(wb)->save(std::filesystem::path(path), options);
         return 1;
     } catch (const std::exception& e) { setError(e); return 0; }
 }
 
-XLPP_API int xlpp_workbook_load_ex(xlpp_workbook wb, const char* path, const xlpp_load_options* input) {
-    clearError();
-    if (!wb || !path) { setError("Workbook handle and path are required"); return 0; }
-    try {
-        WB(wb)->load(std::filesystem::path(path), toLoadOptions(input));
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_save_ex(xlpp_workbook wb, const char* path, const xlpp_save_options* input) {
-    clearError();
-    if (!wb || !path) { setError("Workbook handle and path are required"); return 0; }
-    try {
-        WB(wb)->save(std::filesystem::path(path), toSaveOptions(input));
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_load_bytes(xlpp_workbook wb, const unsigned char* bytes, uint64_t size, const xlpp_load_options* input) {
-    clearError();
-    if (!wb || (!bytes && size != 0)) { setError("Workbook handle and byte buffer are required"); return 0; }
-    try {
-        std::string raw;
-        if (size != 0) raw.assign(reinterpret_cast<const char*>(bytes), static_cast<std::size_t>(size));
-        std::istringstream stream(raw, std::ios::binary);
-        WB(wb)->load(stream, toLoadOptions(input));
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_save_bytes(xlpp_workbook wb, const xlpp_save_options* input, unsigned char** bytes, uint64_t* size) {
-    clearError();
-    if (!wb || !bytes || !size) { setError("Workbook handle and output pointers are required"); return 0; }
-    *bytes = nullptr; *size = 0;
-    try {
-        std::ostringstream stream(std::ios::binary);
-        WB(wb)->save(stream, toSaveOptions(input));
-        const auto raw = stream.str();
-        auto* output = new unsigned char[raw.size()];
-        if (!raw.empty()) std::memcpy(output, raw.data(), raw.size());
-        *bytes = output; *size = static_cast<uint64_t>(raw.size());
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API void xlpp_free_bytes(unsigned char* bytes) { delete[] bytes; }
-
-XLPP_API int xlpp_workbook_calculate(xlpp_workbook wb, xlpp_calculation_report* out) {
-    clearError();
-    if (!wb) { setError("Workbook handle is null"); return 0; }
-    try {
-        const auto r = WB(wb)->calculateFormulas();
-        fillCalculationReport(r, out);
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_calculate_ex(xlpp_workbook wb, int iterative, uint64_t max_iterations, double max_change, xlpp_calculation_report* out) {
-    clearError();
-    if (!wb) { setError("Workbook handle is null"); return 0; }
-    try {
-        xlpp::CalculationOptions options;
-        options.iterativeCalculation = iterative != 0;
-        if (max_iterations) options.maxIterations = static_cast<std::size_t>(max_iterations);
-        if (max_change >= 0.0) options.maxChange = max_change;
-        const auto r = WB(wb)->calculateFormulas(options);
-        fillCalculationReport(r, out);
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API void xlpp_external_value_set_empty(xlpp_external_value value) { if (value) value->value = xlpp::CellValue{std::monostate{}}; }
-XLPP_API void xlpp_external_value_set_number(xlpp_external_value value, double number) { if (value) value->value = xlpp::CellValue{number}; }
-XLPP_API void xlpp_external_value_set_bool(xlpp_external_value value, int boolean_value) { if (value) value->value = xlpp::CellValue{boolean_value != 0}; }
-XLPP_API void xlpp_external_value_set_string(xlpp_external_value value, const char* string_value) { if (value) value->value = xlpp::CellValue{std::string(string_value ? string_value : "")}; }
-XLPP_API void xlpp_external_value_set_error(xlpp_external_value value, int error_code) {
-    if (!value) return;
-    if (error_code < XLPP_ERROR_NULL || error_code > XLPP_ERROR_CALC) error_code = XLPP_ERROR_VALUE;
-    value->value = xlpp::CellValue{static_cast<xlpp::CellError>(error_code)};
-}
-XLPP_API void xlpp_external_value_set_date(xlpp_external_value value, int year, int month, int day, int hour, int minute, double second, int /*has_time*/) {
-    if (value) value->value = xlpp::CellValue{xlpp::DateTime{year, month, day, hour, minute, second}};
-}
-
-XLPP_API int xlpp_workbook_calculate_options(xlpp_workbook wb, const xlpp_calculation_options* input, xlpp_calculation_report* out) {
-    clearError();
-    if (!wb) { setError("Workbook handle is null"); return 0; }
-    try {
-        const auto r = WB(wb)->calculateFormulas(toCalculationOptions(input));
-        fillCalculationReport(r, out);
-        return 1;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_structural_edit(xlpp_workbook wb, const char* sheet_name, int kind, uint64_t index, uint64_t amount, int fail_on_invalid_reference, xlpp_structural_report* out) {
-    clearError();
-    if (!wb || !sheet_name || !sheet_name[0]) { setError("Workbook and sheet name are required"); return 0; }
-    try {
-        xlpp::StructuralEditKind editKind;
-        switch (kind) {
-            case XLPP_STRUCT_INSERT_ROWS: editKind = xlpp::StructuralEditKind::InsertRows; break;
-            case XLPP_STRUCT_DELETE_ROWS: editKind = xlpp::StructuralEditKind::DeleteRows; break;
-            case XLPP_STRUCT_INSERT_COLUMNS: editKind = xlpp::StructuralEditKind::InsertColumns; break;
-            case XLPP_STRUCT_DELETE_COLUMNS: editKind = xlpp::StructuralEditKind::DeleteColumns; break;
-            default: setError("Invalid structural edit kind"); return 0;
-        }
-        xlpp::StructuralEditOptions options;
-        options.failOnInvalidReference = fail_on_invalid_reference != 0;
-        const auto r = WB(wb)->applyStructuralEdit(xlpp::StructuralEdit{sheet_name, editKind, static_cast<std::size_t>(index), static_cast<std::size_t>(amount)}, options);
-        fillStructuralReport(r, out);
-        return r.success() ? 1 : 0;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_structural_edit_ex(xlpp_workbook wb, const char* sheet_name, int kind, uint64_t index, uint64_t amount, const xlpp_structural_options* input, xlpp_structural_report* out) {
-    clearError();
-    if (!wb || !sheet_name || !sheet_name[0]) { setError("Workbook and sheet name are required"); return 0; }
-    try {
-        xlpp::StructuralEditKind editKind;
-        switch (kind) {
-            case XLPP_STRUCT_INSERT_ROWS: editKind = xlpp::StructuralEditKind::InsertRows; break;
-            case XLPP_STRUCT_DELETE_ROWS: editKind = xlpp::StructuralEditKind::DeleteRows; break;
-            case XLPP_STRUCT_INSERT_COLUMNS: editKind = xlpp::StructuralEditKind::InsertColumns; break;
-            case XLPP_STRUCT_DELETE_COLUMNS: editKind = xlpp::StructuralEditKind::DeleteColumns; break;
-            default: setError("Invalid structural edit kind"); return 0;
-        }
-        const auto r = WB(wb)->applyStructuralEdit(
-            xlpp::StructuralEdit{sheet_name, editKind, static_cast<std::size_t>(index), static_cast<std::size_t>(amount)},
-            toStructuralOptions(input));
-        fillStructuralReport(r, out);
-        return r.success() ? 1 : 0;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_rename_sheet(xlpp_workbook wb, const char* old_name, const char* new_name, int recalculate_formulas, int synchronize_chart_caches, int changed_chart_caches_only, xlpp_worksheet_rename_report* out) {
-    clearError();
-    if (!wb || !old_name || !old_name[0] || !new_name || !new_name[0]) { setError("Workbook, old name, and new name are required"); return 0; }
-    try {
-        xlpp::WorksheetRenameOptions options;
-        options.recalculateFormulas = recalculate_formulas != 0;
-        options.synchronizeChartCaches = synchronize_chart_caches != 0;
-        options.changedChartCachesOnly = changed_chart_caches_only != 0;
-        const auto r = WB(wb)->renameWorksheet(old_name, new_name, options);
-        if (out) {
-            out->worksheets_visited = r.worksheetsVisited;
-            out->formulas_updated = r.formulasUpdated;
-            out->formula_metadata_updated = r.formulaMetadataUpdated;
-            out->defined_names_updated = r.definedNamesUpdated;
-            out->chart_references_updated = r.chartReferencesUpdated;
-            out->pivot_references_updated = r.pivotReferencesUpdated;
-            out->hyperlinks_updated = r.hyperlinksUpdated;
-            out->references_updated = r.referencesUpdated;
-            out->formulas_calculated = r.formulasCalculated;
-            out->chart_caches_updated = r.chartCachesUpdated;
-            out->success = r.success() ? 1 : 0;
-        }
-        return r.success() ? 1 : 0;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API int xlpp_workbook_synchronize_chart_caches(xlpp_workbook wb, const xlpp_chart_cache_sync_options* input, xlpp_chart_cache_sync_report* out) {
-    clearError();
-    if (!wb) { setError("Workbook handle is null"); return 0; }
-    try {
-        xlpp::ChartCacheSyncOptions options;
-        if (input) {
-            options.synchronizeTitles = input->synchronize_titles != 0;
-            options.synchronizeCategories = input->synchronize_categories != 0;
-            options.synchronizeValues = input->synchronize_values != 0;
-            options.changedReferencesOnly = input->changed_references_only != 0;
-            options.clearUnsupportedReferences = input->clear_unsupported_references != 0;
-        }
-        const auto r = WB(wb)->synchronizeChartCaches(options);
-        if (out) {
-            out->charts_visited = r.chartsVisited;
-            out->series_visited = r.seriesVisited;
-            out->references_checked = r.referencesChecked;
-            out->references_unchanged = r.referencesUnchanged;
-            out->dependencies_registered = r.dependenciesRegistered;
-            out->dependencies_changed = r.dependenciesChanged;
-            out->caches_updated = r.cachesUpdated;
-            out->caches_cleared = r.cachesCleared;
-            out->references_skipped = r.referencesSkipped;
-            out->success = r.success() ? 1 : 0;
-        }
-        return r.success() ? 1 : 0;
-    } catch (const std::exception& e) { setError(e); return 0; }
-}
-
-XLPP_API void xlpp_workbook_reset_chart_cache_tracking(xlpp_workbook wb) { if (wb) WB(wb)->resetChartCacheDependencyTracking(); }
-XLPP_API uint64_t xlpp_workbook_tracked_chart_cache_dependencies(xlpp_workbook wb) { return wb ? static_cast<uint64_t>(WB(wb)->trackedChartCacheDependencyCount()) : 0; }
-
-XLPP_API xlpp_dependency_graph xlpp_workbook_dependency_graph(xlpp_workbook wb) {
-    clearError();
-    if (!wb) { setError("Workbook handle is null"); return nullptr; }
-    try { return new xlpp_dependency_graph_t(WB(wb)->dependencyGraph()); }
-    catch (const std::exception& e) { setError(e); return nullptr; }
-}
-XLPP_API void xlpp_dependency_graph_destroy(xlpp_dependency_graph graph) { delete graph; }
-XLPP_API int xlpp_dependency_graph_report(xlpp_dependency_graph graph, xlpp_dependency_report* out) {
-    if (!graph || !out) return 0;
-    const auto& r = graph->graph.report();
-    out->formula_cells = r.formulaCells; out->edges = r.edges; out->cell_or_range_edges = r.cellOrRangeEdges;
-    out->defined_name_edges = r.definedNameEdges; out->table_edges = r.tableEdges; out->external_edges = r.externalEdges;
-    out->volatile_references = r.volatileReferences; out->unresolved_symbols = r.unresolvedSymbols;
-    return 1;
-}
-XLPP_API uint64_t xlpp_dependency_graph_edge_count(xlpp_dependency_graph graph) { return graph ? static_cast<uint64_t>(graph->graph.edges().size()) : 0; }
-static const xlpp::FormulaDependency* dependencyEdge(xlpp_dependency_graph graph, uint64_t index) {
-    if (!graph || index >= graph->graph.edges().size()) return nullptr;
-    return &graph->graph.edges()[static_cast<std::size_t>(index)];
-}
-XLPP_API int xlpp_dependency_graph_edge_kind(xlpp_dependency_graph graph, uint64_t index) { const auto* e = dependencyEdge(graph,index); return e ? static_cast<int>(e->kind) : -1; }
-XLPP_API int xlpp_dependency_graph_edge_dependent_sheet(xlpp_dependency_graph graph, uint64_t index, char* out, int size) { const auto* e=dependencyEdge(graph,index); return copyStrSized(e?e->dependentSheet:std::string{},out,size); }
-XLPP_API int xlpp_dependency_graph_edge_dependent_cell(xlpp_dependency_graph graph, uint64_t index, char* out, int size) { const auto* e=dependencyEdge(graph,index); return copyStrSized(e?e->dependentCell:std::string{},out,size); }
-XLPP_API int xlpp_dependency_graph_edge_precedent_sheet(xlpp_dependency_graph graph, uint64_t index, char* out, int size) { const auto* e=dependencyEdge(graph,index); return copyStrSized(e?e->precedentSheet:std::string{},out,size); }
-XLPP_API int xlpp_dependency_graph_edge_precedent_reference(xlpp_dependency_graph graph, uint64_t index, char* out, int size) { const auto* e=dependencyEdge(graph,index); return copyStrSized(e?e->precedentReference:std::string{},out,size); }
-XLPP_API int xlpp_dependency_graph_edge_symbol(xlpp_dependency_graph graph, uint64_t index, char* out, int size) { const auto* e=dependencyEdge(graph,index); return copyStrSized(e?e->symbol:std::string{},out,size); }
-XLPP_API int xlpp_dependency_graph_depends_on(xlpp_dependency_graph graph, const char* ds, const char* dc, const char* ps, const char* pc) {
-    if (!graph || !ds || !dc || !ps || !pc) return 0;
-    return graph->graph.dependsOn(ds,dc,ps,pc) ? 1 : 0;
-}
-
-XLPP_API xlpp_validation_report xlpp_workbook_validate(xlpp_workbook wb, const xlpp_validation_options* input) {
-    clearError();
-    if (!wb) { setError("Workbook handle is null"); return nullptr; }
-    try {
-        xlpp::WorkbookValidationOptions options;
-        if (input) {
-            options.validateWorksheetNames = input->validate_worksheet_names != 0;
-            options.validateDefinedNames = input->validate_defined_names != 0;
-            options.validateTables = input->validate_tables != 0;
-            options.validatePivots = input->validate_pivots != 0;
-        }
-        return new xlpp_validation_report_t(WB(wb)->validate(options));
-    } catch (const std::exception& e) { setError(e); return nullptr; }
-}
-XLPP_API void xlpp_validation_report_destroy(xlpp_validation_report report) { delete report; }
-XLPP_API uint64_t xlpp_validation_error_count(xlpp_validation_report report) { return report ? report->report.errorCount : 0; }
-XLPP_API uint64_t xlpp_validation_warning_count(xlpp_validation_report report) { return report ? report->report.warningCount : 0; }
-XLPP_API uint64_t xlpp_validation_issue_count(xlpp_validation_report report) { return report ? static_cast<uint64_t>(report->report.issues.size()) : 0; }
-static const xlpp::WorkbookValidationIssue* validationIssue(xlpp_validation_report report, uint64_t index) {
-    if (!report || index >= report->report.issues.size()) return nullptr;
-    return &report->report.issues[static_cast<std::size_t>(index)];
-}
-XLPP_API int xlpp_validation_issue_severity(xlpp_validation_report report, uint64_t index) { const auto* i=validationIssue(report,index); return i ? static_cast<int>(i->severity) : -1; }
-XLPP_API int xlpp_validation_issue_code(xlpp_validation_report report, uint64_t index, char* out, int size) { const auto* i=validationIssue(report,index); return copyStrSized(i?i->code:std::string{},out,size); }
-XLPP_API int xlpp_validation_issue_message(xlpp_validation_report report, uint64_t index, char* out, int size) { const auto* i=validationIssue(report,index); return copyStrSized(i?i->message:std::string{},out,size); }
-XLPP_API int xlpp_validation_issue_worksheet(xlpp_validation_report report, uint64_t index, char* out, int size) { const auto* i=validationIssue(report,index); return copyStrSized(i?i->worksheet:std::string{},out,size); }
-
-XLPP_API int xlpp_workbook_add_vba_project(xlpp_workbook wb, const char* path) { clearError(); if(!wb||!path)return 0; try{WB(wb)->addVbaProject(std::filesystem::path(path));return 1;}catch(const std::exception&e){setError(e);return 0;} }
-XLPP_API int xlpp_workbook_set_vba_project(xlpp_workbook wb, const unsigned char* bytes, uint64_t size) { clearError(); if(!wb||(!bytes&&size))return 0; try{WB(wb)->setVbaProject(std::vector<unsigned char>(bytes,bytes+size));return 1;}catch(const std::exception&e){setError(e);return 0;} }
-XLPP_API int xlpp_workbook_has_vba_project(xlpp_workbook wb) { return wb && WB(wb)->hasVbaProject() ? 1 : 0; }
-XLPP_API int xlpp_workbook_remove_vba_project(xlpp_workbook wb) { return wb && WB(wb)->removeVbaProject() ? 1 : 0; }
-XLPP_API int xlpp_workbook_set_vba_module_text(xlpp_workbook wb, const char* name, const char* source) { clearError(); if(!wb||!name||!source)return 0; try{WB(wb)->setVbaModuleText(name,source);return 1;}catch(const std::exception&e){setError(e);return 0;} }
-XLPP_API int xlpp_workbook_set_vba_class_module_text(xlpp_workbook wb, const char* name, const char* source, int readOnly, int privateModule) { clearError(); if(!wb||!name||!source)return 0; try{WB(wb)->setVbaClassModuleText(name,source,readOnly!=0,privateModule!=0);return 1;}catch(const std::exception&e){setError(e);return 0;} }
-XLPP_API int xlpp_workbook_set_vba_document_module_text(xlpp_workbook wb, const char* name, const char* source) { clearError(); if(!wb||!name||!source)return 0; try{WB(wb)->setVbaDocumentModuleText(name,source);return 1;}catch(const std::exception&e){setError(e);return 0;} }
-XLPP_API int xlpp_workbook_vba_module_text(xlpp_workbook wb, const char* name, char* out, int size) { if(!wb||!name)return 0; const auto v=WB(wb)->vbaModuleText(name); if(!v)return 0; return copyStrSized(*v,out,size); }
-XLPP_API uint64_t xlpp_workbook_vba_module_count(xlpp_workbook wb) { return wb ? static_cast<uint64_t>(WB(wb)->vbaModules().size()) : 0; }
-XLPP_API int xlpp_workbook_vba_module_type(xlpp_workbook wb, uint64_t index) { if(!wb)return -1; const auto v=WB(wb)->vbaModules(); return index<v.size()?static_cast<int>(v[static_cast<std::size_t>(index)].type):-1; }
-XLPP_API int xlpp_workbook_vba_module_read_only(xlpp_workbook wb, uint64_t index) { if(!wb)return 0; const auto v=WB(wb)->vbaModules(); return index<v.size()&&v[static_cast<std::size_t>(index)].readOnly?1:0; }
-XLPP_API int xlpp_workbook_vba_module_private(xlpp_workbook wb, uint64_t index) { if(!wb)return 0; const auto v=WB(wb)->vbaModules(); return index<v.size()&&v[static_cast<std::size_t>(index)].privateModule?1:0; }
-XLPP_API int xlpp_workbook_vba_module_name(xlpp_workbook wb, uint64_t index, char* out, int size) { if(!wb)return copyStrSized({},out,size); const auto v=WB(wb)->vbaModules(); return copyStrSized(index<v.size()?v[static_cast<std::size_t>(index)].name:std::string{},out,size); }
-XLPP_API int xlpp_workbook_vba_module_source(xlpp_workbook wb, uint64_t index, char* out, int size) { if(!wb)return copyStrSized({},out,size); const auto v=WB(wb)->vbaModules(); return copyStrSized(index<v.size()?v[static_cast<std::size_t>(index)].source:std::string{},out,size); }
-XLPP_API int xlpp_workbook_remove_vba_module(xlpp_workbook wb, const char* name) { clearError(); if(!wb||!name)return 0; try{return WB(wb)->removeVbaModule(name)?1:0;}catch(const std::exception&e){setError(e);return 0;} }
-XLPP_API uint64_t xlpp_workbook_vba_project_bytes(xlpp_workbook wb, unsigned char* out, uint64_t size) { if(!wb)return 0; const auto bytes=WB(wb)->vbaProjectBytes(); const auto required=static_cast<uint64_t>(bytes.size()); if(out&&size){const auto count=static_cast<std::size_t>(std::min<uint64_t>(required,size));std::copy_n(bytes.begin(),count,out);} return required; }
-XLPP_API int xlpp_workbook_save_vba_project(xlpp_workbook wb, const char* path) { clearError(); if(!wb||!path)return 0; try{WB(wb)->saveVbaProject(std::filesystem::path(path));return 1;}catch(const std::exception&e){setError(e);return 0;} }
-XLPP_API int xlpp_workbook_has_vba_signature(xlpp_workbook wb) { return wb&&WB(wb)->hasVbaSignature()?1:0; }
-XLPP_API int xlpp_workbook_vba_source_editable(xlpp_workbook wb) { return wb&&WB(wb)->vbaSourceEditable()?1:0; }
-XLPP_API int xlpp_workbook_vba_project_name(xlpp_workbook wb, char* out, int size) { return wb?copyStrSized(WB(wb)->vbaProjectProperties().name,out,size):copyStrSized({},out,size); }
-XLPP_API int xlpp_workbook_vba_project_description(xlpp_workbook wb, char* out, int size) { return wb?copyStrSized(WB(wb)->vbaProjectProperties().description,out,size):copyStrSized({},out,size); }
-XLPP_API int xlpp_workbook_vba_project_help_file(xlpp_workbook wb, char* out, int size) { return wb?copyStrSized(WB(wb)->vbaProjectProperties().helpFile,out,size):copyStrSized({},out,size); }
-XLPP_API uint32_t xlpp_workbook_vba_project_help_context(xlpp_workbook wb) { return wb?WB(wb)->vbaProjectProperties().helpContextId:0; }
-XLPP_API int xlpp_workbook_vba_project_constants(xlpp_workbook wb, char* out, int size) { return wb?copyStrSized(WB(wb)->vbaProjectProperties().constants,out,size):copyStrSized({},out,size); }
-XLPP_API int xlpp_workbook_set_vba_project_properties(xlpp_workbook wb, const char* name, const char* description, const char* helpFile, uint32_t helpContext, const char* constants) {
-    clearError();
-    if(!wb||!name)return 0;
-    try{ xlpp::VbaProjectProperties properties; properties.name=name; properties.description=description?description:""; properties.helpFile=helpFile?helpFile:""; properties.helpContextId=helpContext; properties.constants=constants?constants:""; WB(wb)->setVbaProjectProperties(std::move(properties)); return 1; }
-    catch(const std::exception&e){setError(e);return 0;}
-}
-
-XLPP_API int xlpp_inspect_office_encryption(const char* path, int* mode, uint64_t* key_bits, uint64_t* spin_count, char* cipher, int cipher_size, char* hash, int hash_size) {
-    clearError();
+XLPP_API int xlpp_workbook_is_password_encrypted_file(const char* path) {
     if (!path) { setError("Path is required"); return 0; }
     try {
-        const auto info = xlpp::inspectOfficeEncryption(std::filesystem::path(path));
-        if (mode) *mode = static_cast<int>(info.mode);
+        clearError();
+        return xlpp::Workbook::isPasswordEncryptedFile(std::filesystem::path(path)) ? 1 : 0;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+
+XLPP_API int xlpp_workbook_encryption_profile(const char* path, int* format, unsigned* key_bits, int* hash_algorithm, uint64_t* spin_count, int* has_data_integrity) {
+    if (!path) { setError("Path is required"); return 0; }
+    try {
+        clearError();
+        const auto info = xlpp::Workbook::inspectPasswordEncryptionFile(std::filesystem::path(path));
+        if (format) *format = static_cast<int>(info.format);
         if (key_bits) *key_bits = info.keyBits;
+        if (hash_algorithm) *hash_algorithm = static_cast<int>(info.hashAlgorithm);
         if (spin_count) *spin_count = info.spinCount;
-        copyStr(info.cipherAlgorithm, cipher, cipher_size);
-        copyStr(info.hashAlgorithm, hash, hash_size);
-        return info.encrypted ? 1 : 0;
+        if (has_data_integrity) *has_data_integrity = info.hasDataIntegrity ? 1 : 0;
+        return 1;
+    } catch (const std::exception& e) { setError(e); return 0; }
+}
+
+XLPP_API int xlpp_workbook_encryption_key_encryptor_counts(const char* path, uint64_t* total_key_encryptors,
+                                                           uint64_t* password_key_encryptors,
+                                                           uint64_t* certificate_key_encryptors) {
+    if (!path) { setError("Path is required"); return 0; }
+    try {
+        clearError();
+        const auto info = xlpp::Workbook::inspectPasswordEncryptionFile(std::filesystem::path(path));
+        if (total_key_encryptors) *total_key_encryptors = static_cast<uint64_t>(info.keyEncryptorCount);
+        if (password_key_encryptors) *password_key_encryptors = static_cast<uint64_t>(info.passwordKeyEncryptorCount);
+        if (certificate_key_encryptors) *certificate_key_encryptors = static_cast<uint64_t>(info.certificateKeyEncryptors.size());
+        return 1;
     } catch (const std::exception& e) { setError(e); return 0; }
 }
 
@@ -680,16 +364,6 @@ XLPP_API void xlpp_workbook_set_date1904(xlpp_workbook wb, int v) { WB(wb)->setD
 XLPP_API int  xlpp_workbook_date1904(xlpp_workbook wb) { return WB(wb)->date1904() ? 1 : 0; }
 XLPP_API void xlpp_workbook_clear(xlpp_workbook wb) { WB(wb)->clear(); }
 XLPP_API int  xlpp_workbook_strict_namespaces(xlpp_workbook wb) { return WB(wb)->strictNamespaces() ? 1 : 0; }
-XLPP_API uint64_t xlpp_workbook_diagnostic_warning_count(xlpp_workbook wb) { return wb ? static_cast<uint64_t>(WB(wb)->diagnostics().warnings.size()) : 0; }
-XLPP_API uint64_t xlpp_workbook_diagnostic_error_count(xlpp_workbook wb) { return wb ? static_cast<uint64_t>(WB(wb)->diagnostics().errors.size()) : 0; }
-XLPP_API int xlpp_workbook_diagnostic_warning(xlpp_workbook wb, uint64_t index, char* out, int size) {
-    if (!wb || index >= WB(wb)->diagnostics().warnings.size()) return 0;
-    return copyStrSized(WB(wb)->diagnostics().warnings[static_cast<std::size_t>(index)], out, size);
-}
-XLPP_API int xlpp_workbook_diagnostic_error(xlpp_workbook wb, uint64_t index, char* out, int size) {
-    if (!wb || index >= WB(wb)->diagnostics().errors.size()) return 0;
-    return copyStrSized(WB(wb)->diagnostics().errors[static_cast<std::size_t>(index)], out, size);
-}
 
 XLPP_API xlpp_properties xlpp_workbook_properties(xlpp_workbook wb) {
     return reinterpret_cast<xlpp_properties>(&WB(wb)->properties());
@@ -733,24 +407,8 @@ XLPP_API xlpp_definedname xlpp_workbook_add_defined_name(xlpp_workbook wb, const
         return reinterpret_cast<xlpp_definedname>(&d);
     } catch (...) { if (ok) *ok = 0; return nullptr; }
 }
-XLPP_API xlpp_definedname xlpp_workbook_add_defined_name_scoped(xlpp_workbook wb, const char* name, const char* value, uint64_t local_sheet_id, int* ok) {
-    try {
-        xlpp::DefinedName defined(name, value);
-        defined.setLocalSheetId(static_cast<std::size_t>(local_sheet_id));
-        auto& d = WB(wb)->addDefinedName(std::move(defined));
-        if (ok) *ok = 1;
-        return reinterpret_cast<xlpp_definedname>(&d);
-    } catch (...) { if (ok) *ok = 0; return nullptr; }
-}
 XLPP_API xlpp_definedname xlpp_workbook_defined_name(xlpp_workbook wb, const char* name) {
     return reinterpret_cast<xlpp_definedname>(WB(wb)->definedName(name));
-}
-XLPP_API xlpp_definedname xlpp_workbook_defined_name_scoped(xlpp_workbook wb, const char* name, int has_local_sheet_id, uint64_t local_sheet_id) {
-    if (!wb || !name) return nullptr;
-    const std::optional<std::size_t> scope = has_local_sheet_id != 0
-        ? std::optional<std::size_t>{static_cast<std::size_t>(local_sheet_id)}
-        : std::nullopt;
-    return reinterpret_cast<xlpp_definedname>(WB(wb)->definedName(name, scope));
 }
 XLPP_API int xlpp_workbook_defined_names_count(xlpp_workbook wb) {
     return static_cast<int>(WB(wb)->definedNames().size());
@@ -759,46 +417,6 @@ XLPP_API xlpp_definedname xlpp_workbook_defined_name_at(xlpp_workbook wb, int in
     try {
         return reinterpret_cast<xlpp_definedname>(&WB(wb)->definedNames()[static_cast<std::size_t>(index)]);
     } catch (...) { return nullptr; }
-}
-XLPP_API int xlpp_workbook_preserved_relationships_count(xlpp_workbook wb) {
-    return wb ? static_cast<int>(WB(wb)->preservedRelationships().size()) : 0;
-}
-XLPP_API int xlpp_workbook_preserved_relationship_source_part(xlpp_workbook wb, int index, char* out, int out_size) {
-    try { copyStr(WB(wb)->preservedRelationships().at(static_cast<std::size_t>(index)).sourcePart, out, out_size); return 1; } catch (...) { return 0; }
-}
-XLPP_API int xlpp_workbook_preserved_relationship_id(xlpp_workbook wb, int index, char* out, int out_size) {
-    try { copyStr(WB(wb)->preservedRelationships().at(static_cast<std::size_t>(index)).id, out, out_size); return 1; } catch (...) { return 0; }
-}
-XLPP_API int xlpp_workbook_preserved_relationship_type(xlpp_workbook wb, int index, char* out, int out_size) {
-    try { copyStr(WB(wb)->preservedRelationships().at(static_cast<std::size_t>(index)).type, out, out_size); return 1; } catch (...) { return 0; }
-}
-XLPP_API int xlpp_workbook_preserved_relationship_target(xlpp_workbook wb, int index, char* out, int out_size) {
-    try { copyStr(WB(wb)->preservedRelationships().at(static_cast<std::size_t>(index)).target, out, out_size); return 1; } catch (...) { return 0; }
-}
-XLPP_API int xlpp_workbook_preserved_relationship_target_mode(xlpp_workbook wb, int index, char* out, int out_size) {
-    try { copyStr(WB(wb)->preservedRelationships().at(static_cast<std::size_t>(index)).targetMode, out, out_size); return 1; } catch (...) { return 0; }
-}
-XLPP_API int xlpp_workbook_preserved_parts_count(xlpp_workbook wb) { return wb ? static_cast<int>(WB(wb)->preservedParts().size()) : 0; }
-XLPP_API int xlpp_workbook_preserved_part_name(xlpp_workbook wb, int index, char* out, int out_size) {
-    try { copyStr(WB(wb)->preservedParts().at(static_cast<std::size_t>(index)).name, out, out_size); return 1; } catch (...) { return 0; }
-}
-XLPP_API uint64_t xlpp_workbook_preserved_part_data_size(xlpp_workbook wb, int index) {
-    try { return static_cast<uint64_t>(WB(wb)->preservedParts().at(static_cast<std::size_t>(index)).data.size()); } catch (...) { return 0; }
-}
-XLPP_API uint64_t xlpp_workbook_preserved_part_data(xlpp_workbook wb, int index, unsigned char* out, uint64_t out_size) {
-    try { const auto& data = WB(wb)->preservedParts().at(static_cast<std::size_t>(index)).data; const auto n = (std::min)(data.size(), static_cast<std::size_t>(out_size)); if (out && n) std::memcpy(out, data.data(), n); return static_cast<uint64_t>(n); } catch (...) { return 0; }
-}
-XLPP_API int xlpp_workbook_preserved_part_override_type(xlpp_workbook wb, int index, char* out, int out_size) {
-    try { copyStr(WB(wb)->preservedParts().at(static_cast<std::size_t>(index)).overrideType, out, out_size); return 1; } catch (...) { return 0; }
-}
-XLPP_API int xlpp_workbook_preserved_part_extension(xlpp_workbook wb, int index, char* out, int out_size) {
-    try { copyStr(WB(wb)->preservedParts().at(static_cast<std::size_t>(index)).extension, out, out_size); return 1; } catch (...) { return 0; }
-}
-XLPP_API int xlpp_workbook_preserved_part_default_type(xlpp_workbook wb, int index, char* out, int out_size) {
-    try { copyStr(WB(wb)->preservedParts().at(static_cast<std::size_t>(index)).defaultType, out, out_size); return 1; } catch (...) { return 0; }
-}
-XLPP_API int xlpp_workbook_preserved_part_compress(xlpp_workbook wb, int index) {
-    try { return WB(wb)->preservedParts().at(static_cast<std::size_t>(index)).compress ? 1 : 0; } catch (...) { return 0; }
 }
 
 // ============================================================
@@ -886,8 +504,6 @@ XLPP_API const char* xlpp_customprop_type(xlpp_customprop p) { return CUSTP(p)->
 // ============================================================
 XLPP_API const char* xlpp_sheet_name(xlpp_worksheet ws) { return WS(ws)->name().c_str(); }
 XLPP_API void xlpp_sheet_rename(xlpp_worksheet ws, const char* name) { WS(ws)->rename(name); }
-XLPP_API int xlpp_sheet_vba_code_name(xlpp_worksheet ws, char* out, int size) { return ws?copyStrSized(WS(ws)->vbaCodeName(),out,size):copyStrSized({},out,size); }
-XLPP_API int xlpp_sheet_set_vba_code_name(xlpp_worksheet ws, const char* codeName) { clearError(); if(!ws||!codeName)return 0; try{WS(ws)->setVbaCodeName(codeName);return 1;}catch(const std::exception&e){setError(e);return 0;} }
 
 XLPP_API xlpp_cell xlpp_sheet_cell(xlpp_worksheet ws, const char* address) {
     try { return reinterpret_cast<xlpp_cell>(&WS(ws)->cell(address)); } catch (...) { return nullptr; }
@@ -1146,8 +762,6 @@ XLPP_API int xlpp_cell_error_code(xlpp_cell c) {
     case xlpp::CellError::Number: return XLPP_ERROR_NUM;
     case xlpp::CellError::NotAvailable: return XLPP_ERROR_NA;
     case xlpp::CellError::GettingData: return XLPP_ERROR_GETTING_DATA;
-    case xlpp::CellError::Spill: return XLPP_ERROR_SPILL;
-    case xlpp::CellError::Calculation: return XLPP_ERROR_CALC;
     }
     return XLPP_ERROR_VALUE;
 }
@@ -1176,8 +790,6 @@ XLPP_API void xlpp_cell_set_error(xlpp_cell c, int errorCode) {
     case XLPP_ERROR_NUM: CELL(c)->setError(xlpp::CellError::Number); break;
     case XLPP_ERROR_NA: CELL(c)->setError(xlpp::CellError::NotAvailable); break;
     case XLPP_ERROR_GETTING_DATA: CELL(c)->setError(xlpp::CellError::GettingData); break;
-    case XLPP_ERROR_SPILL: CELL(c)->setError(xlpp::CellError::Spill); break;
-    case XLPP_ERROR_CALC: CELL(c)->setError(xlpp::CellError::Calculation); break;
     default: CELL(c)->setError(xlpp::CellError::Value); break;
     }
 }
@@ -1301,12 +913,6 @@ XLPP_API const char* xlpp_definedname_value(xlpp_definedname d) { return DN(d)->
 XLPP_API void xlpp_definedname_set_local_sheet_id(xlpp_definedname d, uint64_t v) { DN(d)->setLocalSheetId(static_cast<std::size_t>(v)); }
 XLPP_API void xlpp_definedname_clear_local_sheet_id(xlpp_definedname d) { DN(d)->clearLocalSheetId(); }
 XLPP_API int xlpp_definedname_has_local_sheet_id(xlpp_definedname d) { return DN(d)->localSheetId().has_value() ? 1 : 0; }
-XLPP_API uint64_t xlpp_definedname_local_sheet_id(xlpp_definedname d, int* has_value) {
-    if (!d) { if (has_value) *has_value = 0; return 0; }
-    const auto& value = DN(d)->localSheetId();
-    if (has_value) *has_value = value.has_value() ? 1 : 0;
-    return value ? static_cast<uint64_t>(*value) : 0;
-}
 XLPP_API void xlpp_definedname_set_hidden(xlpp_definedname d, int v) { DN(d)->setHidden(v != 0); }
 XLPP_API int xlpp_definedname_hidden(xlpp_definedname d) { return DN(d)->hidden() ? 1 : 0; }
 XLPP_API void xlpp_definedname_set_comment(xlpp_definedname d, const char* v) { DN(d)->setComment(v); }
@@ -1525,6 +1131,28 @@ XLPP_API int xlpp_tablestyle_show_column_stripes(xlpp_tablestyle s) { return TSI
 #define CH(h) reinterpret_cast<xlpp::Chart*>(h)
 #define CS(h) reinterpret_cast<xlpp::ChartSeries*>(h)
 XLPP_API void xlpp_chart_set_grouping(xlpp_chart c, int v) { CH(c)->setGrouping(static_cast<xlpp::Chart::Grouping>(v)); }
+XLPP_API void xlpp_chart_set_scatter_style(xlpp_chart c, const char* v) { if (c) CH(c)->setScatterStyle(v ? v : "lineMarker"); }
+XLPP_API void xlpp_chart_scatter_style(xlpp_chart c, char* out, int outSize) { if (c) copyStr(CH(c)->scatterStyle(), out, outSize); }
+XLPP_API int xlpp_chart_add_plot(xlpp_chart c, int type, int grouping, int secondary_axes) {
+    try {
+        if (!c) return -1;
+        CH(c)->addPlot(static_cast<xlpp::Chart::Type>(type), static_cast<xlpp::Chart::Grouping>(grouping), secondary_axes != 0);
+        return static_cast<int>(CH(c)->plots().size() - 1);
+    } catch (const std::exception& e) { setError(e); return -1; }
+}
+XLPP_API int xlpp_chart_plot_count(xlpp_chart c) { return c ? static_cast<int>(CH(c)->plots().size()) : 0; }
+XLPP_API int xlpp_chart_plot_type(xlpp_chart c, int plot_index) {
+    try { return static_cast<int>(CH(c)->plots().at(static_cast<std::size_t>(plot_index)).type); } catch (...) { return -1; }
+}
+XLPP_API int xlpp_chart_plot_uses_secondary_axes(xlpp_chart c, int plot_index) {
+    try { return CH(c)->plots().at(static_cast<std::size_t>(plot_index)).usesSecondaryAxes ? 1 : 0; } catch (...) { return 0; }
+}
+XLPP_API xlpp_chartseries xlpp_chart_add_series_to_plot(xlpp_chart c, int plot_index, const char* title) {
+    try {
+        if (!c || plot_index < 0) return nullptr;
+        return reinterpret_cast<xlpp_chartseries>(&CH(c)->addSeriesToPlot(static_cast<std::size_t>(plot_index), xlpp::ChartSeries(title ? title : "")));
+    } catch (const std::exception& e) { setError(e); return nullptr; }
+}
 XLPP_API int xlpp_chart_grouping(xlpp_chart c) { return static_cast<int>(CH(c)->grouping()); }
 XLPP_API void xlpp_chart_set_title(xlpp_chart c, const char* v) { CH(c)->setTitle(v); }
 XLPP_API void xlpp_chart_title(xlpp_chart c, char* out, int outSize) { copyStr(CH(c)->title(), out, outSize); }
@@ -1545,27 +1173,12 @@ XLPP_API xlpp_chartseries xlpp_chart_series_at(xlpp_chart c, int index) {
 XLPP_API xlpp_chartseries xlpp_chart_add_series(xlpp_chart c, const char* title) {
     return reinterpret_cast<xlpp_chartseries>(&CH(c)->addSeries(xlpp::ChartSeries(title ? title : "")));
 }
-XLPP_API int xlpp_chart_type(xlpp_chart c) { return static_cast<int>(CH(c)->type()); }
-XLPP_API int xlpp_chart_is_modern(xlpp_chart c) { return CH(c)->modern() ? 1 : 0; }
-XLPP_API int xlpp_chart_plot_count(xlpp_chart c) { return static_cast<int>(CH(c)->plots().size()); }
-XLPP_API int xlpp_chart_add_plot(xlpp_chart c, int type, uint64_t first_series, uint64_t series_count, int secondary_axes) {
-    try { CH(c)->addPlot(static_cast<xlpp::Chart::Type>(type), static_cast<std::size_t>(first_series), static_cast<std::size_t>(series_count), secondary_axes != 0); return static_cast<int>(CH(c)->plots().size() - 1); } catch (...) { return -1; }
-}
-XLPP_API void xlpp_chart_plot_set_grouping(xlpp_chart c, int index, int grouping) { try { CH(c)->plots().at(static_cast<std::size_t>(index)).grouping = static_cast<xlpp::Chart::Grouping>(grouping); } catch (...) {} }
-XLPP_API void xlpp_chart_plot_set_bar_direction(xlpp_chart c, int index, int direction) { try { CH(c)->plots().at(static_cast<std::size_t>(index)).barDirection = static_cast<xlpp::Chart::BarDirection>(direction); } catch (...) {} }
-XLPP_API void xlpp_chart_plot_set_scatter_style(xlpp_chart c, int index, int style) { try { CH(c)->plots().at(static_cast<std::size_t>(index)).scatterStyle = static_cast<xlpp::Chart::ScatterStyle>(style); } catch (...) {} }
-XLPP_API void xlpp_chart_plot_set_bubble_options(xlpp_chart c, int index, int scale, int show_negative, int size_represents, int bubble3d) { try { auto& p = CH(c)->plots().at(static_cast<std::size_t>(index)); p.hasBubbleScale = true; p.bubbleScale = scale; p.showNegativeBubbles = show_negative != 0; p.bubbleSizeRepresents = static_cast<xlpp::Chart::BubbleSizeRepresents>(size_represents); p.bubble3D = bubble3d != 0; } catch (...) {} }
-XLPP_API void xlpp_chart_plot_set_histogram_bins(xlpp_chart c, int index, double bin_width, int bin_count, int automatic_bins) { try { auto& p = CH(c)->plots().at(static_cast<std::size_t>(index)); p.histogramBinWidth = bin_width; p.histogramBinCount = bin_count; p.histogramAutomaticBins = automatic_bins != 0; } catch (...) {} }
-XLPP_API void xlpp_chart_plot_set_histogram_bounds(xlpp_chart c, int index, int has_underflow, double underflow, int has_overflow, double overflow) { try { auto& p = CH(c)->plots().at(static_cast<std::size_t>(index)); p.histogramHasUnderflow = has_underflow != 0; p.histogramUnderflow = underflow; p.histogramHasOverflow = has_overflow != 0; p.histogramOverflow = overflow; } catch (...) {} }
-XLPP_API void xlpp_chart_plot_set_box_whisker_options(xlpp_chart c, int index, int inner_points, int outliers, int mean_line, int mean_marker, int quartile_inclusive) { try { auto& p = CH(c)->plots().at(static_cast<std::size_t>(index)); p.boxWhiskerShowInnerPoints = inner_points != 0; p.boxWhiskerShowOutlierPoints = outliers != 0; p.boxWhiskerShowMeanLine = mean_line != 0; p.boxWhiskerShowMeanMarker = mean_marker != 0; p.boxWhiskerQuartileInclusive = quartile_inclusive != 0; } catch (...) {} }
-XLPP_API void xlpp_chart_plot_set_waterfall_connector_lines(xlpp_chart c, int index, int enabled) { try { CH(c)->plots().at(static_cast<std::size_t>(index)).waterfallShowConnectorLines = enabled != 0; } catch (...) {} }
 
 XLPP_API void xlpp_chartseries_set_title(xlpp_chartseries s, const char* v) { CS(s)->setTitle(v); }
 XLPP_API void xlpp_chartseries_set_values_reference(xlpp_chartseries s, const char* v) { CS(s)->setValuesReference(v); }
 XLPP_API void xlpp_chartseries_set_categories_reference(xlpp_chartseries s, const char* v) { CS(s)->setCategoriesReference(v); }
-XLPP_API void xlpp_chartseries_set_bubble_size_reference(xlpp_chartseries s, const char* v) { CS(s)->setBubbleSizeReference(v ? v : ""); }
-XLPP_API void xlpp_chartseries_set_smooth(xlpp_chartseries s, int v) { CS(s)->setSmooth(v != 0); }
-XLPP_API void xlpp_chartseries_clear_smooth(xlpp_chartseries s) { CS(s)->clearSmooth(); }
+XLPP_API void xlpp_chartseries_set_bubble_size_reference(xlpp_chartseries s, const char* v) { if (s) CS(s)->setBubbleSizeReference(v ? v : ""); }
+XLPP_API void xlpp_chartseries_bubble_size_reference(xlpp_chartseries s, char* out, int outSize) { if (s) copyStr(CS(s)->bubbleSizeReference(), out, outSize); }
 
 // ============================================================
 // Pivot table
@@ -1581,45 +1194,11 @@ XLPP_API void xlpp_pivottable_add_row_field(xlpp_pivottable p, const char* name)
 XLPP_API void xlpp_pivottable_add_column_field(xlpp_pivottable p, const char* name) { PT(p)->addColumnField(name); }
 XLPP_API void xlpp_pivottable_add_page_field(xlpp_pivottable p, const char* name) { PT(p)->addPageField(name); }
 XLPP_API void xlpp_pivottable_add_data_field(xlpp_pivottable p) { PT(p)->addDataField(); }
-XLPP_API void xlpp_pivottable_add_data_field_named(xlpp_pivottable p, const char* name, const char* subtotal) { try { PT(p)->addDataField(name ? name : "", subtotal ? subtotal : "sum"); } catch (...) {} }
-XLPP_API void xlpp_pivottable_set_layout(xlpp_pivottable p, int layout) { PT(p)->setLayout(static_cast<xlpp::PivotLayout>(layout)); }
-XLPP_API int xlpp_pivottable_layout(xlpp_pivottable p) { return static_cast<int>(PT(p)->layout()); }
-XLPP_API void xlpp_pivottable_set_flags(xlpp_pivottable p, int show_empty_row, int show_empty_column, int show_drill, int enable_drill, int multiple_field_filters, int show_values_row, int subtotal_hidden_items) { PT(p)->setShowEmptyRow(show_empty_row != 0); PT(p)->setShowEmptyColumn(show_empty_column != 0); PT(p)->setShowDrill(show_drill != 0); PT(p)->setEnableDrill(enable_drill != 0); PT(p)->setMultipleFieldFilters(multiple_field_filters != 0); PT(p)->setShowValuesRow(show_values_row != 0); PT(p)->setSubtotalHiddenItems(subtotal_hidden_items != 0); }
-XLPP_API void xlpp_pivottable_set_page_layout(xlpp_pivottable p, int page_wrap, int over_then_down) { try { PT(p)->setPageWrap(page_wrap); PT(p)->setPageOverThenDown(over_then_down != 0); } catch (...) {} }
-XLPP_API void xlpp_pivottable_set_style(xlpp_pivottable p, const char* style_name, const char* data_caption) { PT(p)->setStyleName(style_name ? style_name : ""); PT(p)->setDataCaption(data_caption ? data_caption : "Values"); }
-XLPP_API void xlpp_pivottable_set_display_options(xlpp_pivottable p, int row_grand_totals, int column_grand_totals, int preserve_formatting, int use_auto_formatting, int show_row_headers, int show_column_headers, int show_row_stripes, int show_column_stripes, int show_last_column) { PT(p)->setRowGrandTotals(row_grand_totals != 0); PT(p)->setColumnGrandTotals(column_grand_totals != 0); PT(p)->setPreserveFormatting(preserve_formatting != 0); PT(p)->setUseAutoFormatting(use_auto_formatting != 0); PT(p)->setShowRowHeaders(show_row_headers != 0); PT(p)->setShowColumnHeaders(show_column_headers != 0); PT(p)->setShowRowStripes(show_row_stripes != 0); PT(p)->setShowColumnStripes(show_column_stripes != 0); PT(p)->setShowLastColumn(show_last_column != 0); }
-XLPP_API int xlpp_pivottable_data_field_count(xlpp_pivottable p) { return static_cast<int>(PT(p)->dataFields().size()); }
-XLPP_API void xlpp_pivottable_configure_data_field(xlpp_pivottable p, int index, const char* subtotal, const char* caption, uint32_t number_format_id, const char* show_data_as, int base_field, int base_item) { try { auto& f = PT(p)->dataFields().at(static_cast<std::size_t>(index)); if (subtotal && *subtotal) f.setSubtotal(subtotal); if (caption) f.setCaption(caption); f.setNumberFormatId(number_format_id); if (show_data_as && *show_data_as) f.setShowDataAs(show_data_as); f.setBaseField(base_field); f.setBaseItem(base_item); } catch (...) {} }
-XLPP_API int xlpp_pivottable_row_field_count(xlpp_pivottable p) { return static_cast<int>(PT(p)->rowFields().size()); }
-XLPP_API int xlpp_pivottable_column_field_count(xlpp_pivottable p) { return static_cast<int>(PT(p)->columnFields().size()); }
-XLPP_API int xlpp_pivottable_page_field_count(xlpp_pivottable p) { return static_cast<int>(PT(p)->pageFields().size()); }
-XLPP_API xlpp_pivotfield xlpp_pivottable_row_field_at(xlpp_pivottable p, int index) { try { return reinterpret_cast<xlpp_pivotfield>(&PT(p)->rowFields().at(static_cast<std::size_t>(index))); } catch (...) { return nullptr; } }
-XLPP_API xlpp_pivotfield xlpp_pivottable_column_field_at(xlpp_pivottable p, int index) { try { return reinterpret_cast<xlpp_pivotfield>(&PT(p)->columnFields().at(static_cast<std::size_t>(index))); } catch (...) { return nullptr; } }
-XLPP_API xlpp_pivotfield xlpp_pivottable_page_field_at(xlpp_pivottable p, int index) { try { return reinterpret_cast<xlpp_pivotfield>(&PT(p)->pageFields().at(static_cast<std::size_t>(index))); } catch (...) { return nullptr; } }
-XLPP_API void xlpp_pivottable_add_filter(xlpp_pivottable p, const char* type, int field_index, int measure_field_index, const char* value1, const char* value2, double top10_value, int top10_percent, int top10_top) { xlpp::PivotFilter f; f.type = type ? type : "unknown"; f.fieldIndex = field_index; f.measureFieldIndex = measure_field_index; f.value1 = value1 ? value1 : ""; f.value2 = value2 ? value2 : ""; f.top10Value = top10_value; f.top10Percent = top10_percent != 0; f.top10Top = top10_top != 0; PT(p)->addFilter(std::move(f)); }
 
 XLPP_API void xlpp_pivotcache_set_cache_id(xlpp_pivotcache c, int v) { PC(c)->setCacheId(v); }
 XLPP_API int xlpp_pivotcache_cache_id(xlpp_pivotcache c) { return PC(c)->cacheId(); }
 XLPP_API void xlpp_pivotcache_set_source_data(xlpp_pivotcache c, const char* v) { PC(c)->setSourceData(v); }
 XLPP_API void xlpp_pivotcache_source_data(xlpp_pivotcache c, char* out, int outSize) { copyStr(PC(c)->sourceData(), out, outSize); }
-XLPP_API void xlpp_pivotcache_set_refresh_on_load(xlpp_pivotcache c, int v) { PC(c)->setRefreshOnLoad(v != 0); }
-XLPP_API void xlpp_pivotcache_set_save_data(xlpp_pivotcache c, int v) { PC(c)->setSaveData(v != 0); }
-XLPP_API void xlpp_pivotcache_set_enable_refresh(xlpp_pivotcache c, int v) { PC(c)->setEnableRefresh(v != 0); }
-XLPP_API void xlpp_pivotcache_set_missing_items_limit(xlpp_pivotcache c, int v) { try { PC(c)->setMissingItemsLimit(v); } catch (...) {} }
-XLPP_API void xlpp_pivotcache_set_advanced_flags(xlpp_pivotcache c, int background_query, int optimize_memory, int upgrade_on_refresh, int support_subquery, int support_advanced_drill) { PC(c)->setBackgroundQuery(background_query != 0); PC(c)->setOptimizeMemory(optimize_memory != 0); PC(c)->setUpgradeOnRefresh(upgrade_on_refresh != 0); PC(c)->setSupportSubquery(support_subquery != 0); PC(c)->setSupportAdvancedDrill(support_advanced_drill != 0); }
-XLPP_API void xlpp_pivotcache_set_refreshed_by(xlpp_pivotcache c, const char* v) { PC(c)->setRefreshedBy(v ? v : ""); }
-
-#define PF(h) reinterpret_cast<xlpp::PivotField*>(h)
-XLPP_API void xlpp_pivotfield_set_repeat_item_labels(xlpp_pivotfield f, int v) { PF(f)->setRepeatItemLabels(v != 0); }
-XLPP_API void xlpp_pivotfield_set_compact(xlpp_pivotfield f, int v) { PF(f)->setCompact(v != 0); }
-XLPP_API void xlpp_pivotfield_set_outline(xlpp_pivotfield f, int v) { PF(f)->setOutline(v != 0); }
-XLPP_API void xlpp_pivotfield_set_show_dropdowns(xlpp_pivotfield f, int v) { PF(f)->setShowDropDowns(v != 0); }
-XLPP_API void xlpp_pivotfield_set_behavior(xlpp_pivotfield f, int show_all, int sort_type, int subtotal_top, int insert_blank_row, int include_new_items_in_filter, int multiple_item_selection_allowed, int selected_item_index, int insert_page_break, int default_subtotal) { PF(f)->setShowAll(show_all != 0); PF(f)->setSortType(sort_type); PF(f)->setSubtotalTop(subtotal_top != 0); PF(f)->setInsertBlankRow(insert_blank_row != 0); PF(f)->setIncludeNewItemsInFilter(include_new_items_in_filter != 0); PF(f)->setMultipleItemSelectionAllowed(multiple_item_selection_allowed != 0); PF(f)->setSelectedItemIndex(selected_item_index); PF(f)->setInsertPageBreak(insert_page_break != 0); PF(f)->setDefaultSubtotal(default_subtotal != 0); }
-XLPP_API void xlpp_pivotfield_add_subtotal(xlpp_pivotfield f, const char* subtotal) { try { PF(f)->addSubtotal(subtotal ? subtotal : "sum"); } catch (...) {} }
-XLPP_API void xlpp_pivotfield_set_item_hidden(xlpp_pivotfield f, int item_index, int hidden) { try { PF(f)->setItemHidden(item_index, hidden != 0); } catch (...) {} }
-XLPP_API void xlpp_pivotfield_set_numeric_grouping(xlpp_pivotfield f, int auto_start, int auto_end, double start, double end, double interval) { xlpp::PivotGrouping g; g.kind = xlpp::PivotGrouping::Kind::Numeric; g.autoStart = auto_start != 0; g.autoEnd = auto_end != 0; g.start = start; g.end = end; g.interval = interval; PF(f)->setGrouping(std::move(g)); }
-XLPP_API void xlpp_pivotfield_set_date_grouping(xlpp_pivotfield f, int date_part, int auto_start, int auto_end, const char* start_date, const char* end_date) { xlpp::PivotGrouping g; g.kind = xlpp::PivotGrouping::Kind::Date; g.datePart = static_cast<xlpp::PivotGrouping::DatePart>(date_part); g.autoStart = auto_start != 0; g.autoEnd = auto_end != 0; g.startDate = start_date ? start_date : ""; g.endDate = end_date ? end_date : ""; PF(f)->setGrouping(std::move(g)); }
-XLPP_API void xlpp_pivotfield_clear_grouping(xlpp_pivotfield f) { PF(f)->setGrouping(xlpp::PivotGrouping{}); }
 
 // ============================================================
 // Conditional formatting

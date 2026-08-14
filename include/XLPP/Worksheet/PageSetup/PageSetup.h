@@ -1,9 +1,14 @@
 #pragma once
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace xlpp {
 enum class PageOrientation { Default, Portrait, Landscape };
 enum class PaperSize : unsigned { Default = 0, Letter = 1, Legal = 5, A4 = 9, A3 = 8 };
+enum class PageOrder { Default, DownThenOver, OverThenDown };
+enum class PageCellComments { Default, AsDisplayed, AtEnd };
+enum class PageErrorDisplay { Default, Displayed, Blank, Dash, NA };
 
 class PageMargins {
 public:
@@ -39,11 +44,51 @@ public:
     void setFirstPageNumber(unsigned v) noexcept { firstPageNumber_ = v; }
     bool useFirstPageNumber() const noexcept { return useFirstPageNumber_; }
     void setUseFirstPageNumber(bool v) noexcept { useFirstPageNumber_ = v; }
+
+    const std::optional<std::string>& paperHeight() const noexcept { return paperHeight_; }
+    void setPaperHeight(std::string v) { paperHeight_ = std::move(v); }
+    void clearPaperHeight() noexcept { paperHeight_.reset(); }
+    const std::optional<std::string>& paperWidth() const noexcept { return paperWidth_; }
+    void setPaperWidth(std::string v) { paperWidth_ = std::move(v); }
+    void clearPaperWidth() noexcept { paperWidth_.reset(); }
+    PageOrder pageOrder() const noexcept { return pageOrder_; }
+    void setPageOrder(PageOrder v) noexcept { pageOrder_ = v; }
+    const std::optional<bool>& usePrinterDefaults() const noexcept { return usePrinterDefaults_; }
+    void setUsePrinterDefaults(bool v) noexcept { usePrinterDefaults_ = v; }
+    void clearUsePrinterDefaults() noexcept { usePrinterDefaults_.reset(); }
+    PageCellComments cellComments() const noexcept { return cellComments_; }
+    void setCellComments(PageCellComments v) noexcept { cellComments_ = v; }
+    PageErrorDisplay errors() const noexcept { return errors_; }
+    void setErrors(PageErrorDisplay v) noexcept { errors_ = v; }
+    const std::optional<unsigned>& horizontalDpi() const noexcept { return horizontalDpi_; }
+    void setHorizontalDpi(unsigned v) noexcept { horizontalDpi_ = v; }
+    void clearHorizontalDpi() noexcept { horizontalDpi_.reset(); }
+    const std::optional<unsigned>& verticalDpi() const noexcept { return verticalDpi_; }
+    void setVerticalDpi(unsigned v) noexcept { verticalDpi_ = v; }
+    void clearVerticalDpi() noexcept { verticalDpi_.reset(); }
+    const std::optional<unsigned>& copies() const noexcept { return copies_; }
+    void setCopies(unsigned v) noexcept { copies_ = v; }
+    void clearCopies() noexcept { copies_.reset(); }
+    const std::optional<std::string>& relationshipId() const noexcept { return relationshipId_; }
+    void setRelationshipId(std::string v) { relationshipId_ = std::move(v); }
+    void clearRelationshipId() noexcept { relationshipId_.reset(); }
+
+    bool hasExtendedSettings() const noexcept {
+        return paperHeight_ || paperWidth_ || pageOrder_ != PageOrder::Default || usePrinterDefaults_ ||
+               cellComments_ != PageCellComments::Default || errors_ != PageErrorDisplay::Default ||
+               horizontalDpi_ || verticalDpi_ || copies_ || relationshipId_;
+    }
 private:
     PageOrientation orientation_{PageOrientation::Default};
     PaperSize paperSize_{PaperSize::Default};
     unsigned scale_{100}, fitToWidth_{0}, fitToHeight_{0}, firstPageNumber_{1};
     bool fitToPage_{false}, blackAndWhite_{false}, draft_{false}, useFirstPageNumber_{false};
+    std::optional<std::string> paperHeight_, paperWidth_, relationshipId_;
+    PageOrder pageOrder_{PageOrder::Default};
+    std::optional<bool> usePrinterDefaults_;
+    PageCellComments cellComments_{PageCellComments::Default};
+    PageErrorDisplay errors_{PageErrorDisplay::Default};
+    std::optional<unsigned> horizontalDpi_, verticalDpi_, copies_;
 };
 
 class PrintOptions {
@@ -70,12 +115,16 @@ public:
     void setEvenHeader(std::string v) { evenHeader_ = std::move(v); }
     const std::string& evenFooter() const noexcept { return evenFooter_; }
     void setEvenFooter(std::string v) { evenFooter_ = std::move(v); }
+    const std::string& firstHeader() const noexcept { return firstHeader_; }
+    void setFirstHeader(std::string v) { firstHeader_ = std::move(v); }
+    const std::string& firstFooter() const noexcept { return firstFooter_; }
+    void setFirstFooter(std::string v) { firstFooter_ = std::move(v); }
     bool differentOddEven() const noexcept { return differentOddEven_; }
     void setDifferentOddEven(bool v) noexcept { differentOddEven_ = v; }
     bool differentFirst() const noexcept { return differentFirst_; }
     void setDifferentFirst(bool v) noexcept { differentFirst_ = v; }
 private:
-    std::string oddHeader_, oddFooter_, evenHeader_, evenFooter_;
+    std::string oddHeader_, oddFooter_, evenHeader_, evenFooter_, firstHeader_, firstFooter_;
     bool differentOddEven_{false}, differentFirst_{false};
 };
 }

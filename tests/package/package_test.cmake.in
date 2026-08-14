@@ -38,7 +38,7 @@ if(NOT result EQUAL 0)
     message(FATAL_ERROR "find_package consumer configure failed: ${result}")
 endif()
 execute_process(
-    COMMAND "${CMAKE_COMMAND_}" --build "${find_build}" --target run_consumer --config Release --parallel 12
+    COMMAND "${CMAKE_COMMAND_}" --build "${find_build}" --target run_consumer --config Release --parallel 4
     RESULT_VARIABLE result
 )
 if(NOT result EQUAL 0)
@@ -48,7 +48,7 @@ endif()
 # --- Consumer 2: add_subdirectory ---
 execute_process(
     COMMAND "${CMAKE_COMMAND_}" -S "${SUBDIR_CONSUMER_SOURCE}" -B "${subdir_build}"
-        -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=Debug
+        -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=Release
         -DXLPP_SOURCE_DIR=${XLPP_SOURCE_DIR}
     RESULT_VARIABLE result
 )
@@ -56,7 +56,7 @@ if(NOT result EQUAL 0)
     message(FATAL_ERROR "add_subdirectory consumer configure failed: ${result}")
 endif()
 execute_process(
-    COMMAND "${CMAKE_COMMAND_}" --build "${subdir_build}" --target run_subdir_app --config Debug --parallel 12
+    COMMAND "${CMAKE_COMMAND_}" --build "${subdir_build}" --target run_subdir_app --config Release --parallel 4
     RESULT_VARIABLE result
 )
 if(NOT result EQUAL 0)

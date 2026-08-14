@@ -1,5 +1,4 @@
 #pragma once
-#include <XLPP/Core/StableVector.h>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -79,12 +78,12 @@ public:
         validation.setReference(std::move(reference));
         return add(std::move(validation));
     }
-    const StableVector<DataValidation>& items() const noexcept { return items_; }
-    StableVector<DataValidation>& items() noexcept { return items_; }
+    const std::vector<DataValidation>& items() const noexcept { return items_; }
+    std::vector<DataValidation>& items() noexcept { return items_; }
     bool empty() const noexcept { return items_.empty(); }
     void clear() noexcept { items_.clear(); }
 private:
-    StableVector<DataValidation> items_;
+    std::vector<DataValidation> items_;
 };
 
 }

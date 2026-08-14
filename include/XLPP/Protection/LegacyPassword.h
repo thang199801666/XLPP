@@ -19,8 +19,7 @@ inline std::string legacyProtectionPasswordHash(std::string_view password) {
 
     std::uint16_t hash = 0;
     std::size_t index = 1;
-    for (const char rawCharacter : password) {
-        const auto character = static_cast<unsigned char>(rawCharacter);
+    for (const unsigned char character : password) {
         const std::uint32_t shifted = static_cast<std::uint32_t>(character) << index;
         const std::uint16_t rotated = static_cast<std::uint16_t>((shifted & 0x7FFFu) | (shifted >> 15u));
         hash ^= rotated;

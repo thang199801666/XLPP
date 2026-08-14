@@ -7,7 +7,6 @@
 #include <cstring>
 #include <limits>
 #include <map>
-#include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
@@ -19,6 +18,7 @@ namespace {
 constexpr std::uint32_t kFreeSect = 0xFFFFFFFFu;
 constexpr std::uint32_t kEndOfChain = 0xFFFFFFFEu;
 constexpr std::uint32_t kFatSect = 0xFFFFFFFDu;
+constexpr std::uint32_t kDifSect = 0xFFFFFFFCu;
 constexpr std::size_t kSectorSize = 512;
 constexpr std::size_t kMiniSectorSize = 64;
 constexpr std::size_t kMiniCutoff = 4096;
@@ -52,6 +52,44 @@ std::uint64_t getU64(const unsigned char* p) {
     return value;
 }
 
+
+int hexNibble(char ch) {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    return -1;
+}
+
+std::array<unsigned char, 16> parseGuidBytes(std::string text) {
+    if (!text.empty() && text.front() == '{' && text.back() == '}') text = text.substr(1, text.size() - 2);
+    std::string digits;
+    digits.reserve(32);
+    for (const auto ch : text) if (ch != '-') digits.push_back(ch);
+    if (digits.size() != 32) throw std::invalid_argument("VBA control reference originalTypeLib must be a GUID");
+    std::array<unsigned char, 16> canonical{};
+    for (std::size_t i = 0; i < canonical.size(); ++i) {
+        const auto hi = hexNibble(digits[i * 2]); const auto lo = hexNibble(digits[i * 2 + 1]);
+        if (hi < 0 || lo < 0) throw std::invalid_argument("VBA control reference originalTypeLib contains invalid GUID hex");
+        canonical[i] = static_cast<unsigned char>((hi << 4) | lo);
+    }
+    // GUID wire/storage layout is little-endian for Data1/Data2/Data3.
+    return {canonical[3], canonical[2], canonical[1], canonical[0], canonical[5], canonical[4], canonical[7], canonical[6],
+            canonical[8], canonical[9], canonical[10], canonical[11], canonical[12], canonical[13], canonical[14], canonical[15]};
+}
+
+std::string guidTextFromBytes(const unsigned char* p) {
+    const std::array<unsigned char, 16> canonical{p[3], p[2], p[1], p[0], p[5], p[4], p[7], p[6],
+                                                  p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]};
+    static constexpr char hex[] = "0123456789ABCDEF";
+    std::string out = "{";
+    for (std::size_t i = 0; i < canonical.size(); ++i) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) out.push_back('-');
+        out.push_back(hex[(canonical[i] >> 4) & 0xF]); out.push_back(hex[canonical[i] & 0xF]);
+    }
+    out.push_back('}');
+    return out;
+}
+
 void overwriteU16(std::vector<unsigned char>& out, std::size_t offset, std::uint16_t value) {
     out.at(offset) = static_cast<unsigned char>(value & 0xFFu);
     out.at(offset + 1) = static_cast<unsigned char>((value >> 8u) & 0xFFu);
@@ -69,8 +107,7 @@ void appendBytes(std::vector<unsigned char>& out, std::string_view value) {
 std::vector<unsigned char> utf16Le(std::string_view ascii, bool terminatingNull = false) {
     std::vector<unsigned char> result;
     result.reserve((ascii.size() + (terminatingNull ? 1u : 0u)) * 2u);
-    for (char raw : ascii) {
-        const auto ch = static_cast<unsigned char>(raw);
+    for (unsigned char ch : ascii) {
         result.push_back(ch);
         result.push_back(0);
     }
@@ -342,15 +379,58 @@ std::array<unsigned char, 128> directoryEntry(const CfbNode& node) {
 }
 
 std::vector<unsigned char> buildCfb(const std::map<std::string, std::vector<unsigned char>>& rootStreams,
-                                    const std::map<std::string, std::vector<unsigned char>>& vbaStreams) {
+                                    const std::map<std::string, std::vector<unsigned char>>& vbaStreams,
+                                    const std::vector<xlpp::VbaDesignerStorage>& designerStorages = {},
+                                    bool includeVbaStorage = true) {
     std::vector<CfbNode> nodes;
     nodes.push_back({"Root Entry", 5, -1, {}});
-    const auto vbaStorage = static_cast<std::uint32_t>(nodes.size());
-    nodes.push_back({"VBA", 1, 0, {}});
+    std::uint32_t vbaStorage = kFreeSect;
+    if (includeVbaStorage) {
+        vbaStorage = static_cast<std::uint32_t>(nodes.size());
+        nodes.push_back({"VBA", 1, 0, {}});
+    } else if (!vbaStreams.empty() || !designerStorages.empty()) {
+        throw std::invalid_argument("Root-only CFB cannot contain VBA/designer streams");
+    }
     for (const auto& [name, data] : rootStreams) nodes.push_back({name, 2, 0, data});
     for (const auto& [name, data] : vbaStreams) nodes.push_back({name, 2, static_cast<int>(vbaStorage), data});
-    assignChildTree(nodes, 0);
-    assignChildTree(nodes, vbaStorage);
+
+    auto childStorage = [&](int parent, const std::string& name) -> int {
+        for (std::size_t i = 0; i < nodes.size(); ++i)
+            if (nodes[i].parent == parent && nodes[i].type == 1 && asciiLower(nodes[i].name) == asciiLower(name))
+                return static_cast<int>(i);
+        nodes.push_back({name, 1, parent, {}});
+        return static_cast<int>(nodes.size() - 1);
+    };
+    auto addHierarchicalStream = [&](int rootStorage, const std::string& relativePath, const std::vector<unsigned char>& data) {
+        if (relativePath.empty()) throw std::invalid_argument("VBA designer stream path cannot be empty");
+        int parent = rootStorage;
+        std::size_t begin = 0;
+        while (true) {
+            const auto slash = relativePath.find('/', begin);
+            const auto component = relativePath.substr(begin, slash == std::string::npos ? std::string::npos : slash - begin);
+            if (component.empty() || component == "." || component == "..")
+                throw std::invalid_argument("VBA designer stream path contains an invalid component: " + relativePath);
+            if (slash == std::string::npos) {
+                for (const auto& node : nodes)
+                    if (node.parent == parent && asciiLower(node.name) == asciiLower(component))
+                        throw std::invalid_argument("Duplicate VBA designer CFB entry: " + relativePath);
+                nodes.push_back({component, 2, parent, data});
+                break;
+            }
+            parent = childStorage(parent, component);
+            begin = slash + 1;
+        }
+    };
+
+    for (const auto& storage : designerStorages) {
+        if (storage.name.empty()) throw std::invalid_argument("VBA designer storage name cannot be empty");
+        if (asciiLower(storage.name) == "vba") throw std::invalid_argument("VBA designer storage cannot use reserved name VBA");
+        int storageId = childStorage(0, storage.name);
+        for (const auto& stream : storage.streams) addHierarchicalStream(storageId, stream.path, stream.data);
+    }
+
+    for (std::size_t i = 0; i < nodes.size(); ++i)
+        if (nodes[i].type == 1 || nodes[i].type == 5) assignChildTree(nodes, static_cast<std::uint32_t>(i));
 
     std::vector<std::uint32_t> miniFat;
     std::vector<unsigned char> miniStream;
@@ -393,10 +473,15 @@ std::vector<unsigned char> buildCfb(const std::map<std::string, std::vector<unsi
     for (const auto& binding : regular) regularSectors += (binding.data.size() + kSectorSize - 1) / kSectorSize;
     const auto nonFatSectors = regularSectors + rootMiniSectors + dirSectors + miniFatSectors;
     std::size_t fatSectors = 1;
-    while (fatSectors != (nonFatSectors + fatSectors + 127) / 128)
-        fatSectors = (nonFatSectors + fatSectors + 127) / 128;
-    if (fatSectors > 109) throw std::runtime_error("VBA project exceeds compact CFB DIFAT capacity");
-    const auto totalSectors = nonFatSectors + fatSectors;
+    std::size_t difatSectors = 0;
+    for (;;) {
+        const auto nextDifat = fatSectors > 109 ? (fatSectors - 109 + 126) / 127 : 0;
+        const auto nextFat = (nonFatSectors + fatSectors + nextDifat + 127) / 128;
+        if (nextFat == fatSectors && nextDifat == difatSectors) break;
+        fatSectors = nextFat;
+        difatSectors = nextDifat;
+    }
+    const auto totalSectors = nonFatSectors + fatSectors + difatSectors;
 
     std::vector<std::uint32_t> fat(fatSectors * 128, kFreeSect);
     std::vector<std::array<unsigned char, kSectorSize>> sectors(totalSectors);
@@ -437,13 +522,34 @@ std::vector<unsigned char> buildCfb(const std::map<std::string, std::vector<unsi
 
     const auto firstFatSector = nextSector;
     for (std::size_t i = 0; i < fatSectors; ++i) fat[nextSector + i] = kFatSect;
+    nextSector += fatSectors;
+    const auto firstDifatSector = difatSectors ? static_cast<std::uint32_t>(nextSector) : kEndOfChain;
+    for (std::size_t i = 0; i < difatSectors; ++i) fat[nextSector + i] = kDifSect;
+
+    // FAT sector contents include the FAT/DIFAT sector markers above.
     for (std::size_t f = 0; f < fatSectors; ++f) {
-        auto& target = sectors[nextSector + f];
+        auto& target = sectors[firstFatSector + f];
         for (std::size_t j = 0; j < 128; ++j) {
             const auto value = fat[f * 128 + j];
             for (unsigned shift = 0; shift < 32; shift += 8)
                 target[j * 4 + shift / 8] = static_cast<unsigned char>((value >> shift) & 0xFFu);
         }
+    }
+
+    // Header DIFAT holds the first 109 FAT sector IDs. Additional FAT IDs are
+    // chained through DIFAT sectors, 127 IDs plus one next-sector pointer each.
+    for (std::size_t d = 0; d < difatSectors; ++d) {
+        auto& target = sectors[firstDifatSector + d];
+        const auto base = 109 + d * 127;
+        for (std::size_t j = 0; j < 127; ++j) {
+            const auto index = base + j;
+            const auto value = index < fatSectors ? static_cast<std::uint32_t>(firstFatSector + index) : kFreeSect;
+            for (unsigned shift = 0; shift < 32; shift += 8)
+                target[j * 4 + shift / 8] = static_cast<unsigned char>((value >> shift) & 0xFFu);
+        }
+        const auto next = d + 1 < difatSectors ? static_cast<std::uint32_t>(firstDifatSector + d + 1) : kEndOfChain;
+        for (unsigned shift = 0; shift < 32; shift += 8)
+            target[508 + shift / 8] = static_cast<unsigned char>((next >> shift) & 0xFFu);
     }
 
     std::vector<unsigned char> output(kSectorSize, 0);
@@ -461,8 +567,8 @@ std::vector<unsigned char> buildCfb(const std::map<std::string, std::vector<unsi
     overwriteU32(output, 56, static_cast<std::uint32_t>(kMiniCutoff));
     overwriteU32(output, 60, firstMiniFatSector);
     overwriteU32(output, 64, static_cast<std::uint32_t>(miniFatSectors));
-    overwriteU32(output, 68, kEndOfChain);
-    overwriteU32(output, 72, 0);
+    overwriteU32(output, 68, firstDifatSector);
+    overwriteU32(output, 72, static_cast<std::uint32_t>(difatSectors));
     for (std::size_t i = 0; i < 109; ++i)
         overwriteU32(output, 76 + i * 4, i < fatSectors ? static_cast<std::uint32_t>(firstFatSector + i) : kFreeSect);
     for (const auto& sector : sectors) output.insert(output.end(), sector.begin(), sector.end());
@@ -495,6 +601,29 @@ public:
         return readRegularChain(entry.start, entry.size);
     }
 
+    std::vector<std::string> rootStorageNames() const {
+        std::vector<std::string> result;
+        for (std::size_t id = 1; id < directory_.size(); ++id) {
+            if (directory_[id].type != 1 || id >= originalPaths_.size()) continue;
+            const auto& path = originalPaths_[id];
+            if (!path.empty() && path.find('/') == std::string::npos) result.push_back(path);
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    }
+
+    std::vector<std::string> streamPathsUnder(const std::string& storage) const {
+        std::vector<std::string> result;
+        const auto prefix = storage + "/";
+        for (std::size_t id = 1; id < directory_.size(); ++id) {
+            if (directory_[id].type != 2 || id >= originalPaths_.size()) continue;
+            const auto& path = originalPaths_[id];
+            if (path.rfind(prefix, 0) == 0) result.push_back(path);
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    }
+
 private:
     const std::vector<unsigned char>& bytes_;
     std::size_t sectorSize_{512};
@@ -505,16 +634,25 @@ private:
     std::vector<ParsedDirectoryEntry> directory_;
     std::vector<unsigned char> rootMiniStream_;
     std::unordered_map<std::string, std::size_t> paths_;
+    std::vector<std::string> originalPaths_;
 
     const unsigned char* sector(std::uint32_t id) const {
+        if (sectorSize_ == 0 || static_cast<std::size_t>(id) >
+                (std::numeric_limits<std::size_t>::max() - kSectorSize) / sectorSize_)
+            throw std::runtime_error("CFB sector offset overflow");
         const auto offset = kSectorSize + static_cast<std::size_t>(id) * sectorSize_;
-        if (offset + sectorSize_ > bytes_.size()) throw std::runtime_error("CFB sector is outside the file");
+        if (offset > bytes_.size() || sectorSize_ > bytes_.size() - offset)
+            throw std::runtime_error("CFB sector is outside the file");
         return bytes_.data() + offset;
     }
 
     std::vector<unsigned char> readRegularChain(std::uint32_t start, std::uint64_t expected) const {
         std::vector<unsigned char> out;
-        if (start == kEndOfChain) return out;
+        const bool exactSize = expected != std::numeric_limits<std::uint64_t>::max();
+        if (start == kEndOfChain) {
+            if (exactSize && expected != 0) throw std::runtime_error("Truncated CFB regular stream");
+            return out;
+        }
         std::uint32_t id = start;
         std::size_t guard = 0;
         while (id != kEndOfChain && id != kFreeSect) {
@@ -524,12 +662,20 @@ private:
             id = fat_[id];
             if (++guard > fat_.size()) throw std::runtime_error("Cyclic CFB FAT chain");
         }
-        if (expected < out.size()) out.resize(static_cast<std::size_t>(expected));
+        if (exactSize) {
+            if (expected > static_cast<std::uint64_t>(out.size()))
+                throw std::runtime_error("Truncated CFB regular stream");
+            if (expected < out.size()) out.resize(static_cast<std::size_t>(expected));
+        }
         return out;
     }
 
     std::vector<unsigned char> readMiniChain(std::uint32_t start, std::uint64_t expected) const {
         std::vector<unsigned char> out;
+        if (start == kEndOfChain) {
+            if (expected != 0) throw std::runtime_error("Truncated CFB mini stream");
+            return out;
+        }
         std::uint32_t id = start;
         std::size_t guard = 0;
         while (id != kEndOfChain && id != kFreeSect && out.size() < expected) {
@@ -542,17 +688,27 @@ private:
             id = miniFat_[id];
             if (++guard > miniFat_.size()) throw std::runtime_error("Cyclic CFB miniFAT chain");
         }
+        if (expected > static_cast<std::uint64_t>(out.size()))
+            throw std::runtime_error("Truncated CFB mini stream");
         if (expected < out.size()) out.resize(static_cast<std::size_t>(expected));
         return out;
     }
 
     void walkTree(std::uint32_t id, const std::string& prefix, std::vector<bool>& visited) {
-        if (id == kFreeSect || id >= directory_.size() || visited[id]) return;
+        if (id == kFreeSect || id == kEndOfChain) return;
+        if (id >= directory_.size()) throw std::runtime_error("CFB directory tree references an invalid entry");
+        if (visited[id]) throw std::runtime_error("Cyclic CFB directory tree");
         visited[id] = true;
         const auto entry = directory_[id];
+        if (entry.type != 1 && entry.type != 2 && entry.type != 5)
+            throw std::runtime_error("CFB directory tree references an invalid entry type");
+        if (entry.name.empty()) throw std::runtime_error("CFB directory entry has an empty name");
         walkTree(entry.left, prefix, visited);
         const auto path = prefix.empty() ? entry.name : prefix + "/" + entry.name;
-        paths_[asciiLower(path)] = id;
+        if (!paths_.emplace(asciiLower(path), id).second)
+            throw std::runtime_error("Duplicate CFB directory path: " + path);
+        if (originalPaths_.size() < directory_.size()) originalPaths_.resize(directory_.size());
+        originalPaths_[id] = path;
         if (entry.type == 1 || entry.type == 5) walkTree(entry.child, path == "Root Entry" ? "" : path, visited);
         walkTree(entry.right, prefix, visited);
     }
@@ -609,6 +765,12 @@ private:
             entry.child = getU32(p + 76);
             entry.start = getU32(p + 116);
             entry.size = getU64(p + 120);
+            if (entry.type != 0) {
+                if (nameBytes < 2 || nameBytes > 64 || (nameBytes & 1u) != 0)
+                    throw std::runtime_error("Invalid CFB directory-entry name length");
+                if (p[nameBytes - 2] != 0 || p[nameBytes - 1] != 0)
+                    throw std::runtime_error("CFB directory-entry name is not null terminated");
+            }
             directory_.push_back(std::move(entry));
         }
         if (directory_.empty() || directory_[0].type != 5) throw std::runtime_error("CFB root entry is missing");
@@ -619,6 +781,8 @@ private:
         }
         std::vector<bool> visited(directory_.size(), false);
         paths_["root entry"] = 0;
+        originalPaths_.resize(directory_.size());
+        originalPaths_[0] = "Root Entry";
         walkTree(directory_[0].child, "", visited);
     }
 };
@@ -635,35 +799,77 @@ std::string stripGeneratedAttributes(std::string source) {
     return source.substr(pos);
 }
 
-std::vector<unsigned char> buildDirStream(const std::vector<xlpp::VbaModule>& modules, const xlpp::VbaProjectProperties& properties) {
+std::vector<unsigned char> buildDirStream(const std::vector<xlpp::VbaModule>& modules, const xlpp::VbaProjectInfo& info) {
     std::vector<unsigned char> dir;
-    appendFixedRecord(dir, 0x0001, 0x00000003); // 64-bit Windows
-    appendFixedRecord(dir, 0x0002, 0x00000409);
-    appendFixedRecord(dir, 0x0014, 0x00000409);
-    putU16(dir, 0x0003); putU32(dir, 2); putU16(dir, 1252);
-    appendSizedStringRecord(dir, 0x0004, properties.name);
-    appendDualStringRecord(dir, 0x0005, 0x0040, properties.description);
-    appendDualStringRecord(dir, 0x0006, 0x003D, properties.helpFile);
-    appendFixedRecord(dir, 0x0007, properties.helpContextId);
+    appendFixedRecord(dir, 0x0001, info.systemKind);
+    appendFixedRecord(dir, 0x0002, info.lcid);
+    appendFixedRecord(dir, 0x0014, info.lcidInvoke);
+    putU16(dir, 0x0003); putU32(dir, 2); putU16(dir, info.codePage);
+    appendSizedStringRecord(dir, 0x0004, info.name.empty() ? "VBAProject" : info.name);
+    appendDualStringRecord(dir, 0x0005, 0x0040, info.description);
+    appendDualStringRecord(dir, 0x0006, 0x003D, info.helpFile);
+    appendFixedRecord(dir, 0x0007, static_cast<std::uint32_t>(std::max(0, info.helpContextId)));
     appendFixedRecord(dir, 0x0008, 0);
     putU16(dir, 0x0009); putU32(dir, 4); putU32(dir, 0x65BE0257u); putU16(dir, 0x0011);
-    if (!properties.constants.empty()) appendDualStringRecord(dir, 0x000C, 0x003C, properties.constants);
+    appendDualStringRecord(dir, 0x000C, 0x003C, info.constants);
 
     // Use the compact reference set and versions from an Excel-accepted,
     // source-only project. Excel supplies the host object library when it
     // opens the workbook and recompiles the source modules.
-    const std::array<std::pair<std::string_view, std::string_view>, 2> references{{
+    std::vector<xlpp::VbaReference> references{
         {"stdole", "*\\G{00020430-0000-0000-C000-000000000046}#2.0#0#C:\\Windows\\System32\\stdole2.tlb#OLE Automation"},
         {"Office", "*\\G{2DF8D04C-5BFA-101B-BDE5-00AA0044DE52}#2.0#0#C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL#Microsoft Office 16.0 Object Library"}
-    }};
-    for (const auto& [name, libid] : references) {
-        appendDualStringRecord(dir, 0x0016, 0x003E, name);
-        putU16(dir, 0x000D);
-        putU32(dir, static_cast<std::uint32_t>(4 + libid.size() + 4 + 2));
-        putU32(dir, static_cast<std::uint32_t>(libid.size()));
-        appendBytes(dir, libid);
-        putU32(dir, 0);
-        putU16(dir, 0);
+    };
+    for (const auto& reference : info.references) {
+        if (reference.name.empty() || reference.libid.empty())
+            throw std::invalid_argument("VBA reference requires both name and LibId");
+        const auto duplicate = std::find_if(references.begin(), references.end(), [&](const auto& existing) {
+            return asciiLower(existing.name) == asciiLower(reference.name) || existing.libid == reference.libid;
+        });
+        if (duplicate == references.end()) references.push_back(reference);
+        else if (duplicate->libid != reference.libid && asciiLower(duplicate->name) == asciiLower(reference.name))
+            *duplicate = reference;
+    }
+    for (const auto& reference : references) {
+        appendDualStringRecord(dir, 0x0016, 0x003E, reference.name);
+        if (reference.kind == xlpp::VbaReferenceKind::Project) {
+            if (reference.relativeLibid.empty())
+                throw std::invalid_argument("VBA project reference requires a relative LibId");
+            putU16(dir, 0x000E);
+            putU32(dir, static_cast<std::uint32_t>(4 + reference.libid.size() + 4 + reference.relativeLibid.size() + 4 + 2));
+            putU32(dir, static_cast<std::uint32_t>(reference.libid.size()));
+            appendBytes(dir, reference.libid);
+            putU32(dir, static_cast<std::uint32_t>(reference.relativeLibid.size()));
+            appendBytes(dir, reference.relativeLibid);
+            putU32(dir, reference.majorVersion);
+            putU16(dir, reference.minorVersion);
+        } else if (reference.kind == xlpp::VbaReferenceKind::Control) {
+            const auto twiddled = reference.twiddledLibid.empty()
+                ? std::string("*\\G{00000000-0000-0000-0000-000000000000}#0.0#0##") : reference.twiddledLibid;
+            if (reference.originalTypeLib.empty())
+                throw std::invalid_argument("VBA control reference requires originalTypeLib GUID");
+            const auto guid = parseGuidBytes(reference.originalTypeLib);
+            putU16(dir, 0x002F);
+            putU32(dir, static_cast<std::uint32_t>(4 + twiddled.size() + 4 + 2));
+            putU32(dir, static_cast<std::uint32_t>(twiddled.size()));
+            appendBytes(dir, twiddled);
+            putU32(dir, 0); putU16(dir, 0);
+            appendDualStringRecord(dir, 0x0016, 0x003E, reference.extendedName.empty() ? reference.name : reference.extendedName);
+            putU16(dir, 0x0030);
+            putU32(dir, static_cast<std::uint32_t>(4 + reference.libid.size() + 4 + 2 + 16 + 4));
+            putU32(dir, static_cast<std::uint32_t>(reference.libid.size()));
+            appendBytes(dir, reference.libid);
+            putU32(dir, 0); putU16(dir, 0);
+            dir.insert(dir.end(), guid.begin(), guid.end());
+            putU32(dir, reference.controlCookie);
+        } else {
+            putU16(dir, 0x000D);
+            putU32(dir, static_cast<std::uint32_t>(4 + reference.libid.size() + 4 + 2));
+            putU32(dir, static_cast<std::uint32_t>(reference.libid.size()));
+            appendBytes(dir, reference.libid);
+            putU32(dir, 0);
+            putU16(dir, 0);
+        }
     }
 
     putU16(dir, 0x000F); putU32(dir, 2); putU16(dir, static_cast<std::uint16_t>(modules.size()));
@@ -674,36 +880,40 @@ std::vector<unsigned char> buildDirStream(const std::vector<xlpp::VbaModule>& mo
         putU16(dir, 0x0047); putU32(dir, static_cast<std::uint32_t>(wide.size()));
         dir.insert(dir.end(), wide.begin(), wide.end());
         appendDualStringRecord(dir, 0x001A, 0x0032, module.name);
-        appendDualStringRecord(dir, 0x001C, 0x0048, "");
+        appendDualStringRecord(dir, 0x001C, 0x0048, module.docString);
         putU16(dir, 0x0031); putU32(dir, 4); putU32(dir, 0);
-        putU16(dir, 0x001E); putU32(dir, 4); putU32(dir, 0);
+        putU16(dir, 0x001E); putU32(dir, 4); putU32(dir, static_cast<std::uint32_t>(std::max(0, module.helpContextId)));
         putU16(dir, 0x002C); putU32(dir, 2); putU16(dir, 0xFFFF);
         putU16(dir, module.type == xlpp::VbaModuleType::Standard ? 0x0021 : 0x0022); putU32(dir, 0);
         if (module.readOnly) { putU16(dir, 0x0025); putU32(dir, 0); }
-        if (module.privateModule) { putU16(dir, 0x0028); putU32(dir, 0); }
+        if (module.isPrivate) { putU16(dir, 0x0028); putU32(dir, 0); }
         putU16(dir, 0x002B); putU32(dir, 0);
     }
     putU16(dir, 0x0010); putU32(dir, 0);
     return compressOvba(std::string_view(reinterpret_cast<const char*>(dir.data()), dir.size()));
 }
 
-std::string buildProjectText(const std::vector<xlpp::VbaModule>& modules, const xlpp::VbaProjectProperties& properties) {
+std::string buildProjectText(const std::vector<xlpp::VbaModule>& modules, const xlpp::VbaProjectInfo& info) {
     std::string text;
     // These unprotected project fields match a source-only VBA project that
     // Excel accepts and recompiles. They are not a password or signature.
-    text += "ID=\"{9E394C0B-697E-4AEE-9FA6-446F51FB30DC}\"\r\n";
+    text += "ID=\"" + (info.projectId.empty() ? std::string("{9E394C0B-697E-4AEE-9FA6-446F51FB30DC}") : info.projectId) + "\"\r\n";
     for (const auto& module : modules) {
         if (module.type == xlpp::VbaModuleType::Document)
             text += "Document=" + module.name + "/&H00000000\r\n";
         else if (module.type == xlpp::VbaModuleType::Class)
             text += "Class=" + module.name + "\r\n";
-        else
+        else if (module.type == xlpp::VbaModuleType::Designer) {
+            text += "Package=" + (module.designerClassId.empty()
+                ? std::string("{AC9F2F90-E877-11CE-9F68-00AA00574A4F}") : module.designerClassId) + "\r\n";
+            text += "BaseClass=" + module.name + "\r\n";
+        } else
             text += "Module=" + module.name + "\r\n";
     }
-    if (!properties.helpFile.empty()) text += "HelpFile=\"" + properties.helpFile + "\"\r\n";
-    text += "Name=\"" + properties.name + "\"\r\n";
-    text += "HelpContextID=\"" + std::to_string(properties.helpContextId) + "\"\r\n";
-    if (!properties.description.empty()) text += "Description=\"" + properties.description + "\"\r\n";
+    text += "Name=\"" + (info.name.empty() ? std::string("VBAProject") : info.name) + "\"\r\n";
+    if (!info.description.empty()) text += "Description=\"" + info.description + "\"\r\n";
+    if (!info.helpFile.empty()) text += "HelpFile=\"" + info.helpFile + "\"\r\n";
+    text += "HelpContextID=\"" + std::to_string(std::max(0, info.helpContextId)) + "\"\r\n";
     text += "CMG=\"6D6F7625A5A1A9A1A9A1A9A1A9\"\r\n";
     text += "DPB=\"3D3F26A4400941094109\"\r\n";
     text += "GC=\"7E7C652AB2EA03EB03EBFC\"\r\n\r\n";
@@ -742,6 +952,16 @@ std::string moduleStreamSource(const xlpp::VbaModule& module) {
         source += "Attribute VB_Creatable = False\r\n";
         source += "Attribute VB_PredeclaredId = False\r\n";
         source += "Attribute VB_Exposed = False\r\n";
+    } else if (module.type == xlpp::VbaModuleType::Designer) {
+        source += "Attribute VB_Base = \"" + (module.designerBaseClass.empty()
+            ? std::string("0{842E9C5E-88B5-439A-912E-4C2D9AA0EC27}{2DC3C962-DA1C-47BA-AB63-E9D578FC2637}")
+            : module.designerBaseClass) + "\"\r\n";
+        source += "Attribute VB_GlobalNameSpace = False\r\n";
+        source += "Attribute VB_Creatable = False\r\n";
+        source += "Attribute VB_PredeclaredId = True\r\n";
+        source += "Attribute VB_Exposed = False\r\n";
+        source += "Attribute VB_TemplateDerived = False\r\n";
+        source += "Attribute VB_Customizable = False\r\n";
     }
     source += normalizeVbaSource(module.source);
     return source;
@@ -749,70 +969,13 @@ std::string moduleStreamSource(const xlpp::VbaModule& module) {
 
 struct ParsedModuleRecord {
     std::string name;
-    std::string streamName;
     xlpp::VbaModuleType type{xlpp::VbaModuleType::Standard};
     std::uint32_t offset{0};
+    std::string docString;
     bool readOnly{false};
-    bool privateModule{false};
+    bool isPrivate{false};
+    int helpContextId{0};
 };
-
-std::optional<std::string> parseQuotedProjectProperty(const std::string& project, std::string_view key) {
-    const std::string prefix = std::string(key) + "=\"";
-    std::size_t pos = 0;
-    while (pos <= project.size()) {
-        const auto end = project.find("\r\n", pos);
-        const auto lineEnd = end == std::string::npos ? project.size() : end;
-        const std::string_view line(project.data() + pos, lineEnd - pos);
-        if (line.rfind(prefix, 0) == 0 && line.size() >= prefix.size() + 1 && line.back() == '"')
-            return std::string(line.substr(prefix.size(), line.size() - prefix.size() - 1));
-        if (end == std::string::npos) break;
-        pos = end + 2;
-    }
-    return std::nullopt;
-}
-
-std::string parseProjectConstants(const std::string& dir) {
-    const auto* p = reinterpret_cast<const unsigned char*>(dir.data());
-    std::size_t modulesPos = dir.size();
-    for (std::size_t i = 0; i + 8 <= dir.size(); ++i) {
-        if (getU16(p + i) == 0x000F && getU32(p + i + 2) == 2) { modulesPos = i; break; }
-    }
-    for (std::size_t i = 0; i + 12 <= modulesPos; ++i) {
-        if (getU16(p + i) != 0x000C) continue;
-        const auto n = static_cast<std::size_t>(getU32(p + i + 2));
-        const auto reservedPos = i + 6 + n;
-        if (reservedPos + 6 > modulesPos || getU16(p + reservedPos) != 0x003C) continue;
-        const auto wideSize = static_cast<std::size_t>(getU32(p + reservedPos + 2));
-        if (reservedPos + 6 + wideSize > modulesPos) continue;
-        return std::string(dir.data() + static_cast<std::ptrdiff_t>(i + 6), n);
-    }
-    return {};
-}
-
-std::unordered_map<std::string, xlpp::VbaModuleType> parseProjectModuleTypes(const std::string& project) {
-    std::unordered_map<std::string, xlpp::VbaModuleType> result;
-    std::size_t pos = 0;
-    while (pos <= project.size()) {
-        const auto end = project.find("\r\n", pos);
-        const auto lineEnd = end == std::string::npos ? project.size() : end;
-        const std::string_view line(project.data() + pos, lineEnd - pos);
-        auto add = [&](std::string_view prefix, xlpp::VbaModuleType type, bool trimDocumentSuffix = false) {
-            if (line.rfind(prefix, 0) != 0) return;
-            auto name = std::string(line.substr(prefix.size()));
-            if (trimDocumentSuffix) {
-                const auto slash = name.find('/');
-                if (slash != std::string::npos) name.resize(slash);
-            }
-            if (!name.empty()) result[asciiLower(name)] = type;
-        };
-        add("Module=", xlpp::VbaModuleType::Standard);
-        add("Class=", xlpp::VbaModuleType::Class);
-        add("Document=", xlpp::VbaModuleType::Document, true);
-        if (end == std::string::npos) break;
-        pos = end + 2;
-    }
-    return result;
-}
 
 std::vector<ParsedModuleRecord> parseModuleRecords(const std::string& dir) {
     const auto* p = reinterpret_cast<const unsigned char*>(dir.data());
@@ -837,28 +1000,29 @@ std::vector<ParsedModuleRecord> parseModuleRecords(const std::string& dir) {
         module.name.assign(dir.data() + static_cast<std::ptrdiff_t>(pos), nameLen); pos += nameLen;
         if (pos + 6 <= dir.size() && getU16(p + pos) == 0x0047) { const auto n=getU32(p+pos+2); pos += 6 + n; }
         if (pos + 6 > dir.size() || getU16(p + pos) != 0x001A) throw std::runtime_error("VBA stream-name record is missing");
-        auto n = getU32(p + pos + 2); pos += 6;
-        if (pos + n > dir.size()) throw std::runtime_error("VBA stream name is truncated");
-        module.streamName.assign(dir.data() + static_cast<std::ptrdiff_t>(pos), n); pos += n;
+        auto n = getU32(p + pos + 2); pos += 6 + n;
         if (pos + 6 > dir.size() || getU16(p + pos) != 0x0032) throw std::runtime_error("VBA Unicode stream-name record is missing");
         n = getU32(p + pos + 2); pos += 6 + n;
         if (pos + 6 > dir.size() || getU16(p + pos) != 0x001C) throw std::runtime_error("VBA doc-string record is missing");
-        n = getU32(p + pos + 2); pos += 6 + n;
+        n = getU32(p + pos + 2); pos += 6;
+        if (pos + n > dir.size()) throw std::runtime_error("VBA module doc-string is truncated");
+        module.docString.assign(dir.data() + static_cast<std::ptrdiff_t>(pos), n); pos += n;
         if (pos + 6 > dir.size() || getU16(p + pos) != 0x0048) throw std::runtime_error("VBA Unicode doc-string record is missing");
         n = getU32(p + pos + 2); pos += 6 + n;
         if (pos + 10 > dir.size() || getU16(p + pos) != 0x0031) throw std::runtime_error("VBA module offset record is missing");
         module.offset = getU32(p + pos + 6); pos += 10;
         if (pos + 10 > dir.size() || getU16(p + pos) != 0x001E) throw std::runtime_error("VBA module help-context record is missing");
+        module.helpContextId = static_cast<int>(getU32(p + pos + 6));
         pos += 10;
         if (pos + 8 > dir.size() || getU16(p + pos) != 0x002C) throw std::runtime_error("VBA module cookie record is missing");
         pos += 8;
         if (pos + 6 > dir.size()) throw std::runtime_error("VBA module type record is missing");
         const auto typeId = getU16(p + pos); pos += 6;
-        module.type = typeId == 0x0021 ? xlpp::VbaModuleType::Standard : xlpp::VbaModuleType::Class;
+        module.type = typeId == 0x0021 ? xlpp::VbaModuleType::Standard : xlpp::VbaModuleType::Document;
         while (pos + 2 <= dir.size() && getU16(p + pos) != 0x002B) {
             const auto id = getU16(p + pos);
             if (id == 0x0025) { module.readOnly = true; pos += 6; }
-            else if (id == 0x0028) { module.privateModule = true; pos += 6; }
+            else if (id == 0x0028) { module.isPrivate = true; pos += 6; }
             else throw std::runtime_error("Unsupported VBA module record extension");
         }
         if (pos + 6 > dir.size()) throw std::runtime_error("VBA module terminator is missing");
@@ -869,6 +1033,25 @@ std::vector<ParsedModuleRecord> parseModuleRecords(const std::string& dir) {
 }
 
 } // namespace
+
+std::vector<unsigned char> buildRootCompoundFile(
+    const std::map<std::string, std::vector<unsigned char>>& rootStreams) {
+    return buildCfb(rootStreams, {}, {}, false);
+}
+
+bool isCompoundFile(const std::vector<unsigned char>& bytes) noexcept {
+    static constexpr unsigned char signature[8] = {0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1};
+    return bytes.size() >= 8 && std::equal(std::begin(signature), std::end(signature), bytes.begin());
+}
+
+bool compoundFileContainsStream(const std::vector<unsigned char>& bytes, const std::string& path) noexcept {
+    try { CfbReader reader(bytes); (void)reader.stream(path); return true; } catch (...) { return false; }
+}
+
+std::vector<unsigned char> readCompoundFileStream(const std::vector<unsigned char>& bytes, const std::string& path) {
+    CfbReader reader(bytes);
+    return reader.stream(path);
+}
 
 std::string normalizeVbaSource(std::string source) {
     std::string normalized;
@@ -893,107 +1076,66 @@ void validateVbaModuleName(const std::string& name) {
     if (name.empty() || name.size() > 31) throw std::invalid_argument("VBA module name must contain 1-31 characters");
     const auto first = static_cast<unsigned char>(name.front());
     if (!(std::isalpha(first) || first == '_')) throw std::invalid_argument("VBA module name must begin with a letter or underscore");
-    for (char raw : name) {
-        const auto ch = static_cast<unsigned char>(raw);
+    for (unsigned char ch : name)
         if (!(std::isalnum(ch) || ch == '_')) throw std::invalid_argument("VBA module name contains an invalid character");
-    }
-}
-
-std::vector<unsigned char> buildVbaProjectBinary(const std::vector<xlpp::VbaModule>& inputModules,
-                                                 std::size_t worksheetCount) {
-    std::vector<std::string> codeNames;
-    codeNames.reserve(worksheetCount);
-    for (std::size_t index = 0; index < worksheetCount; ++index)
-        codeNames.push_back("Sheet" + std::to_string(index + 1));
-    return buildVbaProjectBinary(inputModules, codeNames);
-}
-
-std::vector<unsigned char> buildVbaProjectBinary(const std::vector<xlpp::VbaModule>& inputModules,
-                                                 const std::vector<std::string>& worksheetCodeNames) {
-    return buildVbaProjectBinary(inputModules, worksheetCodeNames, xlpp::VbaProjectProperties{});
+    if (asciiLower(name) == "thisworkbook") throw std::invalid_argument("ThisWorkbook is reserved for the document module");
 }
 
 std::vector<unsigned char> buildVbaProjectBinary(const std::vector<xlpp::VbaModule>& inputModules,
                                                  const std::vector<std::string>& worksheetCodeNames,
-                                                 const xlpp::VbaProjectProperties& properties) {
-    validateVbaModuleName(properties.name);
-    auto validateProjectText = [](const std::string& value, const char* field) {
-        if (value.find_first_of("\r\n\"") != std::string::npos)
-            throw std::invalid_argument(std::string("VBA project ") + field + " contains an unsupported quote or line break");
-    };
-    validateProjectText(properties.description, "description");
-    validateProjectText(properties.helpFile, "help file");
-    if (properties.constants.find_first_of("\r\n") != std::string::npos)
-        throw std::invalid_argument("VBA project constants cannot contain line breaks");
-
+                                                 const xlpp::VbaProjectInfo& projectInfo) {
     std::vector<xlpp::VbaModule> modules;
     modules.reserve(worksheetCodeNames.size() + inputModules.size() + 1);
+    // Excel workbooks expose one document module per worksheet. The sheet
+    // display name is independent; the stable VBA code names are Sheet1,
+    // Sheet2, ... and are also written to worksheet sheetPr/codeName.
     for (const auto& codeName : worksheetCodeNames) {
-        validateVbaModuleName(codeName);
-        if (asciiLower(codeName) == "thisworkbook")
-            throw std::invalid_argument("Worksheet VBA code name cannot be ThisWorkbook");
-        if (std::any_of(modules.begin(), modules.end(), [&](const auto& existing) {
-            return asciiLower(existing.name) == asciiLower(codeName);
-        })) throw std::invalid_argument("Duplicate worksheet VBA code name: " + codeName);
+        if (codeName.empty()) throw std::invalid_argument("Worksheet VBA code name cannot be empty");
+        if (asciiLower(codeName) == "thisworkbook") throw std::invalid_argument("Worksheet VBA code name cannot be ThisWorkbook");
+        if (std::any_of(modules.begin(), modules.end(), [&](const auto& existing) { return asciiLower(existing.name) == asciiLower(codeName); }))
+            throw std::invalid_argument("Duplicate worksheet VBA code name: " + codeName);
         modules.push_back({codeName, "", xlpp::VbaModuleType::Document});
     }
     modules.push_back({"ThisWorkbook", "", xlpp::VbaModuleType::Document});
-
+    // Document module source is editable, but document module identity is owned
+    // by the workbook host. Copy source/metadata only into matching host modules.
+    for (const auto& input : inputModules) {
+        if (input.type != xlpp::VbaModuleType::Document) continue;
+        const auto found = std::find_if(modules.begin(), modules.end(), [&](const auto& existing) {
+            return asciiLower(existing.name) == asciiLower(input.name);
+        });
+        // A worksheet may have been removed since the source-generated project
+        // was last built. Its stale document module is intentionally dropped;
+        // public setVbaDocumentModuleText() validates unknown names earlier.
+        if (found == modules.end()) continue;
+        found->source = normalizeVbaSource(input.source);
+        found->docString = input.docString;
+        found->readOnly = input.readOnly;
+        found->isPrivate = input.isPrivate;
+    }
     for (auto module : inputModules) {
+        if (module.type == xlpp::VbaModuleType::Document) continue;
         validateVbaModuleName(module.name);
-        module.source = normalizeVbaSource(std::move(module.source));
-        const auto key = asciiLower(module.name);
-        if (module.type == xlpp::VbaModuleType::Document) {
-            const auto host = std::find_if(modules.begin(), modules.end(), [&](const auto& existing) {
-                return existing.type == xlpp::VbaModuleType::Document && asciiLower(existing.name) == key;
-            });
-            if (host == modules.end())
-                continue; // host worksheet was removed; drop its document module
-            host->source = std::move(module.source);
-            host->readOnly = module.readOnly;
-            host->privateModule = module.privateModule;
-            continue;
-        }
         if (std::any_of(modules.begin(), modules.end(), [&](const auto& existing) {
-            return asciiLower(existing.name) == key;
+            return asciiLower(existing.name) == asciiLower(module.name);
         })) throw std::invalid_argument("Duplicate VBA module name: " + module.name);
+        module.source = normalizeVbaSource(std::move(module.source));
         modules.push_back(std::move(module));
     }
 
     std::map<std::string, std::vector<unsigned char>> rootStreams;
-    const auto projectText = buildProjectText(modules, properties);
+    const auto projectText = buildProjectText(modules, projectInfo);
     rootStreams["PROJECT"] = std::vector<unsigned char>(projectText.begin(), projectText.end());
     rootStreams["PROJECTwm"] = buildProjectWm(modules);
 
     std::map<std::string, std::vector<unsigned char>> vbaStreams;
     vbaStreams["_VBA_PROJECT"] = {0xCC, 0x61, 0xFF, 0xFF, 0x00, 0x03, 0x00};
-    vbaStreams["dir"] = buildDirStream(modules, properties);
+    vbaStreams["dir"] = buildDirStream(modules, projectInfo);
     for (const auto& module : modules) {
         const auto source = moduleStreamSource(module);
         vbaStreams[module.name] = compressOvba(source);
     }
-    return buildCfb(rootStreams, vbaStreams);
-}
-
-xlpp::VbaProjectProperties readVbaProjectProperties(const std::vector<unsigned char>& bytes) {
-    CfbReader cfb(bytes);
-    xlpp::VbaProjectProperties properties;
-    const auto projectBytes = cfb.stream("PROJECT");
-    const std::string project(projectBytes.begin(), projectBytes.end());
-    if (const auto value = parseQuotedProjectProperty(project, "Name")) properties.name = *value;
-    if (const auto value = parseQuotedProjectProperty(project, "Description")) properties.description = *value;
-    if (const auto value = parseQuotedProjectProperty(project, "HelpFile")) properties.helpFile = *value;
-    if (const auto value = parseQuotedProjectProperty(project, "HelpContextID")) {
-        try { properties.helpContextId = static_cast<std::uint32_t>(std::stoul(*value)); }
-        catch (const std::exception&) { properties.helpContextId = 0; }
-    }
-    try {
-        const auto dirBytes = cfb.stream("VBA/dir");
-        properties.constants = parseProjectConstants(decompressOvba(dirBytes));
-    } catch (const std::exception&) {
-        // PROJECT remains useful even when the compressed dir stream is malformed.
-    }
-    return properties;
+    return buildCfb(rootStreams, vbaStreams, projectInfo.designerStorages);
 }
 
 bool isXlppGeneratedVbaProjectBinary(const std::vector<unsigned char>& bytes) noexcept {
@@ -1003,8 +1145,15 @@ bool isXlppGeneratedVbaProjectBinary(const std::vector<unsigned char>& bytes) no
         const std::string project(projectBytes.begin(), projectBytes.end());
         const auto projectStub = cfb.stream("VBA/_VBA_PROJECT");
         static const std::vector<unsigned char> expectedStub{0xCC, 0x61, 0xFF, 0xFF, 0x00, 0x03, 0x00};
-        return project.find("ID=\"{9E394C0B-697E-4AEE-9FA6-446F51FB30DC}\"\r\n") != std::string::npos
-            && projectStub == expectedStub;
+        // Project name/description/ID are now user-editable metadata, so they
+        // cannot serve as the XL++ ownership marker. Keep detection tied to the
+        // stable source-only host scaffold that XL++ writes instead.
+        return projectStub == expectedStub
+            && project.find("CMG=\"6D6F7625A5A1A9A1A9A1A9A1A9\"\r\n") != std::string::npos
+            && project.find("DPB=\"3D3F26A4400941094109\"\r\n") != std::string::npos
+            && project.find("GC=\"7E7C652AB2EA03EB03EBFC\"\r\n") != std::string::npos
+            && project.find("[Host Extender Info]\r\n") != std::string::npos
+            && project.find("{3832D640-CF90-11CF-8E43-00A0C911005A}") != std::string::npos;
     } catch (...) {
         return false;
     }
@@ -1016,29 +1165,209 @@ std::vector<xlpp::VbaModule> readVbaProjectBinary(const std::vector<unsigned cha
     const auto dirText = decompressOvba(dirBytes);
     const auto records = parseModuleRecords(dirText);
     std::unordered_map<std::string, xlpp::VbaModuleType> projectTypes;
+    std::unordered_map<std::string, std::string> designerClassIds;
     try {
         const auto projectBytes = cfb.stream("PROJECT");
-        projectTypes = parseProjectModuleTypes(std::string(projectBytes.begin(), projectBytes.end()));
-    } catch (const std::exception&) {
-        // The dir stream is authoritative for procedural-vs-object module shape.
-        // PROJECT refines object modules into document vs class when available.
-    }
+        const std::string project(projectBytes.begin(), projectBytes.end());
+        std::string pendingPackage;
+        std::size_t pos = 0;
+        while (pos <= project.size()) {
+            const auto end = project.find("\r\n", pos);
+            const auto line = project.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+            const auto assign = line.find('=');
+            if (assign != std::string::npos) {
+                const auto key = line.substr(0, assign);
+                auto value = line.substr(assign + 1);
+                if (key == "Document") { const auto slash = value.find('/'); if (slash != std::string::npos) value.resize(slash); projectTypes[asciiLower(value)] = xlpp::VbaModuleType::Document; pendingPackage.clear(); }
+                else if (key == "Class") { projectTypes[asciiLower(value)] = xlpp::VbaModuleType::Class; pendingPackage.clear(); }
+                else if (key == "Module") { projectTypes[asciiLower(value)] = xlpp::VbaModuleType::Standard; pendingPackage.clear(); }
+                else if (key == "Package") pendingPackage = value;
+                else if (key == "BaseClass") {
+                    projectTypes[asciiLower(value)] = xlpp::VbaModuleType::Designer;
+                    if (!pendingPackage.empty()) designerClassIds[asciiLower(value)] = pendingPackage;
+                    pendingPackage.clear();
+                }
+            }
+            if (end == std::string::npos) break;
+            pos = end + 2;
+        }
+    } catch (...) {}
     std::vector<xlpp::VbaModule> modules;
     modules.reserve(records.size());
     for (const auto& record : records) {
-        const auto streamBytes = cfb.stream("VBA/" + (record.streamName.empty() ? record.name : record.streamName));
+        const auto streamBytes = cfb.stream("VBA/" + record.name);
         auto source = decompressOvba(streamBytes, record.offset);
-        source = stripGeneratedAttributes(std::move(source));
         auto type = record.type;
-        if (const auto it = projectTypes.find(asciiLower(record.name)); it != projectTypes.end())
-            type = it->second;
-        else if (type != xlpp::VbaModuleType::Standard) {
-            const auto key = asciiLower(record.name);
-            if (key == "thisworkbook" || key.rfind("sheet", 0) == 0) type = xlpp::VbaModuleType::Document;
+        const auto lowerName = asciiLower(record.name);
+        if (const auto it = projectTypes.find(lowerName); it != projectTypes.end()) type = it->second;
+        xlpp::VbaModule module;
+        module.name = record.name;
+        module.type = type;
+        module.docString = record.docString;
+        module.readOnly = record.readOnly;
+        module.isPrivate = record.isPrivate;
+        module.helpContextId = record.helpContextId;
+        if (type == xlpp::VbaModuleType::Designer) {
+            if (const auto it = designerClassIds.find(lowerName); it != designerClassIds.end()) module.designerClassId = it->second;
+            const std::string prefix = "Attribute VB_Base = \"";
+            const auto attr = source.find(prefix);
+            if (attr != std::string::npos) {
+                const auto begin = attr + prefix.size();
+                const auto end = source.find('\"', begin);
+                if (end != std::string::npos) module.designerBaseClass = source.substr(begin, end - begin);
+            }
         }
-        modules.push_back({record.name, normalizeVbaSource(std::move(source)), type, record.readOnly, record.privateModule});
+        source = stripGeneratedAttributes(std::move(source));
+        module.source = normalizeVbaSource(std::move(source));
+        modules.push_back(std::move(module));
     }
     return modules;
+}
+
+xlpp::VbaProjectInfo readVbaProjectInfoBinary(const std::vector<unsigned char>& bytes) {
+    CfbReader cfb(bytes);
+    xlpp::VbaProjectInfo info;
+    const auto projectBytes = cfb.stream("PROJECT");
+    const std::string project(projectBytes.begin(), projectBytes.end());
+    auto unquote = [](std::string value) {
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"') return value.substr(1, value.size() - 2);
+        return value;
+    };
+    std::size_t pos = 0;
+    while (pos <= project.size()) {
+        const auto end = project.find("\r\n", pos);
+        const auto line = project.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+        const auto assign = line.find('=');
+        if (assign != std::string::npos) {
+            const auto key = line.substr(0, assign);
+            const auto value = unquote(line.substr(assign + 1));
+            if (key == "ID") info.projectId = value;
+            else if (key == "Name") info.name = value;
+            else if (key == "Description") info.description = value;
+            else if (key == "HelpFile") info.helpFile = value;
+            else if (key == "HelpContextID") { try { info.helpContextId = std::stoi(value); } catch (...) {} }
+        }
+        if (end == std::string::npos) break;
+        pos = end + 2;
+    }
+    // PROJECTCONSTANTS lives in the compressed dir stream rather than the
+    // textual PROJECT stream. Recover the ANSI half of the dual-string record
+    // so metadata can round-trip through the public API.
+    try {
+        const auto dir = decompressOvba(cfb.stream("VBA/dir"));
+        const auto* data = reinterpret_cast<const unsigned char*>(dir.data());
+        const auto readFixed = [&](std::uint16_t id, std::uint32_t size, std::uint32_t fallback) {
+            for (std::size_t offset = 0; offset + 6 + size <= dir.size(); ++offset) {
+                if (getU16(data + offset) == id && getU32(data + offset + 2) == size)
+                    return size == 2 ? static_cast<std::uint32_t>(getU16(data + offset + 6)) : getU32(data + offset + 6);
+            }
+            return fallback;
+        };
+        info.systemKind = readFixed(0x0001, 4, info.systemKind);
+        info.lcid = readFixed(0x0002, 4, info.lcid);
+        info.lcidInvoke = readFixed(0x0014, 4, info.lcidInvoke);
+        info.codePage = static_cast<std::uint16_t>(readFixed(0x0003, 2, info.codePage));
+        for (std::size_t i = 0; i + 12 <= dir.size(); ++i) {
+            if (getU16(data + i) == 0x000C) {
+                const auto length = static_cast<std::size_t>(getU32(data + i + 2));
+                if (i + 6 + length + 6 <= dir.size() && getU16(data + i + 6 + length) == 0x003C)
+                    info.constants.assign(dir.data() + static_cast<std::ptrdiff_t>(i + 6), length);
+            }
+            if (getU16(data + i) != 0x0016) continue;
+            const auto nameLength = static_cast<std::size_t>(getU32(data + i + 2));
+            if (i + 6 + nameLength + 6 > dir.size()) continue;
+            const auto unicodePos = i + 6 + nameLength;
+            if (getU16(data + unicodePos) != 0x003E) continue;
+            const auto unicodeLength = static_cast<std::size_t>(getU32(data + unicodePos + 2));
+            const auto referencePos = unicodePos + 6 + unicodeLength;
+            if (referencePos + 10 > dir.size()) continue;
+            const auto referenceId = getU16(data + referencePos);
+            if (referenceId != 0x000D && referenceId != 0x000E && referenceId != 0x002F) continue;
+            xlpp::VbaReference reference;
+            reference.name.assign(dir.data() + static_cast<std::ptrdiff_t>(i + 6), nameLength);
+            if (referenceId == 0x002F) {
+                reference.kind = xlpp::VbaReferenceKind::Control;
+                if (referencePos + 10 > dir.size()) continue;
+                const auto twiddledLength = static_cast<std::size_t>(getU32(data + referencePos + 6));
+                auto cursor = referencePos + 10;
+                if (cursor + twiddledLength + 6 > dir.size()) continue;
+                reference.twiddledLibid.assign(dir.data() + static_cast<std::ptrdiff_t>(cursor), twiddledLength);
+                cursor += twiddledLength + 6; // Reserved1 + Reserved2.
+                if (cursor + 6 <= dir.size() && getU16(data + cursor) == 0x0016) {
+                    const auto extNameLength = static_cast<std::size_t>(getU32(data + cursor + 2));
+                    if (cursor + 6 + extNameLength + 6 > dir.size()) continue;
+                    reference.extendedName.assign(dir.data() + static_cast<std::ptrdiff_t>(cursor + 6), extNameLength);
+                    const auto extUnicodePos = cursor + 6 + extNameLength;
+                    if (getU16(data + extUnicodePos) != 0x003E) continue;
+                    const auto extUnicodeLength = static_cast<std::size_t>(getU32(data + extUnicodePos + 2));
+                    cursor = extUnicodePos + 6 + extUnicodeLength;
+                }
+                if (cursor + 10 > dir.size() || getU16(data + cursor) != 0x0030) continue;
+                cursor += 2; // Reserved3.
+                const auto extendedSize = static_cast<std::size_t>(getU32(data + cursor)); cursor += 4;
+                const auto extendedEnd = cursor + extendedSize;
+                if (extendedEnd > dir.size() || cursor + 4 > extendedEnd) continue;
+                const auto extendedLibidLength = static_cast<std::size_t>(getU32(data + cursor)); cursor += 4;
+                if (cursor + extendedLibidLength + 4 + 2 + 16 + 4 > extendedEnd) continue;
+                reference.libid.assign(dir.data() + static_cast<std::ptrdiff_t>(cursor), extendedLibidLength);
+                cursor += extendedLibidLength + 4 + 2; // Reserved4 + Reserved5.
+                reference.originalTypeLib = guidTextFromBytes(data + cursor); cursor += 16;
+                reference.controlCookie = getU32(data + cursor);
+            } else {
+                const auto recordLength = static_cast<std::size_t>(getU32(data + referencePos + 2));
+                if (referencePos + 6 + recordLength > dir.size()) continue;
+                const auto libidLength = static_cast<std::size_t>(getU32(data + referencePos + 6));
+                if (referencePos + 10 + libidLength > dir.size()) continue;
+                reference.libid.assign(dir.data() + static_cast<std::ptrdiff_t>(referencePos + 10), libidLength);
+                if (referenceId == 0x000E) {
+                    reference.kind = xlpp::VbaReferenceKind::Project;
+                    auto cursor = referencePos + 10 + libidLength;
+                    if (cursor + 4 > referencePos + 6 + recordLength) continue;
+                    const auto relativeLength = static_cast<std::size_t>(getU32(data + cursor));
+                    cursor += 4;
+                    if (cursor + relativeLength + 6 > referencePos + 6 + recordLength) continue;
+                    reference.relativeLibid.assign(dir.data() + static_cast<std::ptrdiff_t>(cursor), relativeLength);
+                    cursor += relativeLength;
+                    reference.majorVersion = getU32(data + cursor); cursor += 4;
+                    reference.minorVersion = getU16(data + cursor);
+                }
+            }
+            info.references.push_back(std::move(reference));
+        }
+    } catch (...) {}
+
+    // Designer modules are declared by BaseClass in the PROJECT stream and
+    // own a same-named root storage. Preserve every descendant stream as a
+    // relative path so unsupported MS-OFORMS/control payloads remain exact.
+    std::vector<std::string> designerNames;
+    {
+        std::size_t projectPos = 0;
+        while (projectPos <= project.size()) {
+            const auto end = project.find("\r\n", projectPos);
+            const auto line = project.substr(projectPos, end == std::string::npos ? std::string::npos : end - projectPos);
+            if (line.rfind("BaseClass=", 0) == 0 && line.size() > 10) designerNames.push_back(line.substr(10));
+            if (end == std::string::npos) break;
+            projectPos = end + 2;
+        }
+    }
+    for (const auto& storageName : cfb.rootStorageNames()) {
+        if (asciiLower(storageName) == "vba") continue;
+        const auto declared = std::find_if(designerNames.begin(), designerNames.end(), [&](const auto& name) {
+            return asciiLower(name) == asciiLower(storageName);
+        });
+        if (declared == designerNames.end()) continue;
+        xlpp::VbaDesignerStorage storage;
+        storage.name = storageName;
+        const auto prefix = storageName + "/";
+        for (const auto& path : cfb.streamPathsUnder(storageName)) {
+            xlpp::VbaDesignerStream stream;
+            stream.path = path.substr(prefix.size());
+            stream.data = cfb.stream(path);
+            storage.streams.push_back(std::move(stream));
+        }
+        info.designerStorages.push_back(std::move(storage));
+    }
+    return info;
 }
 
 } // namespace xlpp::internal

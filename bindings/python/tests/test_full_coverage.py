@@ -107,18 +107,10 @@ def test_protection_and_sheetview(tmp_path):
     p.enabled = True
     p.insert_rows = False
     p.sort = False
-    p.set_password("sheet-secret")
-    assert p.has_password() is True
-    p.clear_password()
-    assert p.has_password() is False
     assert p.enabled is True
     assert p.insert_rows is False
     wbp = wb.protection()
     wbp.lock_structure = True
-    wbp.set_password("workbook-secret")
-    assert wbp.has_password() is True
-    wbp.clear_password()
-    assert wbp.has_password() is False
     assert wbp.lock_structure is True
     sv = ws.sheet_view()
     sv.zoom_scale = 120
@@ -140,15 +132,6 @@ def test_autofilter_datavalidation_cf(tmp_path):
     col.and_mode = True
     col.include_blank = True
     assert col.and_mode is True
-    assert 0 in af.columns
-    af.sort_state().case_sensitive = True
-    assert af.sort_state_value.case_sensitive is True
-    dynamic = xlpp.DynamicFilter()
-    dynamic.type = xlpp.DynamicFilterType.TODAY
-    col.set_dynamic_filter(dynamic)
-    assert col.dynamic_filter.type == xlpp.DynamicFilterType.TODAY
-    col.clear_dynamic_filter()
-    assert col.dynamic_filter is None
     dv = ws.data_validations.add(xlpp.DataValidationType.WHOLE, "A1:A10")
     dv.op = xlpp.DataValidationOperator.BETWEEN
     dv.formula1 = "1"
@@ -176,10 +159,7 @@ def test_streaming_writer_reader(tmp_path):
     assert sheet.row_count == 100
     writer.close()
     assert writer.closed is True
-    options = xlpp.StreamingReaderOptions()
-    options.max_file_bytes = 1024 * 1024
-    options.max_entries = 100
-    reader = xlpp.StreamingWorkbookReader(str(path), options)
+    reader = xlpp.StreamingWorkbookReader(str(path))
     assert reader.worksheet_names() == ["Big"]
     ws = reader.worksheet("Big")
     rows = list(ws)

@@ -1,16 +1,11 @@
-> **Historical roadmap notice (v1.12.0):** this file contains legacy gap analysis retained for provenance. It is not the active source of truth. Use `docs/CURRENT_CAPABILITIES.md`, `docs/capabilities.json`, `ROADMAP.md`, and `PACKAGE_STATUS.md` for current status.
-
 # XL++ — Missing Features and Development Roadmap
 
-**Updated:** 2026-08-08  
-**Historical baseline package:** `XLPP_Full_Project_P0ZH_VBA_Authoring_Preservation_v1.11.0`
+> **Historical audit notice (updated 2026-08-12):** This document captures the pre-P0 preservation gap analysis and is retained for history. Many P0 chart/drawing/pivot preservation gaps listed below have since been implemented. Use the root `ROADMAP.md` and `PACKAGE_STATUS.md` as the current development status and milestone source of truth.
 
-**P0Z-H status note:** v1.11.0 retains P0Z-G hardening and substantially expands VBA authoring/preservation: Standard/Class/Document modules, event source, stable code names, module flags, project properties/conditional constants, binary export and signed/external-project safety. Excel Desktop host validation remains external.
 
-**P0Z-E status note:** v1.8.0 keeps the P0Y/P0X feature/reliability baseline, further decomposes Formula/Chart internals, and makes C/Python/C# high-level parity an automated release gate; it is not a new feature-parity score.
-
-**P0Y status note:** P0X closed the scope-defined 90% general-purpose editing-core gate at **90.7/100**; P0Y/v1.3.0 keeps that scope and hardens correctness, I/O transactions, ZIP/ZIP64, streaming limits, topology edits, model invariants and sanitizer coverage. Older P0/P0W gap lists below are retained as roadmap history where useful.
-**Current automated baseline:** 174/174 test suites with the P0Z-H VBA corpus; strict/sanitizer release gates are rerun for each package. P0Z-G established the seeded Clang/libFuzzer baseline.  
+**Prepared:** 2026-08-07  
+**Baseline package:** `XLPP_VBA_Macro_Visibility_Fix_Full_Source.zip`  
+**Current automated baseline:** 123/123 test suites, 1,476/1,476 checks passing  
 **Primary objective:** evolve XL++ from a strong XLSX generator/streaming library into a dependable general-purpose Excel OOXML reader, editor, and round-trip preservation library.
 
 ---
@@ -20,16 +15,18 @@
 XL++ already provides a substantial foundation for:
 
 - creating new `.xlsx` and experimental `.xlsm` workbooks;
-- cells, stored formulas plus the P0W calculation core, dates, errors, rich text and hyperlinks;
+- cells, formulas as stored expressions, dates, errors, rich text and hyperlinks;
 - common styles, named styles, dimensions, merges and worksheet views;
 - tables, filters, sorting, validation and conditional formatting;
 - legacy comments/notes, page setup and document properties;
 - streaming reads/writes, ZIP64, progress and cancellation;
 - basic images, charts, pivot tables and VBA project generation.
 
-The library is **not yet feature-complete**, but the P0B–P0U preservation program has substantially closed the original object-loss risk for the covered image/chart/pivot relationship graph. The current engineering bottleneck has moved from raw preservation to **dependency-aware editing and structural correctness**.
+The library is **not yet feature-complete** and is **not yet safe for arbitrary read-modify-write workflows**.
 
-P0V-A now tracks direct chart A1 source dependencies and can skip unchanged cache rebuilds or synchronize caches automatically on an opt-in save copy. The next critical work is transitive dependency tracking plus Excel-grade row/column reference rewriting. Microsoft Excel Desktop recovery-log validation remains the final external gate before declaring preservation P0 closed.
+The highest-risk issue is not merely missing APIs. Existing images, charts and pivot tables can become detached after load/save because their relationships are regenerated incompletely. The XML parts may remain inside the ZIP package while becoming unreachable from the workbook or worksheet relationship graph.
+
+Development must therefore prioritize **preservation and correctness before feature breadth**.
 
 ---
 
@@ -39,7 +36,7 @@ P0V-A now tracks direct chart A1 source dependencies and can skip unchanged cach
 |---|---|
 | Create reports containing data, formulas and common styles | Good |
 | Import/export large tabular datasets using streaming | Good |
-| Create image/chart/pivot output | Good for covered worksheet-source features; modern charts use ChartEx; advanced Pivot ecosystem remains partial |
+| Create basic image/chart/pivot output | Experimental |
 | Add macros from VBA source text | Experimental; Excel host validation still required |
 | Open an arbitrary workbook and modify a few cells without losing advanced objects | Not ready |
 | Replace OpenPyXL, ClosedXML or EPPlus broadly | Not ready |
@@ -261,120 +258,185 @@ Basic generation for a subset such as:
 
 ## 3.5 VBA and macro projects
 
-**Priority: P1/P2/P3 — source-only macro authoring substantially expanded in P0Z-H**
+**Priority: P1/P2/P3**
 
 ### Existing support
 
-- Attach/remove and byte-preserve an existing `vbaProject.bin`.
-- Generate a real CFB/OVBA `vbaProject.bin` from VBA source.
-- Author/read/update/remove Standard modules.
-- Author/read Class modules and preserve `MODULEREADONLY` / `MODULEPRIVATE`.
-- Author `ThisWorkbook` and worksheet Document modules, including event procedures.
-- Stable worksheet `codeName` identity through load/save, reorder, delete and copy.
-- Copying a worksheet copies its authored document-event source under a fresh code name.
-- Project Name, Description, Help File, Help Context ID and conditional-compilation constants.
-- Raw `vbaProject.bin` byte access/export.
-- Signature-part detection and source-editability state.
-- Signed projects reject source/metadata rewrites that would invalidate the signature.
-- Externally supplied projects reject destructive source/metadata rewrites, preserving unknown references/forms/protection/signature state.
-- Macro-enabled `.xlsm` package generation and reload.
+- Attach/remove an existing `vbaProject.bin`.
+- Generate an experimental VBA project from module source text.
+- Create `ThisWorkbook`, worksheet document modules and standard modules.
+- Read generated module source.
+- Save macro-enabled `.xlsm`.
 
 ### Remaining gaps
 
-- Repeated validation on Microsoft Excel Desktop and an Excel-version compatibility matrix.
-- UserForms / designer modules, designer storages and FRX binary resources.
-- ActiveX controls and form controls.
-- Custom reference/type-library authoring and reference repair across machines.
-- VBA project password/locking authoring or removal.
-- Digital-signature generation/re-signing and certificate-chain management.
-- VBA stomping detection and compiled p-code/source-consistency analysis.
-- Macro-enabled template `.xltm` authoring/host validation.
-- Full Unicode/code-page authoring beyond the current source-only MBCS-oriented project builder.
-- Large real-world VBA/UserForm corpora and automated Excel recovery-log checks.
+- Repeated validation on Microsoft Excel Desktop.
+- Excel version compatibility matrix.
+- Event procedures in workbook and worksheet modules.
+- Correct code-name synchronization for renamed and reordered worksheets.
+- Class modules.
+- UserForms.
+- Form designer streams.
+- FRX binary resources.
+- Reference management.
+- Type library references.
+- Conditional compilation constants.
+- Project properties.
+- VBA project password.
+- Digital signatures.
+- Signature preservation.
+- Locked projects.
+- VBA stomping detection/preservation.
+- ActiveX controls.
+- Form controls.
+- Macro-enabled templates `.xltm`.
+- Safe preservation of arbitrary external `vbaProject.bin` projects after unrelated workbook edits.
 
 ### Completion criteria
 
-- Macro appears in `Alt+F8` and executes in supported Excel Desktop versions.
-- Workbook/worksheet event handlers execute after XL++ generation.
+- Macro appears in `Alt+F8`.
+- Macro runs successfully in supported Excel versions.
+- Workbook/worksheet event handlers execute.
 - External macro projects round-trip byte-for-byte when untouched.
-- Signed macro projects remain byte-preserved when untouched and are never silently invalidated by a source rewrite.
-- UserForm fixtures preserve and, eventually, author both code and designer/FRX resources.
-- Custom project references open without repair across the supported Windows/Office matrix.
+- Signed macro projects either remain valid or are explicitly invalidated with a documented warning.
+- UserForm fixtures preserve code and designer resources.
 
 ---
 
 ## 3.6 File encryption and protection
 
-**Priority: P2 compatibility depth — P0X password-encryption core substantially complete**
+**Priority: P1**
 
 ### Existing support
 
-- Legacy worksheet protection and workbook structure protection.
-- Password-to-open OOXML encryption through load/save options.
-- Agile AES-256-CBC/SHA-512 read/write, password verification, segmented package encryption and HMAC integrity.
-- Standard AES-128/192/256 + SHA-1 **read/write**, 50,000-round derivation and password verification.
-- `EncryptionInfo` inspection, `EncryptedPackage`, DataSpaces and OLE/CFB miniFAT/FAT/DIFAT support.
-- OS CSPRNG, constant-time verification and malformed-container bounds/cycle hardening.
-- Path/stream APIs, password rotation/removal, >9 MiB DIFAT regression.
-- Independent LibreOffice interoperability: XL++ Agile output, LibreOffice Standard input, and XL++ Standard AES-128 output.
-- Python/C/C# surfaces include password workflow and Standard/Agile mode selection; native C ABI is regression-tested.
+- Legacy worksheet protection.
+- Legacy workbook structure protection.
+- Add/remove password-style protection hashes.
 
-### Remaining capabilities
+### Important distinction
 
-- Alternate Agile cipher/hash profiles.
-- Certificate/private-key Agile key encryptors.
-- Microsoft Excel Desktop encrypted-fixture/recovery-dialog validation.
-- Modern worksheet/workbook protection hashes and macro/template/signature compatibility corpus.
+Worksheet/workbook protection prevents casual editing. It does **not** encrypt the workbook and does not protect file contents from being read.
+
+### Missing capabilities
+
+- Password-to-open encryption.
+- Standard Encryption.
+- Agile Encryption.
+- `EncryptionInfo`.
+- `EncryptedPackage`.
+- Password verification.
+- Key derivation and integrity checks.
+- Password change/remove workflow.
+- Encrypted `.xlsx`, `.xlsm`, `.xltx` and `.xltm`.
+- Modern worksheet/workbook protection hashes.
+- Explicit API distinction between:
+  - edit protection;
+  - workbook structure protection;
+  - file-open encryption.
+
+### Required tests
+
+- Open a fixture encrypted by Microsoft Excel.
+- Save and reopen with the same password.
+- Reject incorrect passwords.
+- Change password.
+- Remove encryption.
+- Preserve macros and advanced objects inside encrypted packages.
 
 ---
 
 ## 3.7 Structural row and column editing
 
-**Priority: P2 compatibility depth — P0X transactional core implemented**
+**Priority: P1**
 
 ### Existing support
 
-Workbook-level insert/delete row/column transactions now share a unified A1 reference translator and update supported dependencies across cells/formulas, shared/array/dynamic metadata, defined names, merged ranges, dimensions, freeze panes, AutoFilter/sort state, conditional formatting, data validation, tables, print ranges/titles, hyperlinks, chart references/caches, drawing anchors and Pivot source/location. Invalidated references become `#REF!` and can trigger full rollback. Successful transactions apply in place so existing worksheet/binding handles stay stable.
+- Basic row/column access.
+- Dimensions.
+- Cell/range operations.
+- Some structural movement.
 
-### Remaining correctness depth
+### Missing correctness behavior
 
-- Worksheet rename/move/copy topology translation.
-- Page-break/comment/unsupported DrawingML semantics beyond preservation.
-- Deeper external-link and calc-chain topology updates.
-- Microsoft Excel Desktop comparison matrix for boundary insertion/deletion semantics.
+Insert/delete operations must update all dependent references:
 
-### Completion-depth criteria
+- formulas;
+- shared formulas;
+- array formulas;
+- defined names;
+- print areas;
+- print titles;
+- tables;
+- AutoFilters;
+- merged cells;
+- hyperlinks;
+- comments;
+- conditional formatting;
+- data validation;
+- charts;
+- image anchors;
+- pivot source ranges;
+- page breaks;
+- freeze panes;
+- external links;
+- calc chain;
+- drawings and shapes.
 
-- Expand Excel-created integration fixtures containing every supported object class.
-- Compare boundary and mixed-reference behavior against Excel Desktop.
-- Preserve unsupported objects and prove zero repair dialogs/recovery logs.
+### Completion criteria
+
+- Insert/delete rows and columns in a workbook containing all supported objects.
+- Every object moves or updates consistently.
+- Unsupported objects are preserved.
+- Excel reports no repair.
+- Formula references match Excel behavior, including absolute and mixed references.
 
 ---
 
 ## 3.8 Formula system
 
-**Priority: P2 catalog/interop depth — P0X core-family matrix complete**
+**Priority: P1/P2**
 
 ### Existing support
 
-- Formula text/cached values, shared/array/dynamic-array metadata and calculation metadata.
-- Parser/operators, scalar/error literals and two-dimensional array constants.
-- A1/range/cross-sheet references, defined names and structured table references.
-- Dynamic-array/spill families (`SEQUENCE`, `FILTER`, `SORT`, `UNIQUE`, stacking/selection/shape helpers) with `#SPILL!` collision handling.
-- Reference-returning `INDIRECT`/`OFFSET`, `LET`, lookup/criteria/statistical/text/date/math/financial families.
-- Recursive dependencies, public dependency graph, circular detection and opt-in iterative fixed-point calculation.
-- External-workbook references through an explicit C++ resolver callback; the core never silently opens another workbook.
-- Cached-result updates, diagnostic no-mutation calculation and calculate-before-save.
-- Structural reference translation across workbook transactions.
+- Store formula text.
+- Cached values.
+- Some formula metadata.
+- Shared/array formula-related support.
 
-The scope-defined P0X Formula matrix is **26/26 capability families**. This is not a claim to implement every function in the Excel catalog.
+### Missing
 
-### Remaining depth
+- Formula parser.
+- Tokenizer.
+- AST.
+- Dependency graph.
+- Calculation engine.
+- Recalculation scheduling.
+- Circular reference handling.
+- Iterative calculation.
+- Volatile functions.
+- Dynamic arrays.
+- Spilled ranges.
+- Structured table references.
+- Defined-name resolution.
+- External workbook references.
+- Locale-aware formula separators.
+- Formula translation when moving cells.
+- Broad function coverage.
 
-- Broader specialized financial/database/engineering/cube catalog and `LAMBDA` ecosystem.
-- More complete Excel 365 implicit-intersection/coercion edge cases.
-- Microsoft Excel Desktop comparison corpus.
-- External resolver parity in non-C++ bindings.
+### Recommended scope decision
+
+Choose one of two product directions:
+
+1. **Storage/editor model only**
+   - Preserve and translate formulas correctly.
+   - Request Excel recalculation using workbook calculation flags.
+   - Do not promise formula evaluation.
+
+2. **Calculation engine**
+   - Large multi-phase project.
+   - Requires a formal supported-function matrix and compatibility test corpus.
+
+For the near-term roadmap, the storage/editor model is recommended.
 
 ---
 
@@ -945,15 +1007,25 @@ Package
 
 ## Phase 5 — dependable structural editing
 
-**Status:** P0X core completed; P2 compatibility-depth validation remains.  
-**Goal:** keep row/column insertion/deletion safe across the supported object graph and broaden Excel Desktop parity.
+**Priority:** P1  
+**Goal:** make row/column insertion and deletion safe.
 
 ### Work items
 
-- **Completed:** unified A1/range reference translator with absolute/mixed references.
-- **Completed:** workbook transaction rewrites formulas, names, tables, validation/CF, merges, hyperlinks, chart/image anchors, Pivot sources and print ranges.
-- **Completed:** transactional preflight/rollback and stable live handles.
-- **Next:** worksheet rename/move/copy topology, deeper unsupported-object semantics, Excel Desktop boundary-behavior comparison.
+- Implement a unified reference-shift engine.
+- Support A1 and range references.
+- Support absolute/mixed references.
+- Update formulas.
+- Update defined names.
+- Update table ranges.
+- Update validation ranges.
+- Update conditional formatting ranges.
+- Update merge ranges.
+- Update hyperlinks/comments.
+- Update image/chart anchors.
+- Update pivot source ranges where supported.
+- Update print areas/titles.
+- Preserve unsupported object references.
 
 ### Exit criteria
 
@@ -974,7 +1046,9 @@ Package
 - Hidden and veryHidden sheet state.
 - Workbook view/window model.
 - `.xltx` and `.xltm`.
-- File-open encryption: P0X Agile AES-256/SHA-512 and Standard AES-128/192/256 + SHA-1 read/write complete; alternate/certificate profiles remain.
+- File-open encryption:
+  - Standard;
+  - Agile.
 - Password add/change/remove.
 - Modern protection hashes.
 - Format detection from package metadata.
@@ -1052,35 +1126,30 @@ Package
 **Priority:** P2  
 **Goal:** extend editing breadth after preservation is stable.
 
-**P0Z-F update:** chart-family generation is complete across the current Excel Insert-chart families and the non-OLAP Pivot authoring surface is substantially expanded. Remaining bullets below now primarily represent Pivot ecosystem/host-validation work rather than missing base chart families.
-
 ### Chart work
 
-- [x] 3D charts.
-- [x] Stock charts.
-- [x] Surface charts.
-- [x] Combined charts.
-- [x] Secondary axes.
-- [x] Data labels.
-- [x] Trendlines.
-- [x] Error bars.
-- [x] Data tables.
-- [x] Advanced layouts, including ChartEx-backed current Excel families.
-- [ ] Chartsheets.
+- 3D charts.
+- Stock charts.
+- Surface charts.
+- Combined charts.
+- Secondary axes.
+- Data labels.
+- Trendlines.
+- Error bars.
+- Data tables.
+- Advanced layouts.
+- Chartsheets.
 
 ### Pivot work
 
-- [x] column/page fields;
-- [x] multiple data fields;
-- [x] worksheet-source cache records and lifecycle metadata;
-- [x] grouping;
-- [ ] calculated fields/items;
-- [x] legacy and Office 2010+ `Show Values As`;
-- [x] subtotals;
-- [x] styles and display behavior;
-- [x] filters, hidden items and multi-axis item tuples;
-- [ ] pivot charts;
-- [ ] OLAP/Data Model caches, slicers and timelines.
+- column/page fields;
+- multiple data fields;
+- grouping;
+- calculated fields/items;
+- show-values-as;
+- subtotals;
+- styles;
+- pivot charts.
 
 ### Exit criteria
 
@@ -1298,7 +1367,7 @@ A feature is complete only when all applicable conditions are met:
 - Image editing.
 - Basic chart editing.
 - Pivot reader.
-- Complete remaining encryption profiles/Excel Desktop validation.
+- File-open encryption.
 - `.xltx/.xltm`.
 - Macro host validation.
 - External `vbaProject.bin` preservation.

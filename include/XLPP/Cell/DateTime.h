@@ -28,8 +28,7 @@ inline long long daysFromCivil(int year, int month, int day) noexcept {
     year -= month <= 2;
     const long long era = (year >= 0 ? year : year - 399) / 400;
     const unsigned yearOfEra = static_cast<unsigned>(year - era * 400);
-    const int monthAdjusted = month + (month > 2 ? -3 : 9);
-    const unsigned dayOfYear = static_cast<unsigned>((153 * monthAdjusted + 2) / 5 + day - 1);
+    const unsigned dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
     const unsigned dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
     return era * 146097 + static_cast<long long>(dayOfEra) - 719468;
 }
@@ -43,7 +42,7 @@ inline void civilFromDays(long long days, int& year, int& month, int& day) noexc
     const unsigned dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100);
     const unsigned monthPrime = (5 * dayOfYear + 2) / 153;
     day = static_cast<int>(dayOfYear - (153 * monthPrime + 2) / 5 + 1);
-    month = static_cast<int>(monthPrime) + (monthPrime < 10 ? 3 : -9);
+    month = static_cast<int>(monthPrime + (monthPrime < 10 ? 3 : -9));
     year = static_cast<int>(yearOfCycle + (month <= 2));
 }
 
