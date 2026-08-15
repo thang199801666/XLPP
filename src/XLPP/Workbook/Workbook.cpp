@@ -1314,6 +1314,22 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
         if (!hf.firstFooter().empty()) xml << "<firstFooter>" << xmlEscape(hf.firstFooter()) << "</firstFooter>";
         xml << "</headerFooter>";
     }
+    // Manual page breaks (SpreadsheetML <rowBreaks>/<colBreaks>). Row breaks
+    // use the 0-based row index above which a break occurs.
+    const auto& rowBreaks = sheet.rowBreaks();
+    if (!rowBreaks.empty()) {
+        xml << "<rowBreaks count=\"" << rowBreaks.size() << "\" manualBreakCount=\"" << rowBreaks.size() << "\">";
+        for (const auto row : rowBreaks)
+            xml << "<brk id=\"" << row << "\" max=\"16383\" man=\"1\"/>";
+        xml << "</rowBreaks>";
+    }
+    const auto& columnBreaks = sheet.columnBreaks();
+    if (!columnBreaks.empty()) {
+        xml << "<colBreaks count=\"" << columnBreaks.size() << "\" manualBreakCount=\"" << columnBreaks.size() << "\">";
+        for (const auto column : columnBreaks)
+            xml << "<brk id=\"" << column << "\" max=\"1048575\" man=\"1\"/>";
+        xml << "</colBreaks>";
+    }
     if (!sheet.images().empty() || sheet.chartCount() > 0)
         xml << "<drawing r:id=\"rIdDrawing\"/>";
     // CT_Worksheet requires legacyDrawing after page settings and drawing.
@@ -8184,6 +8200,24 @@ for (const auto& setup : internal::tags(xml, "pageSetup")) {
 }
 for (const auto& printOptions : internal::tags(xml, "printOptions")) { ws.printOptions().setHorizontalCentered(internal::attribute(printOptions,"horizontalCentered")=="1"); ws.printOptions().setVerticalCentered(internal::attribute(printOptions,"verticalCentered")=="1"); ws.printOptions().setHeadings(internal::attribute(printOptions,"headings")=="1"); ws.printOptions().setGridLines(internal::attribute(printOptions,"gridLines")=="1"); }
 for (const auto& hf : internal::tags(xml, "headerFooter")) { ws.headerFooter().setDifferentOddEven(internal::attribute(hf,"differentOddEven")=="1"); ws.headerFooter().setDifferentFirst(internal::attribute(hf,"differentFirst")=="1"); ws.headerFooter().setOddHeader(internal::tagText(hf,"oddHeader")); ws.headerFooter().setOddFooter(internal::tagText(hf,"oddFooter")); ws.headerFooter().setEvenHeader(internal::tagText(hf,"evenHeader")); ws.headerFooter().setEvenFooter(internal::tagText(hf,"evenFooter")); ws.headerFooter().setFirstHeader(internal::tagText(hf,"firstHeader")); ws.headerFooter().setFirstFooter(internal::tagText(hf,"firstFooter")); }
+for (const auto& rowBreaksTag : internal::tags(xml, "rowBreaks")) {
+    std::vector<std::size_t> rows;
+    for (const auto& brk : internal::tags(rowBreaksTag, "brk")) {
+        const auto idText = internal::attribute(brk, "id");
+        std::size_t id = 0;
+        if (internal::tryParseIntegerExact(idText, id)) rows.push_back(id);
+    }
+    if (!rows.empty()) ws.setRowBreaks(std::move(rows));
+}
+for (const auto& colBreaksTag : internal::tags(xml, "colBreaks")) {
+    std::vector<std::size_t> cols;
+    for (const auto& brk : internal::tags(colBreaksTag, "brk")) {
+        const auto idText = internal::attribute(brk, "id");
+        std::size_t id = 0;
+        if (internal::tryParseIntegerExact(idText, id)) cols.push_back(id);
+    }
+    if (!cols.empty()) ws.setColumnBreaks(std::move(cols));
+}
 for (const auto& protectionNode : internal::tags(xml, "sheetProtection")) { ws.protection().setEnabled(true); ws.protection().setPasswordHash(internal::attribute(protectionNode,"password")); ws.protection().setSelectLockedCells(internal::attribute(protectionNode,"selectLockedCells")!="1"); ws.protection().setSelectUnlockedCells(internal::attribute(protectionNode,"selectUnlockedCells")!="1"); ws.protection().setFormatCells(internal::attribute(protectionNode,"formatCells")!="1"); ws.protection().setFormatColumns(internal::attribute(protectionNode,"formatColumns")!="1"); ws.protection().setFormatRows(internal::attribute(protectionNode,"formatRows")!="1"); ws.protection().setInsertRows(internal::attribute(protectionNode,"insertRows")!="1"); ws.protection().setInsertColumns(internal::attribute(protectionNode,"insertColumns")!="1"); ws.protection().setDeleteRows(internal::attribute(protectionNode,"deleteRows")!="1"); ws.protection().setDeleteColumns(internal::attribute(protectionNode,"deleteColumns")!="1"); ws.protection().setSort(internal::attribute(protectionNode,"sort")!="1"); ws.protection().setAutoFilter(internal::attribute(protectionNode,"autoFilter")!="1"); }
 for (const auto& sv : internal::tags(xml, "sheetView")) {
     auto& view = ws.sheetView();

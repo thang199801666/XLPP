@@ -267,6 +267,54 @@ public:
     const std::string& printTitlesCols() const noexcept { return printTitlesCols_; }
     void setPrintTitlesCols(std::string v) { printTitlesCols_ = std::move(v); dirty_ = true; }
 
+    // Manual page breaks (SpreadsheetML <rowBreaks>/<colBreaks>). Row breaks
+    // hold the 0-based row index above which a page break occurs; column breaks
+    // hold the 0-based column index to the left of which a break occurs.
+    void addRowBreak(std::size_t row) {
+        rowBreaks_.insert(row);
+        syncBreakList(rowBreaks_, rowBreakList_);
+        dirty_ = true;
+    }
+    void removeRowBreak(std::size_t row) noexcept {
+        rowBreaks_.erase(row);
+        syncBreakList(rowBreaks_, rowBreakList_);
+        dirty_ = true;
+    }
+    void clearRowBreaks() noexcept {
+        rowBreaks_.clear();
+        rowBreakList_.clear();
+        dirty_ = true;
+    }
+    const std::vector<std::size_t>& rowBreaks() const noexcept { return rowBreakList_; }
+    void setRowBreaks(std::vector<std::size_t> rows) {
+        rowBreakList_ = std::move(rows);
+        rowBreaks_.clear();
+        rowBreaks_.insert(rowBreakList_.begin(), rowBreakList_.end());
+        dirty_ = true;
+    }
+    void addColumnBreak(std::size_t column) {
+        columnBreaks_.insert(column);
+        syncBreakList(columnBreaks_, columnBreakList_);
+        dirty_ = true;
+    }
+    void removeColumnBreak(std::size_t column) noexcept {
+        columnBreaks_.erase(column);
+        syncBreakList(columnBreaks_, columnBreakList_);
+        dirty_ = true;
+    }
+    void clearColumnBreaks() noexcept {
+        columnBreaks_.clear();
+        columnBreakList_.clear();
+        dirty_ = true;
+    }
+    const std::vector<std::size_t>& columnBreaks() const noexcept { return columnBreakList_; }
+    void setColumnBreaks(std::vector<std::size_t> columns) {
+        columnBreakList_ = std::move(columns);
+        columnBreaks_.clear();
+        columnBreaks_.insert(columnBreakList_.begin(), columnBreakList_.end());
+        dirty_ = true;
+    }
+
     void insertRows(std::size_t index, std::size_t amount = 1);
     void deleteRows(std::size_t index, std::size_t amount = 1);
     void insertColumns(std::size_t index, std::size_t amount = 1);
@@ -599,7 +647,12 @@ private:
     WorksheetProtection protection_;
     std::vector<Image> images_;
     SheetView sheetView_;
+    static void syncBreakList(const std::set<std::size_t>& source, std::vector<std::size_t>& target) {
+        target.assign(source.begin(), source.end());
+    }
     std::string printArea_, printTitlesRows_, printTitlesCols_;
+    std::set<std::size_t> rowBreaks_, columnBreaks_;
+    std::vector<std::size_t> rowBreakList_, columnBreakList_;
     std::vector<Chart> charts_;
     std::vector<PivotTable> pivotTables_;
     std::size_t loadedPivotCount_{0};

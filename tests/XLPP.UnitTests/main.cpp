@@ -11094,6 +11094,51 @@ void testTableTotalsRow(TestContext& test) {
 }
 
 
+void testPageBreaks(TestContext& test) {
+    // Manual page breaks (rowBreaks/colBreaks) round-trip through the model.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_page_breaks.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    for (int i = 1; i <= 50; ++i) sheet.append({i * 1.0});
+    sheet.addRowBreak(20);
+    sheet.addRowBreak(40);
+    sheet.addColumnBreak(2);
+    workbook.save(source);
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto xml = archive.get("xl/worksheets/sheet1.xml");
+    test.checkTrue(xml.find("<rowBreaks count=\"2\" manualBreakCount=\"2\">") != std::string::npos,
+                   "Row breaks container is serialized with the right count");
+    test.checkTrue(xml.find("<brk id=\"20\"") != std::string::npos && xml.find("<brk id=\"40\"") != std::string::npos,
+                   "Row break ids are serialized");
+    test.checkTrue(xml.find("<colBreaks count=\"1\" manualBreakCount=\"1\">") != std::string::npos
+                   && xml.find("<brk id=\"2\"") != std::string::npos,
+                   "Column breaks are serialized");
+
+    xlpp::Workbook round; round.load(source);
+    auto* roundSheet = round.worksheet("Data");
+    test.checkTrue(roundSheet != nullptr, "Page-break workbook reloads");
+    test.checkEqual(roundSheet->rowBreaks().size(), std::size_t{2}, "Row break count is read");
+    test.checkTrue(std::find(roundSheet->rowBreaks().begin(), roundSheet->rowBreaks().end(), 20) != roundSheet->rowBreaks().end()
+                   && std::find(roundSheet->rowBreaks().begin(), roundSheet->rowBreaks().end(), 40) != roundSheet->rowBreaks().end(),
+                   "Row break ids round-trip");
+    test.checkEqual(roundSheet->columnBreaks().size(), std::size_t{1}, "Column break count is read");
+    test.checkTrue(std::find(roundSheet->columnBreaks().begin(), roundSheet->columnBreaks().end(), 2) != roundSheet->columnBreaks().end(),
+                   "Column break id round-trips");
+
+    // Mutation: remove one break.
+    roundSheet->removeRowBreak(20);
+    round.save(source);
+    xlpp::Workbook round2; round2.load(source);
+    auto* round2Sheet = round2.worksheet("Data");
+    test.checkEqual(round2Sheet->rowBreaks().size(), std::size_t{1}, "Removed row break stays removed after reload");
+    test.checkTrue(std::find(round2Sheet->rowBreaks().begin(), round2Sheet->rowBreaks().end(), 40) != round2Sheet->rowBreaks().end(),
+                   "Surviving row break round-trips");
+
+    std::filesystem::remove(source);
+}
+
+
 void testPasswordToOpenEncryptionP1G(TestContext& test) {
     const auto encryptedPath = std::filesystem::temp_directory_path() / "xlpp_p1g_agile_encrypted.xlsx";
     const auto tamperedPath = std::filesystem::temp_directory_path() / "xlpp_p1g_agile_tampered.xlsx";
@@ -12609,6 +12654,7 @@ int main() {
         {"Worksheet sparklines P1Z", testSparklinesRoundTrip},
         {"AutoFilter top10/dynamic filters P1Z", testAutoFilterTop10AndDynamicFilters},
         {"Table totals row P1Z", testTableTotalsRow},
+        {"Worksheet page breaks P1Z", testPageBreaks},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},
         {"Workbook reference-safe structural edits P1J", testWorkbookReferenceSafeStructuralEditsP1J},
         {"Structural edit edge cases P1J", testStructuralEditEdgeCasesP1J},
