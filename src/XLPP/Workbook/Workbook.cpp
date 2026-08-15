@@ -1242,6 +1242,68 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
                     xml << "</iconSet></cfRule>";
                     break;
                 }
+                case xlpp::ConditionalRuleType::ContainsText:
+                case xlpp::ConditionalRuleType::NotContainsText:
+                case xlpp::ConditionalRuleType::BeginsWith:
+                case xlpp::ConditionalRuleType::EndsWith: {
+                    const char* cfType = rule.type() == xlpp::ConditionalRuleType::ContainsText ? "containsText"
+                        : rule.type() == xlpp::ConditionalRuleType::NotContainsText ? "notContainsText"
+                        : rule.type() == xlpp::ConditionalRuleType::BeginsWith ? "beginsWith" : "endsWith";
+                    xml << "<cfRule type=\"" << cfType << "\"";
+                    if (rule.hasDifferentialStyle()) xml << " dxfId=\"" << dxfs.find(rule.differentialStyle()) << "\"";
+                    xml << " priority=\"" << emittedPriority << "\"";
+                    if (rule.stopIfTrue()) xml << " stopIfTrue=\"1\"";
+                    std::string formula;
+                    if (rule.type() == xlpp::ConditionalRuleType::ContainsText)
+                        formula = "NOT(ISERROR(SEARCH(\"" + rule.text() + "\",A1)))";
+                    else if (rule.type() == xlpp::ConditionalRuleType::NotContainsText)
+                        formula = "ISERROR(SEARCH(\"" + rule.text() + "\",A1))";
+                    else if (rule.type() == xlpp::ConditionalRuleType::BeginsWith)
+                        formula = "LEFT(A1,LEN(\"" + rule.text() + "\"))=\"" + rule.text() + "\"";
+                    else
+                        formula = "RIGHT(A1,LEN(\"" + rule.text() + "\"))=\"" + rule.text() + "\"";
+                    xml << "><formula>" << xmlEscape(formula) << "</formula></cfRule>";
+                    break;
+                }
+                case xlpp::ConditionalRuleType::AboveAverage:
+                case xlpp::ConditionalRuleType::BelowAverage:
+                case xlpp::ConditionalRuleType::AboveOrEqualAverage:
+                case xlpp::ConditionalRuleType::BelowOrEqualAverage: {
+                    const bool above = rule.type() == xlpp::ConditionalRuleType::AboveAverage
+                        || rule.type() == xlpp::ConditionalRuleType::AboveOrEqualAverage;
+                    xml << "<cfRule type=\"aboveAverage\"";
+                    if (rule.type() == xlpp::ConditionalRuleType::BelowAverage
+                        || rule.type() == xlpp::ConditionalRuleType::BelowOrEqualAverage) xml << " aboveAverage=\"0\"";
+                    if (rule.equalAverage()) xml << " equalAverage=\"1\"";
+                    if (rule.stdDev()) xml << " stdDev=\"1\"";
+                    xml << " priority=\"" << emittedPriority << "\"";
+                    if (rule.hasDifferentialStyle()) xml << " dxfId=\"" << dxfs.find(rule.differentialStyle()) << "\"";
+                    if (rule.stopIfTrue()) xml << " stopIfTrue=\"1\"";
+                    xml << "/></cfRule>";
+                    (void)above;
+                    break;
+                }
+                case xlpp::ConditionalRuleType::Top10:
+                case xlpp::ConditionalRuleType::Bottom10: {
+                    xml << "<cfRule type=\"top10\"";
+                    if (rule.type() == xlpp::ConditionalRuleType::Bottom10) xml << " bottom=\"1\"";
+                    if (rule.top10Config().percent) xml << " percent=\"1\"";
+                    xml << " rank=\"" << rule.top10Config().rank << "\"";
+                    xml << " priority=\"" << emittedPriority << "\"";
+                    if (rule.hasDifferentialStyle()) xml << " dxfId=\"" << dxfs.find(rule.differentialStyle()) << "\"";
+                    if (rule.stopIfTrue()) xml << " stopIfTrue=\"1\"";
+                    xml << "/></cfRule>";
+                    break;
+                }
+                case xlpp::ConditionalRuleType::DuplicateValues:
+                case xlpp::ConditionalRuleType::UniqueValues: {
+                    xml << "<cfRule type=\"" << (rule.type() == xlpp::ConditionalRuleType::DuplicateValues ? "duplicateValues" : "uniqueValues") << "\"";
+                    xml << " priority=\"" << emittedPriority << "\"";
+                    if (rule.hasDifferentialStyle()) xml << " dxfId=\"" << dxfs.find(rule.differentialStyle()) << "\"";
+                    if (rule.stopIfTrue()) xml << " stopIfTrue=\"1\"";
+                    xml << "/></cfRule>";
+                    break;
+                }
             }
         }
         xml << "</conditionalFormatting>";
@@ -8411,6 +8473,43 @@ for (auto& formattingTag : internal::tags(xml, "conditionalFormatting")) {
                 for (const auto& cfvoTag : internal::tags(isTag, "cfvo"))
                     rule.getIconSet().addThreshold(parseCfvo(cfvoTag));
             }
+        } else if (type == "containsText" || type == "notContainsText" || type == "beginsWith" || type == "endsWith") {
+            rule = type == "containsText" ? ConditionalRule::containsText({})
+                : type == "notContainsText" ? ConditionalRule::notContainsText({})
+                : type == "beginsWith" ? ConditionalRule::beginsWith({}) : ConditionalRule::endsWith({});
+            // Recover the searched text from the formula, e.g.
+            // NOT(ISERROR(SEARCH("needle",A1))).
+            std::string text;
+            if (!formulas.empty()) {
+                const auto& f = formulas.front();
+                const auto q1 = f.find('"');
+                if (q1 != std::string::npos) {
+                    const auto q2 = f.find('"', q1 + 1);
+                    if (q2 != std::string::npos) text = f.substr(q1 + 1, q2 - q1 - 1);
+                }
+            }
+            rule.setText(std::move(text));
+        } else if (type == "aboveAverage") {
+            const bool above = internal::attribute(ruleTag, "aboveAverage") != "0";
+            rule = above ? ConditionalRule::aboveAverage() : ConditionalRule::belowAverage();
+            rule.setEqualAverage(internal::attribute(ruleTag, "equalAverage") == "1");
+            rule.setStdDev(internal::attribute(ruleTag, "stdDev") == "1");
+            const auto sd = internal::attribute(ruleTag, "stdDevVal");
+            if (!sd.empty()) {
+                int count = 2;
+                if (internal::tryParseIntegerExact(sd, count)) rule.setStdDevCount(count);
+            }
+        } else if (type == "top10") {
+            const bool bottom = internal::attribute(ruleTag, "bottom") == "1";
+            const bool percent = internal::attribute(ruleTag, "percent") == "1";
+            int rank = 10;
+            const auto rankText = internal::attribute(ruleTag, "rank");
+            if (!rankText.empty() && internal::tryParseIntegerExact(rankText, rank)) {}
+            rule = ConditionalRule::top10(!bottom, rank, percent);
+        } else if (type == "duplicateValues") {
+            rule = ConditionalRule::duplicateValues();
+        } else if (type == "uniqueValues") {
+            rule = ConditionalRule::uniqueValues();
         } else {
             rule = ConditionalRule::formula(formulas.empty() ? std::string{} : formulas.front());
             rule.setFormulas(std::move(formulas));

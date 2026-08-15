@@ -11151,6 +11151,59 @@ void testPageBreaks(TestContext& test) {
 }
 
 
+void testConditionalFormattingRuleFamilies(TestContext& test) {
+    // Text/aboveAverage/top10/duplicate conditional-formatting rules round-trip.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_cf_rules.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    for (int i = 1; i <= 20; ++i) sheet.append({i * 1.0});
+
+    auto contains = xlpp::ConditionalRule::containsText("urgent");
+    contains.differentialStyle().font().setBold(true);
+    sheet.conditionalFormatting().addRule("A1:A20", std::move(contains));
+
+    auto above = xlpp::ConditionalRule::aboveAverage();
+    sheet.conditionalFormatting().addRule("B1:B20", std::move(above));
+
+    auto top = xlpp::ConditionalRule::top10(true, 3);
+    sheet.conditionalFormatting().addRule("C1:C20", std::move(top));
+
+    auto duplicate = xlpp::ConditionalRule::duplicateValues();
+    sheet.conditionalFormatting().addRule("D1:D20", std::move(duplicate));
+
+    workbook.save(source);
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto xml = archive.get("xl/worksheets/sheet1.xml");
+    test.checkTrue(xml.find("type=\"containsText\"") != std::string::npos, "Contains-text rule is serialized");
+    test.checkTrue(xml.find("SEARCH(&quot;urgent&quot;") != std::string::npos || xml.find("SEARCH(\"urgent\"") != std::string::npos,
+                   "Contains-text formula is serialized");
+    test.checkTrue(xml.find("type=\"aboveAverage\"") != std::string::npos, "Above-average rule is serialized");
+    test.checkTrue(xml.find("type=\"top10\"") != std::string::npos && xml.find("rank=\"3\"") != std::string::npos,
+                   "Top-10 rule is serialized with rank");
+    test.checkTrue(xml.find("type=\"duplicateValues\"") != std::string::npos, "Duplicate-values rule is serialized");
+
+    xlpp::Workbook round; round.load(source);
+    auto* roundSheet = round.worksheet("Data");
+    test.checkTrue(roundSheet != nullptr && roundSheet->conditionalFormatting().entries().size() == 4,
+                   "Conditional-formatting rule families reload");
+    const auto& entries = roundSheet->conditionalFormatting().entries();
+    const auto* textRule = entries[0].rules().empty() ? nullptr : &entries[0].rules()[0];
+    test.checkTrue(textRule != nullptr && textRule->type() == xlpp::ConditionalRuleType::ContainsText
+                   && textRule->text() == "urgent", "Contains-text rule and text round-trip");
+    const auto* aboveRule = entries[1].rules().empty() ? nullptr : &entries[1].rules()[0];
+    test.checkTrue(aboveRule != nullptr && aboveRule->type() == xlpp::ConditionalRuleType::AboveAverage,
+                   "Above-average rule type round-trips");
+    const auto* topRule = entries[2].rules().empty() ? nullptr : &entries[2].rules()[0];
+    test.checkTrue(topRule != nullptr && topRule->type() == xlpp::ConditionalRuleType::Top10
+                   && topRule->top10Config().rank == 3, "Top-10 rule rank round-trips");
+    const auto* dupRule = entries[3].rules().empty() ? nullptr : &entries[3].rules()[0];
+    test.checkTrue(dupRule != nullptr && dupRule->type() == xlpp::ConditionalRuleType::DuplicateValues,
+                   "Duplicate-values rule type round-trips");
+
+    std::filesystem::remove(source);
+}
+
+
 void testPasswordToOpenEncryptionP1G(TestContext& test) {
     const auto encryptedPath = std::filesystem::temp_directory_path() / "xlpp_p1g_agile_encrypted.xlsx";
     const auto tamperedPath = std::filesystem::temp_directory_path() / "xlpp_p1g_agile_tampered.xlsx";
@@ -12667,6 +12720,7 @@ int main() {
         {"AutoFilter top10/dynamic filters P1Z", testAutoFilterTop10AndDynamicFilters},
         {"Table totals row P1Z", testTableTotalsRow},
         {"Worksheet page breaks P1Z", testPageBreaks},
+        {"Conditional formatting rule families P1Z", testConditionalFormattingRuleFamilies},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},
         {"Workbook reference-safe structural edits P1J", testWorkbookReferenceSafeStructuralEditsP1J},
         {"Structural edit edge cases P1J", testStructuralEditEdgeCasesP1J},

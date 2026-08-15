@@ -14,7 +14,20 @@ enum class ConditionalRuleType {
     CellIs,
     DataBar,
     ColorScale,
-    IconSet
+    IconSet,
+    ContainsText,
+    NotContainsText,
+    BeginsWith,
+    EndsWith,
+    AboveAverage,
+    BelowAverage,
+    AboveOrEqualAverage,
+    BelowOrEqualAverage,
+    Top10,
+    Bottom10,
+    DuplicateValues,
+    UniqueValues,
+    TimePeriod
 };
 
 enum class ConditionalOperator {
@@ -140,6 +153,58 @@ public:
         return rule;
     }
 
+    static ConditionalRule containsText(std::string text) {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::ContainsText;
+        rule.text_ = std::move(text);
+        return rule;
+    }
+    static ConditionalRule notContainsText(std::string text) {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::NotContainsText;
+        rule.text_ = std::move(text);
+        return rule;
+    }
+    static ConditionalRule beginsWith(std::string text) {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::BeginsWith;
+        rule.text_ = std::move(text);
+        return rule;
+    }
+    static ConditionalRule endsWith(std::string text) {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::EndsWith;
+        rule.text_ = std::move(text);
+        return rule;
+    }
+    static ConditionalRule aboveAverage() {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::AboveAverage;
+        return rule;
+    }
+    static ConditionalRule belowAverage() {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::BelowAverage;
+        return rule;
+    }
+    static ConditionalRule top10(bool top, int value, bool percent = false) {
+        ConditionalRule rule;
+        rule.type_ = top ? ConditionalRuleType::Top10 : ConditionalRuleType::Bottom10;
+        rule.top10_.rank = value;
+        rule.top10_.percent = percent;
+        return rule;
+    }
+    static ConditionalRule duplicateValues() {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::DuplicateValues;
+        return rule;
+    }
+    static ConditionalRule uniqueValues() {
+        ConditionalRule rule;
+        rule.type_ = ConditionalRuleType::UniqueValues;
+        return rule;
+    }
+
     ConditionalRuleType type() const noexcept { return type_; }
     ConditionalOperator op() const noexcept { return operator_; }
     void setOperator(ConditionalOperator value) noexcept { operator_ = value; }
@@ -172,6 +237,24 @@ public:
     IconSet& getIconSet() noexcept { return iconSet_; }
     const IconSet& getIconSet() const noexcept { return iconSet_; }
 
+    // Text-rule access (containsText/notContainsText/beginsWith/endsWith).
+    const std::string& text() const noexcept { return text_; }
+    void setText(std::string value) { text_ = std::move(value); }
+
+    // Above/below average flag (equal average when false).
+    bool equalAverage() const noexcept { return equalAverage_; }
+    void setEqualAverage(bool value) noexcept { equalAverage_ = value; }
+    bool stdDev() const noexcept { return stdDev_; }
+    void setStdDev(bool value) noexcept { stdDev_ = value; }
+    int stdDevCount() const noexcept { return stdDevCount_; }
+    void setStdDevCount(int value) noexcept { stdDevCount_ = value; }
+
+    // Top10 access.
+    struct Top10Config { int rank{10}; bool percent{false}; };
+    const Top10Config& top10Config() const noexcept { return top10_; }
+    Top10Config& top10Config() noexcept { return top10_; }
+    void setTop10(int rank, bool percent = false) { top10_.rank = rank; top10_.percent = percent; }
+
 private:
     ConditionalRuleType type_{ConditionalRuleType::Formula};
     ConditionalOperator operator_{ConditionalOperator::Equal};
@@ -183,6 +266,11 @@ private:
     DataBar dataBar_;
     ColorScale colorScale_;
     IconSet iconSet_;
+    std::string text_;
+    bool equalAverage_{false};
+    bool stdDev_{false};
+    int stdDevCount_{2};
+    Top10Config top10_{};
 };
 
 class ConditionalFormattingEntry {
