@@ -10,6 +10,7 @@
 #include "Protection.h"
 #include "Drawings.h"
 #include "SheetView.h"
+#include "Sparkline.h"
 #include <XLPP/Chart/Chart.h>
 #include <XLPP/Pivot/PivotTable.h>
 #include <XLPP/Workbook/StructuralEdit.h>
@@ -571,6 +572,28 @@ private:
     friend class Workbook;
     friend struct internal::WorkbookDrawingAccess;
 
+public:
+    // --- Sparklines (x14 extension) ---
+    // openpyxl does not model sparklines at all. XL++ models the common
+    // sparklineGroup/sparkline structure so callers can author or edit
+    // Excel-style inline sparklines while untouched extension XML stays
+    // byte-preserved.
+    const std::vector<SparklineGroup>& sparklineGroups() const noexcept { return sparklineGroups_; }
+    std::vector<SparklineGroup>& sparklineGroups() noexcept { dirty_ = true; sparklinesDirty_ = true; return sparklineGroups_; }
+    void setSparklineGroups(std::vector<SparklineGroup> groups) {
+        sparklineGroups_ = std::move(groups);
+        dirty_ = true;
+        sparklinesDirty_ = true;
+    }
+    bool hasSparklines() const noexcept { return !sparklineGroups_.empty() || !sparklinesRawXml_.empty(); }
+    const std::string& sparklineGroupsRawXml() const noexcept { return sparklinesRawXml_; }
+    void setSparklineGroupsRawXml(std::string rawXml) {
+        sparklinesRawXml_ = std::move(rawXml);
+        dirty_ = true;
+        sparklinesDirty_ = true;
+    }
+
+private:
     PrintOptions printOptions_;
     HeaderFooter headerFooter_;
     WorksheetProtection protection_;
@@ -593,5 +616,8 @@ private:
     std::vector<ImportedChartEdit> importedChartEdits_;
     mutable bool pivotsDirty_{true};
     mutable bool pivotAppendDirty_{false};
+    std::vector<SparklineGroup> sparklineGroups_;
+    std::string sparklinesRawXml_;
+    mutable bool sparklinesDirty_{true};
 };
 }

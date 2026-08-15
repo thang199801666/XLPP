@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <stdexcept>
@@ -31,9 +32,33 @@ public:
     std::size_t id() const noexcept { return id_; }
     const std::string& name() const noexcept { return name_; }
     void setName(std::string value) { if (value.empty()) throw std::invalid_argument("Table column name cannot be empty"); name_ = std::move(value); }
+    // Totals-row aggregation function, e.g. "sum", "average", "countNums",
+    // "min", "max", "stdDev", "var". Empty means no aggregation.
+    const std::string& totalsRowFunction() const noexcept { return totalsRowFunction_; }
+    void setTotalsRowFunction(std::string value) {
+        static const std::vector<std::string> supported{
+            "sum", "average", "count", "countNums", "min", "max", "stdDev",
+            "stdDevp", "var", "varp"
+        };
+        if (!value.empty() && std::find(supported.begin(), supported.end(), value) == supported.end())
+            throw std::invalid_argument("Unsupported table totals-row function: " + value);
+        totalsRowFunction_ = std::move(value);
+    }
+    void clearTotalsRowFunction() noexcept { totalsRowFunction_.clear(); }
+    // Optional label shown in the totals cell instead of the computed value.
+    const std::string& totalsRowLabel() const noexcept { return totalsRowLabel_; }
+    void setTotalsRowLabel(std::string value) { totalsRowLabel_ = std::move(value); }
+    void clearTotalsRowLabel() noexcept { totalsRowLabel_.clear(); }
+    // Calculated totals-row formula (x14:calculatedColumnFormula); kept raw.
+    const std::string& totalsRowFormula() const noexcept { return totalsRowFormula_; }
+    void setTotalsRowFormula(std::string value) { totalsRowFormula_ = std::move(value); }
+    void clearTotalsRowFormula() noexcept { totalsRowFormula_.clear(); }
 private:
     std::size_t id_ = 0;
     std::string name_;
+    std::string totalsRowFunction_;
+    std::string totalsRowLabel_;
+    std::string totalsRowFormula_;
 };
 
 class Table {

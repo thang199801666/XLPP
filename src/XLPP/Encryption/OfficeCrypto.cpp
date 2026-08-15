@@ -1,7 +1,7 @@
 #include "OfficeCrypto.h"
 #include "../Packaging/AtomicFile.h"
-
 #include "../Vba/VbaProjectBinary.h"
+#include "../XML/NumericParsing.h"
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -588,7 +588,9 @@ std::string attr(const std::string& element, const std::string& name) {
 std::uint32_t uintAttr(const std::string& element, const std::string& name) {
     const auto text = attr(element, name);
     if (text.empty()) throw std::runtime_error("EncryptionInfo is missing attribute: " + name);
-    const auto value = std::stoull(text);
+    unsigned long long value = 0;
+    if (!xlpp::internal::tryParseIntegerExact(text, value))
+        throw std::runtime_error("EncryptionInfo has a non-integer attribute: " + name);
     if (value > std::numeric_limits<std::uint32_t>::max()) throw std::runtime_error("EncryptionInfo integer is out of range: " + name);
     return static_cast<std::uint32_t>(value);
 }

@@ -1,6 +1,6 @@
 #include <XLPP/Workbook/Workbook.h>
 #include "../Internal/WorksheetName.h"
-
+#include "../XML/NumericParsing.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
@@ -654,8 +654,14 @@ bool parseChartReferenceImpl(const xlpp::Workbook& workbook, const xlpp::Workshe
                     return true;
                 }
                 if (allDigits(left) && allDigits(right)) {
-                    const auto firstRow = static_cast<std::size_t>(std::stoull(left));
-                    const auto lastRow = static_cast<std::size_t>(std::stoull(right));
+                    unsigned long long firstRowU = 0, lastRowU = 0;
+                    if (!xlpp::internal::tryParseIntegerExact(left, firstRowU)
+                        || !xlpp::internal::tryParseIntegerExact(right, lastRowU)) {
+                        reason = "whole-row reference row number is out of range";
+                        return false;
+                    }
+                    const auto firstRow = static_cast<std::size_t>(firstRowU);
+                    const auto lastRow = static_cast<std::size_t>(lastRowU);
                     if (firstRow == 0 || lastRow == 0 || firstRow > 1048576 || lastRow > 1048576) {
                         reason = "whole-row reference is outside the Excel grid";
                         return false;

@@ -10961,6 +10961,139 @@ void testVbaUserFormExtendedControlsP1Y(TestContext& test) {
 }
 
 
+void testSparklinesRoundTrip(TestContext& test) {
+    // Sparklines are an x14 worksheet extension that openpyxl does not model at
+    // all. XL++ authors inline sparkline groups and round-trips them.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_sparklines.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    sheet.cell("A1").setValue("Month");
+    sheet.cell("B1").setValue("Value");
+    sheet.append({std::string("Jan"), 10.0});
+    sheet.append({std::string("Feb"), 15.0});
+    sheet.append({std::string("Mar"), 12.0});
+
+    xlpp::SparklineGroup group;
+    group.type = "line";
+    group.lineStyle = "smooth";
+    group.displayMarkers = true;
+    group.high = true;
+    group.low = true;
+    group.negative = true;
+    group.markersColor = "FF0000FF";
+    group.negativeColor = "FFFF0000";
+    group.sparklines.push_back({"'Data'!B2:B4", "D2"});
+    sheet.sparklineGroups().push_back(std::move(group));
+    workbook.save(source);
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto sheetPart = "xl/worksheets/sheet1.xml";
+    test.checkTrue(archive.contains(sheetPart), "Worksheet part exists");
+    const auto xml = archive.get(sheetPart);
+    test.checkTrue(xml.find("sparklineGroups") != std::string::npos, "Sparkline groups extension is serialized");
+    test.checkTrue(xml.find("B2:B4") != std::string::npos, "Sparkline data reference is serialized");
+    test.checkTrue(xml.find("sqref>D2<") != std::string::npos, "Sparkline target cell is serialized");
+    test.checkTrue(xml.find("05C60535") != std::string::npos, "Sparkline x14 extension URI is serialized");
+
+    xlpp::Workbook round; round.load(source);
+    auto* roundSheet = round.worksheet("Data");
+    test.checkTrue(roundSheet != nullptr, "Sparkline workbook reloads");
+    test.checkTrue(roundSheet->hasSparklines(), "Sparklines are detected on reload");
+    test.checkEqual(roundSheet->sparklineGroups().size(), std::size_t{1}, "Sparkline group count is read");
+    const auto& loadedGroup = roundSheet->sparklineGroups().front();
+    test.checkEqual(loadedGroup.type, std::string("line"), "Sparkline group type round-trips");
+    test.checkTrue(loadedGroup.displayMarkers && loadedGroup.high && loadedGroup.low && loadedGroup.negative,
+                   "Sparkline display flags round-trip");
+    test.checkEqual(loadedGroup.sparklines.size(), std::size_t{1}, "Sparkline count is read");
+    test.checkEqual(loadedGroup.sparklines.front().reference, std::string("'Data'!B2:B4"),
+                    "Sparkline data reference round-trips");
+    test.checkEqual(loadedGroup.sparklines.front().location, std::string("D2"),
+                    "Sparkline target cell round-trips");
+
+    std::filesystem::remove(source);
+}
+
+
+void testAutoFilterTop10AndDynamicFilters(TestContext& test) {
+    // Top-10 and dynamic auto-filters round-trip through the object model.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_filters.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    sheet.cell("A1").setValue("Product");
+    sheet.cell("B1").setValue("Sales");
+    for (int i = 1; i <= 20; ++i) {
+        sheet.append({std::string("P") + std::to_string(i), static_cast<double>(i * 10)});
+    }
+    auto& autoFilter = sheet.autoFilter();
+    autoFilter.setReference("A1:B21");
+    auto& sales = autoFilter.column(1);
+    sales.setTop10(true, 5);
+    auto& product = autoFilter.column(0);
+    product.setDynamicFilter("beginsWith", std::optional<double>(3.0));
+    workbook.save(source);
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto sheetXml = archive.get("xl/worksheets/sheet1.xml");
+    test.checkTrue(sheetXml.find("<top10 top=\"1\" percent=\"0\" val=\"5\"/>") != std::string::npos,
+                   "Top-10 filter is serialized");
+    test.checkTrue(sheetXml.find("dynamicFilter type=\"beginsWith\" val=\"3\"") != std::string::npos,
+                   "Dynamic filter is serialized");
+
+    xlpp::Workbook round; round.load(source);
+    auto* roundSheet = round.worksheet("Data");
+    test.checkTrue(roundSheet != nullptr && roundSheet->autoFilter().enabled(), "AutoFilter reloads");
+    const auto* salesLoaded = roundSheet->autoFilter().tryColumn(1);
+    test.checkTrue(salesLoaded != nullptr && salesLoaded->top10().has_value(), "Top-10 filter is read");
+    test.checkTrue(salesLoaded->top10()->top && salesLoaded->top10()->value == 5 && !salesLoaded->top10()->percent,
+                   "Top-10 attributes round-trip");
+    const auto* productLoaded = roundSheet->autoFilter().tryColumn(0);
+    test.checkTrue(productLoaded != nullptr && productLoaded->dynamicFilter().has_value(),
+                   "Dynamic filter is read");
+    test.checkEqual(productLoaded->dynamicFilter()->type, std::string("beginsWith"),
+                    "Dynamic filter type round-trips");
+    test.checkTrue(productLoaded->dynamicFilter()->value.has_value()
+                   && *productLoaded->dynamicFilter()->value == 3.0,
+                   "Dynamic filter value round-trips");
+
+    std::filesystem::remove(source);
+}
+
+
+void testTableTotalsRow(TestContext& test) {
+    // Table column totals-row aggregation/labels round-trip.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_table_totals.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    sheet.append({std::string("Product"), std::string("Sales")});
+    sheet.append({std::string("A"), 10.0});
+    sheet.append({std::string("B"), 20.0});
+    auto& table = sheet.addTable("SalesTable", "A1:B3");
+    table.setShowTotalsRow(true);
+    auto& salesColumn = table.addColumn("Sales");
+    salesColumn.setTotalsRowFunction("sum");
+    salesColumn.setTotalsRowLabel("Total");
+    workbook.save(source);
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto tablePart = archive.contains("xl/tables/table1.xml") ? "xl/tables/table1.xml" : "xl/tables/table2.xml";
+    const auto tableXml = archive.get(tablePart);
+    test.checkTrue(tableXml.find("totalsRowShown=\"1\"") != std::string::npos, "Table totals row is enabled");
+    test.checkTrue(tableXml.find("totalsRowFunction=\"sum\"") != std::string::npos, "Totals row function is serialized");
+    test.checkTrue(tableXml.find("totalsRowLabel=\"Total\"") != std::string::npos, "Totals row label is serialized");
+
+    xlpp::Workbook round; round.load(source);
+    auto* roundSheet = round.worksheet("Data");
+    test.checkTrue(roundSheet != nullptr && roundSheet->tables().size() == 1, "Table reloads");
+    const auto& loadedTable = roundSheet->tables().front();
+    test.checkTrue(loadedTable.showTotalsRow(), "Table totals row flag round-trips");
+    const auto& loadedColumn = loadedTable.columns().front();
+    test.checkEqual(loadedColumn.totalsRowFunction(), std::string("sum"), "Totals row function round-trips");
+    test.checkEqual(loadedColumn.totalsRowLabel(), std::string("Total"), "Totals row label round-trips");
+
+    std::filesystem::remove(source);
+}
+
+
 void testPasswordToOpenEncryptionP1G(TestContext& test) {
     const auto encryptedPath = std::filesystem::temp_directory_path() / "xlpp_p1g_agile_encrypted.xlsx";
     const auto tamperedPath = std::filesystem::temp_directory_path() / "xlpp_p1g_agile_tampered.xlsx";
@@ -12473,6 +12606,9 @@ int main() {
         {"Pivot selective data/page fields P1F", testPivotSelectiveDataAndPageFieldsP1F},
         {"VBA UserForm control objects P1F", testVbaUserFormControlObjectsP1F},
         {"VBA UserForm extended controls P1Y", testVbaUserFormExtendedControlsP1Y},
+        {"Worksheet sparklines P1Z", testSparklinesRoundTrip},
+        {"AutoFilter top10/dynamic filters P1Z", testAutoFilterTop10AndDynamicFilters},
+        {"Table totals row P1Z", testTableTotalsRow},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},
         {"Workbook reference-safe structural edits P1J", testWorkbookReferenceSafeStructuralEditsP1J},
         {"Structural edit edge cases P1J", testStructuralEditEdgeCasesP1J},

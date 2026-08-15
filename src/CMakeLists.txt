@@ -2,6 +2,7 @@
 
 set(XLPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/Workbook.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartSerializer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookIO.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartsheetIO.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartsheetPackage.cpp

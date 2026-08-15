@@ -27,6 +27,7 @@
     <ClCompile Include="Workbook\WorkbookVba.cpp" />
     <ClCompile Include="Workbook\WorkbookPivot.cpp" />
     <ClCompile Include="Workbook\WorkbookChartCache.cpp" />
+    <ClCompile Include="Workbook\WorkbookChartSerializer.cpp" />
     <ClCompile Include="Workbook\WorkbookChartStyle.cpp" />
     <ClCompile Include="Workbook\WorkbookStructuralEdit.cpp" />
     <ClCompile Include="Workbook\WorkbookModelValidation.cpp" />

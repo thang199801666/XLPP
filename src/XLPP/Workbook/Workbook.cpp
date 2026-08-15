@@ -1,7 +1,8 @@
-#include <unordered_set>
+﻿#include <unordered_set>
 #include "WorkbookPackageReader.h"
 #include "WorkbookChartsheetIO.h"
 #include "WorkbookChartsheetPackage.h"
+#include "WorkbookChartSerializer.h"
 #include <XLPP/Workbook/Workbook.h>
 #include "../XML/XmlUtilities.h"
 #include "../XML/NumericParsing.h"
@@ -32,6 +33,13 @@
 
 using xlpp::internal::xmlEscape;
 using xlpp::internal::writeXmlEscaped;
+using xlpp::internal::chartSeriesCacheXml;
+using xlpp::internal::chartView3DXml;
+using xlpp::internal::drawingTags;
+using xlpp::internal::drawingTagText;
+using xlpp::internal::generatedChartTypeUsesXYAxes;
+using xlpp::internal::generatedChartTypeHasAxes;
+
 
 namespace xlpp::internal {
 struct WorkbookDrawingAccess {
@@ -335,7 +343,7 @@ xlpp::Cfvo parseCfvo(const std::string& tag) {
             result.formula = value;
             result.hasValue = true;
         } else {
-            result.value = std::stod(value);
+            if (!xlpp::internal::tryParseDoubleExact(value, result.value)) return result;
             result.hasValue = true;
         }
     }
@@ -603,7 +611,7 @@ xlpp::BorderSide parseBorderSide(const std::string& borderXml, const char* name)
     return side;
 }
 
-// Formats for the built-in (ECMA-376 §18.8.30) numFmtIds 0-49 that files can
+// Formats for the built-in (ECMA-376 Â§18.8.30) numFmtIds 0-49 that files can
 // reference without declaring a <numFmt> element. Used as a fallback when a
 // cell's numFmtId is not present in the custom formats table.
 std::string builtinNumFmt(int id) {
@@ -1143,6 +1151,18 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
                         << "\" val=\"" << xmlEscape(filter.value) << "\"/>";
                 xml << "</customFilters>";
             }
+            if (const auto& top10 = column.top10(); top10) {
+                xml << "<top10 top=\"" << (top10->top ? 1 : 0) << "\" percent=\""
+                    << (top10->percent ? 1 : 0) << "\" val=\"" << top10->value << "\"/>";
+            }
+            if (const auto& dynamic = column.dynamicFilter(); dynamic) {
+                xml << "<dynamicFilter type=\"" << xmlEscape(dynamic->type) << "\"";
+                if (dynamic->value) xml << " val=\"" << *dynamic->value << "\"";
+                xml << "/>";
+            }
+            if (const auto& extension = column.filterExtension(); extension && !extension->rawXml.empty()) {
+                xml << extension->rawXml;
+            }
             xml << "</filterColumn>";
         }
         if (autoFilter.sortStateValue()) {
@@ -1314,43 +1334,68 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
             xml << "<pivotTablePart r:id=\"rIdPivot" << i + 1 << "\"/>";
         xml << "</pivotTableParts>";
     }
+    // Sparklines are emitted through the x14 worksheet extension list. When the
+    // worksheet carries an untouched imported sparklines block it is preserved
+    // verbatim; otherwise the modeled groups are serialized from scratch.
+    if (sheet.hasSparklines()) {
+        xml << "<extLst><ext uri=\"{05C60535-1F16-4FD2-B633-F4F36F0B64E0}\" xmlns:x14=\""
+            << (strict ? "http://purl.oclc.org/ooxml/spreadsheetml/2009/9/main" : "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main")
+            << "\"><x14:sparklineGroups xmlns:xm=\"http://schemas.microsoft.com/office/excel/2006/main\">";
+        if (sheet.sparklineGroups().empty()) {
+            // Preserve the original imported block byte-for-byte.
+            const auto imported = sheet.sparklineGroupsRawXml();
+            if (!imported.empty()) xml << imported;
+        } else {
+            for (const auto& group : sheet.sparklineGroups()) {
+                if (!group.rawXml.empty()) { xml << group.rawXml; continue; }
+                xml << "<x14:sparklineGroup";
+                if (group.type == "column") xml << " type=\"column\"";
+                else if (group.type == "stacked") xml << " type=\"stacked\"";
+                if (group.lineStyle == "smooth") xml << " lineWeight=\"1.5\"";
+                if (group.displayHidden) xml << " displayHidden=\"1\"";
+                if (group.displayXAxis) xml << " displayXAxis=\"1\"";
+                if (group.displayMarkers) xml << " markers=\"1\"";
+                if (group.high) xml << " high=\"1\"";
+                if (group.low) xml << " low=\"1\"";
+                if (group.first) xml << " first=\"1\"";
+                if (group.last) xml << " last=\"1\"";
+                if (group.negative) xml << " negative=\"1\"";
+                if (group.colorSeries) xml << " colorSeries=\"1\"";
+                if (group.colorAxis) xml << " colorAxis=\"1\"";
+                if (group.colorMarkers) xml << " colorMarkers=\"1\"";
+                if (group.colorFirst) xml << " colorFirst=\"1\"";
+                if (group.colorLast) xml << " colorLast=\"1\"";
+                if (group.colorHigh) xml << " colorHigh=\"1\"";
+                if (group.colorLow) xml << " colorLow=\"1\"";
+                if (group.rightToLeft) xml << " rightToLeft=\"1\"";
+                xml << ">";
+                if (!group.markersColor.empty())
+                    xml << "<x14:colorSeries><x14:rgb value=\"" << xmlEscape(group.markersColor) << "\"/></x14:colorSeries>";
+                if (!group.negativeColor.empty())
+                    xml << "<x14:colorNegative><x14:rgb value=\"" << xmlEscape(group.negativeColor) << "\"/></x14:colorNegative>";
+                if (!group.axisColor.empty())
+                    xml << "<x14:colorAxis><x14:rgb value=\"" << xmlEscape(group.axisColor) << "\"/></x14:colorAxis>";
+                if (!group.dateAxis.empty())
+                    xml << "<xm:f>" << xmlEscape(group.dateAxis) << "</xm:f>";
+                xml << "<x14:sparklines>";
+                for (const auto& sparkline : group.sparklines) {
+                    xml << "<x14:sparkline><xm:f>" << xmlEscape(sparkline.reference)
+                        << "</xm:f><xm:sqref>" << xmlEscape(sparkline.location) << "</xm:sqref></x14:sparkline>";
+                }
+                xml << "</x14:sparklines></x14:sparklineGroup>";
+            }
+        }
+        xml << "</x14:sparklineGroups></ext></extLst>";
+    }
     xml << "</worksheet>";
-    return xml.str();
-}
-
-std::string chartSeriesCacheXml(const xlpp::ChartSeriesCache& cache, bool prefixed = true) {
-    if (!cache.present) return {};
-    const auto c = prefixed ? "c:" : "";
-    const auto local = cache.numeric ? "numCache" : "strCache";
-    std::ostringstream xml;
-    xml << "<" << c << local << ">";
-    if (cache.numeric) xml << "<" << c << "formatCode>" << xmlEscape(cache.formatCode.empty() ? "General" : cache.formatCode) << "</" << c << "formatCode>";
-    xml << "<" << c << "ptCount val=\"" << cache.effectivePointCount() << "\"/>";
-    auto points = cache.points;
-    std::sort(points.begin(), points.end(), [](const auto& a, const auto& b){ return a.index < b.index; });
-    for (const auto& point : points)
-        xml << "<" << c << "pt idx=\"" << point.index << "\"><" << c << "v>" << xmlEscape(point.value) << "</" << c << "v></" << c << "pt>";
-    xml << "</" << c << local << ">";
     return xml.str();
 }
 
 std::string generatedPlotAuxiliaryXml(const xlpp::Chart::Plot& plot, bool strict);
 std::string generatedDataTableXml(const xlpp::ChartDataTable& table, bool strict);
-std::string chartView3DXml(const xlpp::ChartView3D& view, bool prefixed);
 std::string generatedChartWallXml(const char* localName, const xlpp::ChartWallFormat& format, bool prefixed);
 bool patchMarkerFormatInOwner(std::string& owner, const xlpp::ChartMarkerFormat& format);
 bool patchNestedLineFormat(std::string& owner, const xlpp::ChartLineFormat& format);
-std::vector<std::string> drawingTags(const std::string& xml, const char* prefixed, const char* local);
-
-bool generatedChartTypeUsesXYAxes(xlpp::Chart::Type type) {
-    return type == xlpp::Chart::Type::Scatter || type == xlpp::Chart::Type::Bubble;
-}
-
-bool generatedChartTypeHasAxes(xlpp::Chart::Type type) {
-    return type != xlpp::Chart::Type::Pie && type != xlpp::Chart::Type::Pie3D &&
-           type != xlpp::Chart::Type::Doughnut && type != xlpp::Chart::Type::PieOfPie &&
-           type != xlpp::Chart::Type::BarOfPie;
-}
 
 std::string generatedChartSeriesXml(const xlpp::ChartSeries& series, xlpp::Chart::Type type, std::size_t index) {
     std::ostringstream seriesXml;
@@ -2318,6 +2363,7 @@ bool pivotCachesEquivalent(const xlpp::PivotCache& left, const xlpp::PivotCache&
     return true;
 }
 
+
 std::string commentsXml(const xlpp::Worksheet& sheet, bool strict) {
     std::vector<std::string> authors;
     for (const auto& pair : sheet.cells()) {
@@ -2430,8 +2476,15 @@ std::string tableXml(const xlpp::Table& table, const xlpp::Worksheet& sheet, std
         for (std::size_t i = 0; i < generatedColumns.size(); ++i)
             xml << "<tableColumn id=\"" << i + 1 << "\" name=\"" << xmlEscape(generatedColumns[i]) << "\"/>";
     } else {
-        for (const auto& column : table.columns())
-            xml << "<tableColumn id=\"" << column.id() << "\" name=\"" << xmlEscape(column.name()) << "\"/>";
+        for (const auto& column : table.columns()) {
+            xml << "<tableColumn id=\"" << column.id() << "\" name=\"" << xmlEscape(column.name()) << "\"";
+            if (!column.totalsRowFunction().empty()) xml << " totalsRowFunction=\"" << xmlEscape(column.totalsRowFunction()) << "\"";
+            if (!column.totalsRowLabel().empty()) xml << " totalsRowLabel=\"" << xmlEscape(column.totalsRowLabel()) << "\"";
+            if (!column.totalsRowFormula().empty())
+                xml << "><calculatedColumnFormula>" << xmlEscape(column.totalsRowFormula()) << "</calculatedColumnFormula></tableColumn>";
+            else
+                xml << "/>";
+        }
     }
     xml << "</tableColumns>";
     const auto& style = table.styleInfo();
@@ -2688,7 +2741,9 @@ std::size_t maximumDrawingObjectId(const std::string& drawingXmlText) {
         for (const auto& node : nodes) {
             const auto value = xlpp::internal::attribute(node, "id");
             if (value.empty() || !std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isdigit(c); })) continue;
-            maximum = std::max(maximum, static_cast<std::size_t>(std::stoull(value)));
+            unsigned long long parsed = 0;
+            if (xlpp::internal::tryParseIntegerExact(value, parsed))
+                maximum = std::max(maximum, static_cast<std::size_t>(parsed));
         }
     };
     inspect(xlpp::internal::tags(drawingXmlText, "xdr:cNvPr"));
@@ -2745,7 +2800,6 @@ std::string appendedChartAnchorXml(const xlpp::Chart& chart,
     return xml.str();
 }
 
-std::vector<std::string> drawingTags(const std::string& xml, const char* prefixed, const char* local);
 std::string seriesDirectSpPr(const std::string& seriesXml);
 std::string partExtension(const std::string& part);
 
@@ -4536,20 +4590,6 @@ bool patchShapeOwnerFormat(std::string& owner, const xlpp::ChartLineFormat* line
     return true;
 }
 
-std::string chartView3DXml(const xlpp::ChartView3D& view, bool prefixed) {
-    const auto c = prefixed ? "c:" : "";
-    std::ostringstream xml;
-    xml << "<" << c << "view3D>";
-    if (view.hasRotationX) xml << "<" << c << "rotX val=\"" << view.rotationX << "\"/>";
-    if (view.hasHeightPercent) xml << "<" << c << "hPercent val=\"" << view.heightPercent << "\"/>";
-    if (view.hasRotationY) xml << "<" << c << "rotY val=\"" << view.rotationY << "\"/>";
-    if (view.hasDepthPercent) xml << "<" << c << "depthPercent val=\"" << view.depthPercent << "\"/>";
-    if (view.hasRightAngleAxes) xml << "<" << c << "rAngAx val=\"" << (view.rightAngleAxes ? "1" : "0") << "\"/>";
-    if (view.hasPerspective) xml << "<" << c << "perspective val=\"" << view.perspective << "\"/>";
-    xml << "</" << c << "view3D>";
-    return xml.str();
-}
-
 std::string generatedChartWallXml(const char* localName, const xlpp::ChartWallFormat& format, bool prefixed) {
     if (!format.present) return {};
     const auto c = prefixed ? "c:" : "";
@@ -6078,7 +6118,9 @@ std::size_t nextAvailablePivotCacheId(const std::string& workbookXml) {
     for (const auto& node : extractTagBlocks(workbookXml, "pivotCache")) {
         const auto value = xlpp::internal::attribute(node, "cacheId");
         if (value.empty() || !std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isdigit(c); })) continue;
-        maximum = std::max(maximum, static_cast<std::size_t>(std::stoull(value)));
+        unsigned long long parsed = 0;
+        if (xlpp::internal::tryParseIntegerExact(value, parsed))
+            maximum = std::max(maximum, static_cast<std::size_t>(parsed));
     }
     return maximum + 1;
 }
@@ -6092,7 +6134,9 @@ std::size_t nextAvailablePartId(const std::vector<xlpp::PreservedPart>& parts,
         if (part.name.compare(part.name.size() - suffix.size(), suffix.size(), suffix) != 0) continue;
         const auto number = part.name.substr(prefix.size(), part.name.size() - prefix.size() - suffix.size());
         if (number.empty() || !std::all_of(number.begin(), number.end(), [](unsigned char c) { return std::isdigit(c); })) continue;
-        maximum = std::max(maximum, static_cast<std::size_t>(std::stoull(number)));
+        unsigned long long parsed = 0;
+        if (xlpp::internal::tryParseIntegerExact(number, parsed))
+            maximum = std::max(maximum, static_cast<std::size_t>(parsed));
     }
     return maximum + 1;
 }
@@ -6107,32 +6151,13 @@ std::size_t nextAvailableMediaId(const std::vector<xlpp::PreservedPart>& parts) 
         if (dot == std::string::npos) continue;
         const auto number = part.name.substr(prefix.size(), dot - prefix.size());
         if (number.empty() || !std::all_of(number.begin(), number.end(), [](unsigned char c) { return std::isdigit(c); })) continue;
-        maximum = std::max(maximum, static_cast<std::size_t>(std::stoull(number)));
+        unsigned long long parsed = 0;
+        if (xlpp::internal::tryParseIntegerExact(number, parsed))
+            maximum = std::max(maximum, static_cast<std::size_t>(parsed));
     }
     return maximum + 1;
 }
 
-
-std::vector<std::string> drawingTags(const std::string& xml, const char* prefixed, const char* local) {
-    auto result = xlpp::internal::tags(xml, prefixed);
-    if (std::string_view(prefixed) != std::string_view(local)) {
-        auto unprefixed = xlpp::internal::tags(xml, local);
-        result.insert(result.end(), std::make_move_iterator(unprefixed.begin()), std::make_move_iterator(unprefixed.end()));
-    }
-    // A preserved drawing can mix producer-native default-namespace elements
-    // with xdr:-prefixed nodes appended by XL++. Preserve document order among
-    // equivalent spellings when both forms occur in the same anchor family.
-    std::stable_sort(result.begin(), result.end(), [&](const auto& lhs, const auto& rhs) {
-        return xml.find(lhs) < xml.find(rhs);
-    });
-    return result;
-}
-
-std::string drawingTagText(const std::string& xml, const char* prefixed, const char* local) {
-    auto value = xlpp::internal::tagText(xml, prefixed);
-    if (value.empty()) value = xlpp::internal::tagText(xml, local);
-    return value;
-}
 
 long long drawingInteger(const std::string& xml, const char* prefixed, const char* local, long long fallback = 0) {
     const auto value = drawingTagText(xml, prefixed, local);
@@ -6221,15 +6246,17 @@ void loadImages(xlpp::Worksheet& ws, const std::string& sheetXml, const xlpp::in
                     anchorInfo.yEmu = drawingInteger(posNodes.front(), "xdr:y", "y");
                     const auto x = xlpp::internal::attribute(posNodes.front(), "x");
                     const auto y = xlpp::internal::attribute(posNodes.front(), "y");
-                    if (!x.empty()) anchorInfo.xEmu = std::stoll(x);
-                    if (!y.empty()) anchorInfo.yEmu = std::stoll(y);
+                    long long parsedX = 0, parsedY = 0;
+                    if (!x.empty() && xlpp::internal::tryParseIntegerExact(x, parsedX)) anchorInfo.xEmu = parsedX;
+                    if (!y.empty() && xlpp::internal::tryParseIntegerExact(y, parsedY)) anchorInfo.yEmu = parsedY;
                 }
                 const auto extNodes = drawingTags(anchorNode, "xdr:ext", "ext");
                 if (!extNodes.empty()) {
                     const auto cx = xlpp::internal::attribute(extNodes.front(), "cx");
                     const auto cy = xlpp::internal::attribute(extNodes.front(), "cy");
-                    if (!cx.empty()) anchorInfo.widthEmu = std::stoll(cx);
-                    if (!cy.empty()) anchorInfo.heightEmu = std::stoll(cy);
+                    long long parsedCx = 0, parsedCy = 0;
+                    if (!cx.empty() && xlpp::internal::tryParseIntegerExact(cx, parsedCx)) anchorInfo.widthEmu = parsedCx;
+                    if (!cy.empty() && xlpp::internal::tryParseIntegerExact(cy, parsedCy)) anchorInfo.heightEmu = parsedCy;
                 }
                 // twoCellAnchor stores image extents in a:xfrm rather than an
                 // anchor-level xdr:ext. Capture those values for inspection.
@@ -6238,8 +6265,9 @@ void loadImages(xlpp::Worksheet& ws, const std::string& sheetXml, const xlpp::in
                     if (!transformExt.empty()) {
                         const auto cx = xlpp::internal::attribute(transformExt.front(), "cx");
                         const auto cy = xlpp::internal::attribute(transformExt.front(), "cy");
-                        if (!cx.empty()) anchorInfo.widthEmu = std::stoll(cx);
-                        if (!cy.empty()) anchorInfo.heightEmu = std::stoll(cy);
+                        long long parsedCx = 0, parsedCy = 0;
+                        if (!cx.empty() && xlpp::internal::tryParseIntegerExact(cx, parsedCx)) anchorInfo.widthEmu = parsedCx;
+                        if (!cy.empty() && xlpp::internal::tryParseIntegerExact(cy, parsedCy)) anchorInfo.heightEmu = parsedCy;
                     }
                 }
 
@@ -6707,12 +6735,11 @@ xlpp::ChartLineFormat parseChartLineFormat(const std::string& container) {
     const auto custom = drawingTags(line, "a:custDash", "custDash");
     if (!custom.empty()) {
         for (const auto& ds : drawingTags(custom.front(), "a:ds", "ds")) {
-            try {
-                format.customDash.push_back({
-                    std::stod(xlpp::internal::attribute(ds, "d")) / 1000.0,
-                    std::stod(xlpp::internal::attribute(ds, "sp")) / 1000.0
-                });
-            } catch (...) {}
+            double d = 0.0, sp = 0.0;
+            if (xlpp::internal::tryParseDoubleExact(xlpp::internal::attribute(ds, "d"), d)
+                && xlpp::internal::tryParseDoubleExact(xlpp::internal::attribute(ds, "sp"), sp)) {
+                format.customDash.push_back({d / 1000.0, sp / 1000.0});
+            }
         }
     }
     if (!drawingTags(line, "a:round", "round").empty()) format.join = "round";
@@ -7157,10 +7184,12 @@ xlpp::ChartWallFormat parseChartWallFormat(const std::string& chartXmlText, cons
     const auto& xml = nodes.front();
     const auto thickness = drawingTags(xml, "c:thickness", "thickness");
     if (!thickness.empty()) {
-        try {
-            const auto value = xlpp::internal::attribute(thickness.front(), "val");
-            if (!value.empty()) { wall.thickness = std::stoi(value); wall.hasThickness = true; }
-        } catch (...) {}
+        const auto value = xlpp::internal::attribute(thickness.front(), "val");
+        int parsed = 0;
+        if (!value.empty() && xlpp::internal::tryParseIntegerExact(value, parsed)) {
+            wall.thickness = parsed;
+            wall.hasThickness = true;
+        }
     }
     const auto spPr = drawingTags(xml, "c:spPr", "spPr");
     if (!spPr.empty()) {
@@ -7386,23 +7415,26 @@ xlpp::DrawingAnchorInfo parseChartAnchorInfo(const std::string& anchorNode,
     if (!posNodes.empty()) {
         const auto x = xlpp::internal::attribute(posNodes.front(), "x");
         const auto y = xlpp::internal::attribute(posNodes.front(), "y");
-        if (!x.empty()) info.xEmu = std::stoll(x);
-        if (!y.empty()) info.yEmu = std::stoll(y);
+        long long parsed = 0;
+        if (!x.empty() && xlpp::internal::tryParseIntegerExact(x, parsed)) info.xEmu = parsed;
+        if (!y.empty() && xlpp::internal::tryParseIntegerExact(y, parsed)) info.yEmu = parsed;
     }
     const auto anchorExt = drawingTags(anchorNode, "xdr:ext", "ext");
     if (!anchorExt.empty()) {
         const auto cx = xlpp::internal::attribute(anchorExt.front(), "cx");
         const auto cy = xlpp::internal::attribute(anchorExt.front(), "cy");
-        if (!cx.empty()) info.widthEmu = std::stoll(cx);
-        if (!cy.empty()) info.heightEmu = std::stoll(cy);
+        long long parsed = 0;
+        if (!cx.empty() && xlpp::internal::tryParseIntegerExact(cx, parsed)) info.widthEmu = parsed;
+        if (!cy.empty() && xlpp::internal::tryParseIntegerExact(cy, parsed)) info.heightEmu = parsed;
     }
     if ((info.widthEmu <= 0 || info.heightEmu <= 0) && type == xlpp::DrawingAnchorType::TwoCell) {
         const auto frameExt = drawingTags(graphicFrame, "a:ext", "ext");
         if (!frameExt.empty()) {
             const auto cx = xlpp::internal::attribute(frameExt.front(), "cx");
             const auto cy = xlpp::internal::attribute(frameExt.front(), "cy");
-            if (!cx.empty()) info.widthEmu = std::stoll(cx);
-            if (!cy.empty()) info.heightEmu = std::stoll(cy);
+            long long parsed = 0;
+            if (!cx.empty() && xlpp::internal::tryParseIntegerExact(cx, parsed)) info.widthEmu = parsed;
+            if (!cy.empty() && xlpp::internal::tryParseIntegerExact(cy, parsed)) info.heightEmu = parsed;
         }
     }
     return info;
@@ -8060,6 +8092,64 @@ void loadPivotTables(xlpp::Worksheet& ws,
 
 void parseSheet(xlpp::Worksheet& ws, const std::string& xml, const xlpp::internal::ZipArchive& z, const std::string& target, const StyleCatalog& styleCatalog, const std::vector<xlpp::Style>& dxfStyles, const std::vector<LoadedSharedString>& shared, bool date1904, std::size_t maxCells, std::size_t& totalCells) {
     using namespace xlpp;
+    // Sparklines live in the x14 worksheet extension list. Parse the modeled
+    // sparklineGroup/sparkline structure and keep the raw block for
+    // byte-preserving round-trips when no group is edited.
+    for (const auto& sparklineGroupsNode : internal::tags(xml, "x14:sparklineGroups")) {
+        std::vector<xlpp::SparklineGroup> groups;
+        std::string rawGroups = sparklineGroupsNode;
+        for (const auto& groupNode : internal::tags(sparklineGroupsNode, "x14:sparklineGroup")) {
+            xlpp::SparklineGroup group;
+            group.rawXml = groupNode;
+            const auto type = internal::attribute(groupNode, "type");
+            if (!type.empty()) group.type = type;
+            const auto lineWeight = internal::attribute(groupNode, "lineWeight");
+            if (lineWeight == "1.5") group.lineStyle = "smooth";
+            group.displayHidden = internal::attribute(groupNode, "displayHidden") == "1";
+            group.displayXAxis = internal::attribute(groupNode, "displayXAxis") == "1";
+            group.displayMarkers = internal::attribute(groupNode, "markers") == "1";
+            group.high = internal::attribute(groupNode, "high") == "1";
+            group.low = internal::attribute(groupNode, "low") == "1";
+            group.first = internal::attribute(groupNode, "first") == "1";
+            group.last = internal::attribute(groupNode, "last") == "1";
+            group.negative = internal::attribute(groupNode, "negative") == "1";
+            group.colorSeries = internal::attribute(groupNode, "colorSeries") == "1";
+            group.colorAxis = internal::attribute(groupNode, "colorAxis") == "1";
+            group.colorMarkers = internal::attribute(groupNode, "colorMarkers") == "1";
+            group.colorFirst = internal::attribute(groupNode, "colorFirst") == "1";
+            group.colorLast = internal::attribute(groupNode, "colorLast") == "1";
+            group.colorHigh = internal::attribute(groupNode, "colorHigh") == "1";
+            group.colorLow = internal::attribute(groupNode, "colorLow") == "1";
+            group.rightToLeft = internal::attribute(groupNode, "rightToLeft") == "1";
+            const auto colorSeriesNodes = internal::tags(groupNode, "x14:colorSeries");
+            if (!colorSeriesNodes.empty()) {
+                const auto rgbNodes = internal::tags(colorSeriesNodes.front(), "x14:rgb");
+                if (!rgbNodes.empty()) group.markersColor = internal::attribute(rgbNodes.front(), "value");
+            }
+            const auto colorNegativeNodes = internal::tags(groupNode, "x14:colorNegative");
+            if (!colorNegativeNodes.empty()) {
+                const auto rgbNodes = internal::tags(colorNegativeNodes.front(), "x14:rgb");
+                if (!rgbNodes.empty()) group.negativeColor = internal::attribute(rgbNodes.front(), "value");
+            }
+            const auto colorAxisNodes = internal::tags(groupNode, "x14:colorAxis");
+            if (!colorAxisNodes.empty()) {
+                const auto rgbNodes = internal::tags(colorAxisNodes.front(), "x14:rgb");
+                if (!rgbNodes.empty()) group.axisColor = internal::attribute(rgbNodes.front(), "value");
+            }
+            const auto dateAxisNodes = internal::tags(groupNode, "xm:f");
+            if (!dateAxisNodes.empty()) group.dateAxis = internal::tagText(groupNode, "xm:f");
+            const auto sparklineNodes = internal::tags(groupNode, "x14:sparkline");
+            for (const auto& sparklineNode : sparklineNodes) {
+                xlpp::Sparkline sparkline;
+                sparkline.reference = internal::tagText(sparklineNode, "xm:f");
+                sparkline.location = internal::tagText(sparklineNode, "xm:sqref");
+                group.sparklines.push_back(std::move(sparkline));
+            }
+            groups.push_back(std::move(group));
+        }
+        if (!groups.empty()) ws.setSparklineGroups(std::move(groups));
+        if (groups.empty() && !rawGroups.empty()) ws.setSparklineGroupsRawXml(std::move(rawGroups));
+    }
     const auto sheetProperties = internal::tags(xml, "sheetPr");
     if (!sheetProperties.empty()) {
         const auto codeName = internal::attribute(sheetProperties.front(), "codeName");
@@ -8173,6 +8263,26 @@ for (auto& autoFilterTag : internal::tags(xml, "autoFilter")) {
             for (auto& customFilterTag : internal::tags(customFiltersTag, "customFilter"))
                 column.addCustomFilter(parseFilterOperator(internal::attribute(customFilterTag, "operator")),
                                        internal::attribute(customFilterTag, "val"));
+        }
+        for (auto& top10Tag : internal::tags(columnTag, "top10")) {
+            const bool top = internal::attribute(top10Tag, "top") == "1";
+            const bool percent = internal::attribute(top10Tag, "percent") == "1";
+            int value = 10;
+            const auto valText = internal::attribute(top10Tag, "val");
+            long long valueLL = 0;
+            if (internal::tryParseIntegerExact(valText, valueLL)) value = static_cast<int>(valueLL);
+            column.setTop10(top, value, percent);
+        }
+        for (auto& dynamicTag : internal::tags(columnTag, "dynamicFilter")) {
+            const auto type = internal::attribute(dynamicTag, "type");
+            std::optional<double> val;
+            double parsedVal = 0.0;
+            const auto valText = internal::attribute(dynamicTag, "val");
+            if (!valText.empty() && internal::tryParseDoubleExact(valText, parsedVal)) val = parsedVal;
+            if (!type.empty()) column.setDynamicFilter(type, val);
+        }
+        for (auto& extensionTag : internal::tags(columnTag, "extLst")) {
+            column.setFilterExtension(extensionTag);
         }
     }
     for (auto& sortStateTag : internal::tags(autoFilterTag, "sortState")) {
@@ -8320,8 +8430,15 @@ for (auto& validationTag : internal::tags(xml, "dataValidation")) {
         if(!displayName.empty()) table.setDisplayName(displayName);
         table.setShowHeaderRow(internal::attribute(tableNode,"headerRowCount") != "0");
         table.setShowTotalsRow(internal::attribute(tableNode,"totalsRowShown") == "1");
-        for (const auto& columnNode : internal::tags(tableText,"tableColumn"))
-            table.addColumn(internal::attribute(columnNode,"name"));
+        for (const auto& columnNode : internal::tags(tableText,"tableColumn")) {
+            auto& column = table.addColumn(internal::attribute(columnNode,"name"));
+            const auto totalsFunction = internal::attribute(columnNode,"totalsRowFunction");
+            if (!totalsFunction.empty()) column.setTotalsRowFunction(totalsFunction);
+            const auto totalsLabel = internal::attribute(columnNode,"totalsRowLabel");
+            if (!totalsLabel.empty()) column.setTotalsRowLabel(totalsLabel);
+            const auto formulaNodes = internal::tags(columnNode,"calculatedColumnFormula");
+            if (!formulaNodes.empty()) column.setTotalsRowFormula(internal::tagText(formulaNodes.front(),"calculatedColumnFormula"));
+        }
         const auto styleNodes = internal::tags(tableText,"tableStyleInfo");
         if(!styleNodes.empty()) {
             const auto& style=styleNodes.front();

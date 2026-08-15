@@ -14,6 +14,27 @@ struct CustomFilter {
     std::string value;
 };
 
+// Top-10 auto-filter (x:top10). Shows the top/bottom N items or N percent.
+struct Top10Filter {
+    bool top{true};
+    bool percent{false};
+    int value{10};
+};
+
+// Dynamic auto-filter predicate (x:dynamicFilter). The predicate string follows
+// the SpreadsheetML dynamic filter vocabulary, e.g. "today", "yesterday",
+// "lastMonth", "nextQuarter", "yearToDate", "M1"..."M12", "Q1"..."Q4".
+struct DynamicFilter {
+    std::string type;
+    std::optional<double> value;
+};
+
+// Excel-filter expression (x:extLst/x14:... filter). Kept as raw attributes so
+// filter-extension predicates can round-trip without truncation.
+struct FilterExtension {
+    std::string rawXml;
+};
+
 class FilterColumn {
 public:
     explicit FilterColumn(std::size_t columnId = 0) : columnId_(columnId) {}
@@ -25,6 +46,15 @@ public:
     void addCustomFilter(FilterOperator op, std::string value) { customFilters_.push_back({op, std::move(value)}); }
     void clearCustomFilters() noexcept { customFilters_.clear(); }
     const std::vector<CustomFilter>& customFilters() const noexcept { return customFilters_; }
+    void setTop10(bool top, int value, bool percent = false) { top10_ = Top10Filter{top, percent, value}; }
+    void clearTop10() noexcept { top10_.reset(); }
+    const std::optional<Top10Filter>& top10() const noexcept { return top10_; }
+    void setDynamicFilter(std::string type, std::optional<double> value = std::nullopt) { dynamicFilter_ = DynamicFilter{std::move(type), value}; }
+    void clearDynamicFilter() noexcept { dynamicFilter_.reset(); }
+    const std::optional<DynamicFilter>& dynamicFilter() const noexcept { return dynamicFilter_; }
+    void setFilterExtension(std::string rawXml) { filterExtension_ = FilterExtension{std::move(rawXml)}; }
+    void clearFilterExtension() noexcept { filterExtension_.reset(); }
+    const std::optional<FilterExtension>& filterExtension() const noexcept { return filterExtension_; }
     void setAndMode(bool value) noexcept { andMode_ = value; }
     bool andMode() const noexcept { return andMode_; }
     void setIncludeBlank(bool value) noexcept { includeBlank_ = value; }
@@ -33,6 +63,9 @@ private:
     std::size_t columnId_{0};
     std::vector<std::string> values_;
     std::vector<CustomFilter> customFilters_;
+    std::optional<Top10Filter> top10_;
+    std::optional<DynamicFilter> dynamicFilter_;
+    std::optional<FilterExtension> filterExtension_;
     bool andMode_{false};
     bool includeBlank_{false};
 };
