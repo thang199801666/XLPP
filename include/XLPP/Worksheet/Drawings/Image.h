@@ -67,6 +67,16 @@ public:
     const std::string& name() const noexcept { return name_; }
     void setName(std::string v) { name_ = std::move(v); }
 
+    // Drawing transform: rotation in degrees (0-360, counter-clockwise) and
+    // horizontal/vertical flips. These map to a:xfrm rot=/flipH=/flipV in the
+    // generated drawing part.
+    double rotation() const noexcept { return rotation_; }
+    void setRotation(double degrees) noexcept { rotation_ = degrees; }
+    bool flipHorizontal() const noexcept { return flipH_; }
+    void setFlipHorizontal(bool value) noexcept { flipH_ = value; }
+    bool flipVertical() const noexcept { return flipV_; }
+    void setFlipVertical(bool value) noexcept { flipV_ = value; }
+
     // Package-origin metadata is populated when an existing worksheet drawing
     // is read. It gives callers a stable read-only view of how Excel anchored
     // the image while allowing XL++ to preserve unsupported drawing XML raw.
@@ -91,6 +101,8 @@ private:
     std::string anchor_{"A1"}, extension_{"png"}, name_{"Image"};
     std::vector<unsigned char> bytes_;
     double widthPixels_{96.0}, heightPixels_{96.0};
+    double rotation_{0.0};
+    bool flipH_{false}, flipV_{false};
     DrawingAnchorInfo anchorInfo_{};
     std::string stableId_;
     std::string sourceDrawingPart_;

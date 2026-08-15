@@ -1274,7 +1274,8 @@ void testPageSetupProtectionAndImages(TestContext& test) {
     sheet.protection().setPasswordHash("CDEF");
     sheet.protection().setSort(true);
     const std::vector<unsigned char> png{137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,8,215,99,248,207,192,240,31,0,5,0,1,255,137,153,61,29,0,0,0,0,73,69,78,68,174,66,96,130};
-    xlpp::Image image("B2", png, "png"); image.setName("Pixel"); image.setWidthPixels(32); image.setHeightPixels(24); sheet.addImage(std::move(image));
+    xlpp::Image image("B2", png, "png"); image.setName("Pixel"); image.setWidthPixels(32); image.setHeightPixels(24);
+    image.setRotation(45.0); image.setFlipHorizontal(true); sheet.addImage(std::move(image));
     test.checkTrue(workbook.protection().lockStructure(), "Workbook structure protection");
     test.checkEqual(static_cast<unsigned>(sheet.pageSetup().orientation()), static_cast<unsigned>(xlpp::PageOrientation::Landscape), "Landscape page orientation");
     test.checkEqual(static_cast<unsigned>(sheet.pageSetup().paperSize()), static_cast<unsigned>(xlpp::PaperSize::A4), "A4 paper size");
@@ -1295,7 +1296,9 @@ void testPageSetupProtectionAndImagesRoundTrip(TestContext& test) {
     sheet.pageMargins().setTop(0.4); sheet.pageMargins().setBottom(0.4); sheet.printOptions().setHorizontalCentered(true); sheet.headerFooter().setOddHeader("&LXL++&R&P");
     sheet.protection().setEnabled(true); sheet.protection().setPasswordHash("CDEF"); sheet.protection().setAutoFilter(true);
     const std::vector<unsigned char> png{137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,8,215,99,248,207,192,240,31,0,5,0,1,255,137,153,61,29,0,0,0,0,73,69,78,68,174,66,96,130};
-    sheet.addImage(xlpp::Image("D5", png, "png"));
+    auto img = xlpp::Image("D5", png, "png");
+    img.setRotation(90.0); img.setFlipVertical(true);
+    sheet.addImage(std::move(img));
     workbook.save(path); std::cout << "    [INFO] Saved page/protection/images workbook: " << path.string() << '\n';
     test.checkTrue(std::filesystem::exists(path), "Workbook with drawing package is created");
     test.checkTrue(std::filesystem::file_size(path) > 500, "Workbook drawing package has content");
@@ -1314,6 +1317,12 @@ void testPageSetupProtectionAndImagesRoundTrip(TestContext& test) {
     test.checkTrue(ws->protection().enabled(), "Worksheet protection round-trip");
     test.checkEqual(ws->protection().passwordHash(), std::string("CDEF"), "Worksheet password hash round-trip");
     test.checkTrue(ws->protection().autoFilter(), "Protected AutoFilter permission round-trip");
+    test.checkEqual(ws->images().size(), std::size_t{1}, "Image count round-trips");
+    if (ws->images().size() == 1) {
+        const auto& loadedImage = ws->images().front();
+        test.checkNear(loadedImage.rotation(), 90.0, 0.5, "Image rotation round-trips");
+        test.checkTrue(loadedImage.flipVertical(), "Image vertical flip round-trips");
+    }
     std::filesystem::remove(path);
 }
 
@@ -8013,6 +8022,7 @@ void testAdvancedConditionalFormattingRoundTrip(TestContext& test) {
     dataBar.getDataBar().max.type = "max";
     dataBar.getDataBar().showValue = false;
     dataBar.getDataBar().direction = "rightToLeft";
+    dataBar.getDataBar().axisPosition = 5.0;
     sheet.conditionalFormatting().addRule("A1:A10", std::move(dataBar));
 
     auto colorScale = xlpp::ConditionalRule::colorScale();
@@ -8053,6 +8063,8 @@ void testAdvancedConditionalFormattingRoundTrip(TestContext& test) {
     test.checkTrue(!loadedBar.showValue, "Data-bar showValue round-trips");
     test.checkEqual(loadedBar.direction, std::string("rightToLeft"), "Data-bar direction round-trips");
     test.checkEqual(loadedBar.color, std::string("FF112233"), "Data-bar color round-trips");
+    test.checkTrue(loadedBar.axisPosition.has_value() && *loadedBar.axisPosition == 5.0,
+                   "Data-bar axis position round-trips");
     const auto& loadedScale = entries[1].rules()[0].getColorScale();
     test.checkEqual(loadedScale.stops.size(), std::size_t{3}, "Three color-scale stops round-trip");
     test.checkEqual(loadedScale.stops[2].type, std::string("formula"), "Formula stop type round-trips");

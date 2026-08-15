@@ -1212,6 +1212,11 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
                     writeCfvo(xml, db.min);
                     writeCfvo(xml, db.max);
                     xml << "<color rgb=\"" << xmlEscape(db.color) << "\"/>";
+                    if (db.axisPosition) {
+                        xml << "<cfvo type=\"autoMin\"";
+                        if (*db.axisPosition != 0.0) xml << " val=\"" << *db.axisPosition << "\"";
+                        xml << "/>";
+                    }
                     xml << "</dataBar></cfRule>";
                     break;
                 }
@@ -2432,7 +2437,11 @@ std::string drawingXml(const xlpp::Worksheet& sheet, bool strict) {
         const auto cy = static_cast<long long>(image.heightPixels() * 9525.0);
         xml << "<xdr:oneCellAnchor><xdr:from><xdr:col>" << (ref.column-1) << "</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>" << (ref.row-1) << "</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>"
             << "<xdr:ext cx=\"" << cx << "\" cy=\"" << cy << "\"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"" << objectId++ << "\" name=\"" << xmlEscape(image.name()) << "\"/><xdr:cNvPicPr/></xdr:nvPicPr>"
-            << "<xdr:blipFill><a:blip r:embed=\"rIdImage" << imageIndex + 1 << "\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>";
+            << "<xdr:blipFill><a:blip r:embed=\"rIdImage" << imageIndex + 1 << "\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm";
+        if (image.rotation() != 0.0) xml << " rot=\"" << static_cast<long long>(image.rotation() * 60000.0) << "\"";
+        if (image.flipHorizontal()) xml << " flipH=\"1\"";
+        if (image.flipVertical()) xml << " flipV=\"1\"";
+        xml << "><a:off x=\"0\" y=\"0\"/><a:ext cx=\"" << cx << "\" cy=\"" << cy << "\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>";
     }
     for (std::size_t chartIndex = 0; chartIndex < sheet.chartCount(); ++chartIndex) {
         const auto& chart = sheet.chart(chartIndex);
@@ -2785,7 +2794,12 @@ std::string appendedImageAnchorXml(const xlpp::Image& image,
         << "</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx=\"" << cx << "\" cy=\"" << cy
         << "\"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"" << objectId << "\" name=\"" << xmlEscape(image.name())
         << "\"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed=\"" << relationshipId
-        << "\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:prstGeom prst=\"rect\"><a:avLst/>"
+        << "\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm";
+    if (image.rotation() != 0.0) xml << " rot=\"" << static_cast<long long>(image.rotation() * 60000.0) << "\"";
+    if (image.flipHorizontal()) xml << " flipH=\"1\"";
+    if (image.flipVertical()) xml << " flipV=\"1\"";
+    xml << "><a:off x=\"0\" y=\"0\"/><a:ext cx=\"" << cx << "\" cy=\"" << cy
+        << "\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/>"
         << "</a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>";
     return xml.str();
 }
@@ -6301,6 +6315,16 @@ void loadImages(xlpp::Worksheet& ws, const std::string& sheetXml, const xlpp::in
                     std::vector<unsigned char>(bytesText.begin(), bytesText.end()), extension);
                 image.setName(objectName);
                 image.setAnchorInfo(anchorInfo);
+                // Read rotation/flip transform from the drawing a:xfrm.
+                const auto xfrmNodes = drawingTags(anchorNode, "a:xfrm", "xfrm");
+                if (!xfrmNodes.empty()) {
+                    const auto rotText = xlpp::internal::attribute(xfrmNodes.front(), "rot");
+                    long long rot = 0;
+                    if (!rotText.empty() && xlpp::internal::tryParseIntegerExact(rotText, rot))
+                        image.setRotation(static_cast<double>(rot) / 60000.0);
+                    image.setFlipHorizontal(xlpp::internal::attribute(xfrmNodes.front(), "flipH") == "1");
+                    image.setFlipVertical(xlpp::internal::attribute(xfrmNodes.front(), "flipV") == "1");
+                }
                 image.setStableId(drawingPart + "#" + (objectId.empty() ? imageRelId : objectId));
                 image.setSourceDrawingPart(drawingPart);
                 image.setSourceMediaPart(mediaPart);
@@ -8351,6 +8375,17 @@ for (auto& formattingTag : internal::tags(xml, "conditionalFormatting")) {
                 const auto cfvoTags = internal::tags(dbTag, "cfvo");
                 if (cfvoTags.size() >= 1) rule.getDataBar().min = parseCfvo(cfvoTags[0]);
                 if (cfvoTags.size() >= 2) rule.getDataBar().max = parseCfvo(cfvoTags[1]);
+                // Optional third cfvo carries the axis position (autoMin when
+                // val is absent or 0).
+                if (cfvoTags.size() >= 3) {
+                    const auto valText = internal::attribute(cfvoTags[2], "val");
+                    double position = 0.0;
+                    if (!valText.empty() && internal::tryParseDoubleExact(valText, position)) {
+                        rule.getDataBar().axisPosition = position;
+                    } else {
+                        rule.getDataBar().axisPosition = 0.0;
+                    }
+                }
                 const auto colorTags = internal::tags(dbTag, "color");
                 if (!colorTags.empty()) rule.getDataBar().color = internal::attribute(colorTags.front(), "rgb");
             }
