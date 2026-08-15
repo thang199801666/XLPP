@@ -16,6 +16,48 @@ namespace xlpp {
 // date/time records as SpreadsheetML <d> values.
 enum class PivotCacheValueKind { Missing, Number, String, Boolean, Error, DateTime };
 
+// OLAP pivot source metadata. XL++ models the cache-source identity and the
+// common olapInfo fields so callers can inspect and selectively patch an OLAP
+// pivot without regenerating the physical cache. Deeper OLAP semantics
+// (olapKpi, MDX calculated members, slicer/timeline parts) remain
+// preservation-backed: untouched XML is carried through byte-for-byte.
+struct PivotOlapSourceInfo {
+    // cacheSource@type; empty for worksheet-backed caches.
+    std::string sourceType;
+    // olapInfo@preserveFormatting (defaults true for OLAP per SpreadsheetML).
+    bool preserveFormatting{true};
+    // olapInfo@localCube / @localConnection for local OLAP caches.
+    std::string localCube;
+    std::string localConnection;
+    // p:connection ID when the cache binds to a workbook data connection.
+    int connectionId{-1};
+    // Raw <olapInfo> subtree for lossless carry-through when it is not edited.
+    std::string rawOlapInfoXml;
+    bool present() const noexcept { return !sourceType.empty(); }
+};
+
+// One SpreadsheetML <calculatedMember> node (OLAP calculated members or
+// measure sets). Kept lossless so the surrounding cache definition can be
+// patched without re-serializing unmodeled MDX content.
+struct PivotCalculatedMember {
+    std::string name;
+    std::string mdx;
+    std::string memberName;
+    int hierarchy{-1};
+    std::string solveOrder;
+    std::string set;
+    // Raw <calculatedMember> subtree used for byte-preserving writes.
+    std::string rawXml;
+};
+
+struct PivotGroupItem {
+    // Physical SpreadsheetML group-item kind. groupItems may mix number (<n>),
+    // date (<d>), string (<s>) and missing (<m>) entries; preserving the kind
+    // keeps date/number bins distinct from plain labels during round-trips.
+    PivotCacheValueKind kind{PivotCacheValueKind::String};
+    std::string value;
+};
+
 struct PivotFieldGroup {
     int parentField{-1};
     int baseField{-1};
@@ -27,7 +69,18 @@ struct PivotFieldGroup {
     std::optional<double> interval;
     std::string startDate;
     std::string endDate;
+    // Legacy text-only view of groupItems; a new item appended here is treated
+    // as a string kind. Prefer typedGroupItems()/addTypedGroupItem() when exact
+    // date/number bin preservation matters.
     std::vector<std::string> items;
+    std::vector<PivotGroupItem> typedItems;
+    const PivotGroupItem* typedGroupItem(std::size_t index) const noexcept {
+        return index < typedItems.size() ? &typedItems[index] : nullptr;
+    }
+    void addTypedGroupItem(PivotCacheValueKind kind, std::string value) {
+        typedItems.push_back({kind, std::move(value)});
+        items.push_back(typedItems.back().value);
+    }
 };
 
 class PivotCache {
@@ -276,6 +329,21 @@ public:
     }
     void clearRecords() noexcept { records_.clear(); recordKinds_.clear(); recordKindsValid_ = false; }
 
+    // OLAP source identity and calculated members. Worksheet-backed caches keep
+    // olap() absent; OLAP caches retain the olapInfo/calculatedMember XML so a
+    // selective patch does not truncate unmodeled MDX or connection metadata.
+    const PivotOlapSourceInfo* olap() const noexcept { return olap_ ? &*olap_ : nullptr; }
+    PivotOlapSourceInfo& olap() {
+        if (!olap_) olap_.emplace();
+        return *olap_;
+    }
+    void setOlap(PivotOlapSourceInfo info) { olap_ = std::move(info); }
+    void clearOlap() noexcept { olap_.reset(); }
+    const std::vector<PivotCalculatedMember>& calculatedMembers() const noexcept { return calculatedMembers_; }
+    std::vector<PivotCalculatedMember>& calculatedMembers() noexcept { return calculatedMembers_; }
+    void setCalculatedMembers(std::vector<PivotCalculatedMember> members) { calculatedMembers_ = std::move(members); }
+    void clearCalculatedMembers() noexcept { calculatedMembers_.clear(); }
+
     // Structural worksheet edits use these helpers to keep a worksheet-backed
     // PivotCache rectangular when source columns are inserted or deleted.
     // They preserve per-field metadata, update fieldGroup field indices, and
@@ -382,6 +450,8 @@ private:
     std::vector<std::vector<std::string>> records_;
     std::vector<std::vector<PivotCacheValueKind>> recordKinds_;
     bool recordKindsValid_{false};
+    std::optional<PivotOlapSourceInfo> olap_;
+    std::vector<PivotCalculatedMember> calculatedMembers_;
 };
 
 struct PivotFieldItem {
@@ -655,6 +725,24 @@ struct PivotCacheOptionsPatch {
     std::optional<bool> saveData;
     std::optional<bool> enableRefresh;
     std::optional<int> missingItemsLimit;
+};
+
+// Selective OLAP cache-source/olapInfo patch. Fields not requested keep their
+// original bytes; requested scalar attributes are rewritten in place and the
+// unmodeled olapInfo children remain byte-preserved.
+struct PivotOlapSourcePatch {
+    std::optional<bool> preserveFormatting;
+    std::optional<std::string> localCube;
+    std::optional<std::string> localConnection;
+    std::optional<int> connectionId;
+};
+
+struct PivotCalculatedMemberPatch {
+    std::optional<std::string> mdx;
+    std::optional<std::string> memberName;
+    std::optional<int> hierarchy;
+    std::optional<std::string> solveOrder;
+    std::optional<std::string> set;
 };
 
 struct PivotChartFormat {

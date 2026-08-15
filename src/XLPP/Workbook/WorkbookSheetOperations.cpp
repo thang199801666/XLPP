@@ -1,7 +1,7 @@
 #include <XLPP/Workbook/Workbook.h>
 #include "XLPP/Formula/ReferenceTransformer.h"
 #include "XLPP/Packaging/RelationshipGraph.h"
-#include "XLPP/Worksheet/WorksheetName.h"
+#include "../Internal/WorksheetName.h"
 #include <algorithm>
 #include <deque>
 #include <stdexcept>

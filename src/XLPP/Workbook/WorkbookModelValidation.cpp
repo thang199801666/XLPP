@@ -1,6 +1,6 @@
 #include <XLPP/Workbook/Workbook.h>
 #include <XLPP/Cell/CellReference.h>
-#include "XLPP/Worksheet/WorksheetName.h"
+#include "../Internal/WorksheetName.h"
 #include <algorithm>
 #include <cctype>
 #include <cstddef>

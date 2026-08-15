@@ -25,6 +25,10 @@ struct WorkbookChartsheetPackageAccess {
     static const std::string& printerSettingsRelationshipId(const Chartsheet& sheet) noexcept { return sheet.printerSettingsRelationshipId_; }
     static const std::optional<std::string>& printerSettingsData(const Chartsheet& sheet) noexcept { return sheet.printerSettingsData_; }
     static bool printerSettingsDirty(const Chartsheet& sheet) noexcept { return sheet.printerSettingsDirty_; }
+    static const std::string& headerFooterDrawingPart(const Chartsheet& sheet) noexcept { return sheet.headerFooterDrawingPart_; }
+    static const std::string& headerFooterDrawingRelationshipId(const Chartsheet& sheet) noexcept { return sheet.headerFooterDrawingRelationshipId_; }
+    static const std::optional<std::string>& headerFooterDrawingData(const Chartsheet& sheet) noexcept { return sheet.headerFooterDrawingData_; }
+    static bool headerFooterDrawingDirty(const Chartsheet& sheet) noexcept { return sheet.headerFooterDrawingDirty_; }
     static void markImportedSheetClean(const Chartsheet& sheet) noexcept { sheet.sheetDirty_ = false; }
     static void clearDirty(const Chartsheet& sheet) noexcept { sheet.clearDirty(); }
 };
@@ -74,6 +78,7 @@ std::string relationshipKind(const PreservedRelationship& relationship) {
     const auto& target = relationship.target;
     if (target.find("/drawings/") != std::string::npos || target.rfind("../drawings/", 0) == 0) return "drawing";
     if (target.find("/printerSettings/") != std::string::npos || target.rfind("../printerSettings/", 0) == 0) return "printerSettings";
+    if (target.find("/vmlDrawing/") != std::string::npos || target.rfind("../vmlDrawing/", 0) == 0) return "vmlDrawing";
     return {};
 }
 
@@ -249,14 +254,18 @@ void writeChartsheetPackageParts(
         }
 
         if (chartSheet.imported() && !chartSheet.chartDirty()) {
-            if (!chartSheet.sheetDirty() && !WorkbookChartsheetPackageAccess::printerSettingsDirty(chartSheet)) continue;
+            if (!chartSheet.sheetDirty() && !WorkbookChartsheetPackageAccess::printerSettingsDirty(chartSheet)
+                && !WorkbookChartsheetPackageAccess::headerFooterDrawingDirty(chartSheet)) continue;
             const auto& sourcePart = WorkbookChartsheetPackageAccess::sourcePart(chartSheet);
             if (sourcePart.empty()) throw std::logic_error("Imported chartsheet is missing its source part");
 
             auto sheetPartXml = serializeChartsheetXml(
-                chartSheet, strict, WorkbookChartsheetPackageAccess::drawingRelationshipId(chartSheet), generatedPrinterRelationshipId);
+                chartSheet, strict, WorkbookChartsheetPackageAccess::drawingRelationshipId(chartSheet),
+                generatedPrinterRelationshipId,
+                WorkbookChartsheetPackageAccess::headerFooterDrawingRelationshipId(chartSheet));
 
-            if (WorkbookChartsheetPackageAccess::printerSettingsDirty(chartSheet)) {
+            if (WorkbookChartsheetPackageAccess::printerSettingsDirty(chartSheet)
+                || WorkbookChartsheetPackageAccess::headerFooterDrawingDirty(chartSheet)) {
                 suppressOldPrinterSettings();
                 std::ostringstream generatedRelationships;
                 generatedRelationships << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\""
@@ -266,15 +275,24 @@ void writeChartsheetPackageParts(
                                            << "\" Type=\"" << nsRelsDoc(strict) << "/printerSettings\" Target=\""
                                            << xmlEscape(generatedPrinterTarget) << "\"/>";
                 generatedRelationships << "</Relationships>";
+                // The header/footer VML relationship is preserved from the
+                // original rels (its relative target is already package-correct).
                 const auto merged = mergeRelationshipsXml(
                     generatedRelationships.str(), originalRelationships,
-                    [](const PreservedRelationship& relationship) { return relationshipKind(relationship) != "printerSettings"; },
+                    [](const PreservedRelationship& relationship) {
+                        return relationshipKind(relationship) != "printerSettings";
+                    },
                     strict, &sheetPartXml);
                 archive.add(RelationshipGraph::relationshipsPartForSource(sourcePart), merged);
                 if (generatePrinterSettings)
                     archive.add("xl/printerSettings/printerSettings" + std::to_string(generatedPrinterPartId) + ".bin",
                                 *WorkbookChartsheetPackageAccess::printerSettingsData(chartSheet), false);
             }
+            // Header/footer VML bytes are preserved as a package part; keep
+            // them explicit so a caller-supplied drawing is also emitted.
+            const auto& hfPart = WorkbookChartsheetPackageAccess::headerFooterDrawingPart(chartSheet);
+            if (!hfPart.empty() && WorkbookChartsheetPackageAccess::headerFooterDrawingData(chartSheet))
+                archive.add(hfPart, *WorkbookChartsheetPackageAccess::headerFooterDrawingData(chartSheet), false);
 
             archive.add(sourcePart, sheetPartXml);
             WorkbookChartsheetPackageAccess::sourceXml(chartSheet) = std::move(sheetPartXml);
@@ -300,7 +318,8 @@ void writeChartsheetPackageParts(
             if (WorkbookChartsheetPackageAccess::printerSettingsDirty(chartSheet)) suppressOldPrinterSettings();
         }
 
-        std::string sheetPartXml = serializeChartsheetXml(chartSheet, strict, "rId1", generatedPrinterRelationshipId);
+        std::string sheetPartXml = serializeChartsheetXml(chartSheet, strict, "rId1", generatedPrinterRelationshipId,
+                                                          WorkbookChartsheetPackageAccess::headerFooterDrawingRelationshipId(chartSheet));
         auto generatedRelationships = serializeChartsheetRelationshipsXml(drawingId, strict);
         if (generatePrinterSettings) {
             const auto close = generatedRelationships.rfind("</Relationships>");
@@ -317,6 +336,9 @@ void writeChartsheetPackageParts(
                 if (kind == "printerSettings" && WorkbookChartsheetPackageAccess::printerSettingsDirty(chartSheet)) return false;
                 return true;
             }, strict, &sheetPartXml);
+        const auto& hfPart = WorkbookChartsheetPackageAccess::headerFooterDrawingPart(chartSheet);
+        if (!hfPart.empty() && WorkbookChartsheetPackageAccess::headerFooterDrawingData(chartSheet))
+            archive.add(hfPart, *WorkbookChartsheetPackageAccess::headerFooterDrawingData(chartSheet), false);
 
         archive.add("xl/chartsheets/sheet" + std::to_string(partId) + ".xml", std::move(sheetPartXml));
         archive.add("xl/chartsheets/_rels/sheet" + std::to_string(partId) + ".xml.rels", mergedRelationships);

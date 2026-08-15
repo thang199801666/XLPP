@@ -182,6 +182,38 @@ public:
     HeaderFooter& headerFooter() noexcept { sheetDirty_ = true; headerFooterPresent_ = true; return headerFooter_; }
     const HeaderFooter& headerFooter() const noexcept { return headerFooter_; }
     bool hasHeaderFooter() const noexcept { return headerFooterPresent_; }
+
+    // Header/footer picture ownership. Chartsheet header/footer images are
+    // stored in a VML drawing part referenced by the top-level legacyDrawingHF
+    // relationship. XL++ keeps the relationship identity and the opaque VML
+    // payload so a metadata edit (page setup, header/footer text) never drops
+    // the picture part. The VML bytes are intentionally opaque; callers attach
+    // an Office-compatible VML payload without the core parsing it.
+    bool hasHeaderFooterDrawing() const noexcept { return !headerFooterDrawingPart_.empty(); }
+    const std::string& headerFooterDrawingPart() const noexcept { return headerFooterDrawingPart_; }
+    const std::string& headerFooterDrawingRelationshipId() const noexcept { return headerFooterDrawingRelationshipId_; }
+    const std::optional<std::string>& headerFooterDrawingData() const noexcept { return headerFooterDrawingData_; }
+    void setHeaderFooterDrawing(std::string part, std::string relationshipId, std::string vmlData) {
+        // The VML part must carry a .vml extension so [Content_Types].xml
+        // default rule resolves its content type. Imported parts already do;
+        // caller-supplied parts are normalized.
+        if (!part.empty() && part.size() < 4
+            || !part.empty() && part.substr(part.size() - 4) != ".vml") {
+            part += ".vml";
+        }
+        headerFooterDrawingPart_ = std::move(part);
+        headerFooterDrawingRelationshipId_ = std::move(relationshipId);
+        headerFooterDrawingData_ = std::move(vmlData);
+        headerFooterDrawingDirty_ = true;
+        sheetDirty_ = true;
+    }
+    void clearHeaderFooterDrawing() noexcept {
+        headerFooterDrawingPart_.clear();
+        headerFooterDrawingRelationshipId_.clear();
+        headerFooterDrawingData_.reset();
+        headerFooterDrawingDirty_ = true;
+        sheetDirty_ = true;
+    }
     std::vector<CustomChartsheetView>& customViews() noexcept { sheetDirty_ = true; customViewsDirty_ = true; return customViews_; }
     const std::vector<CustomChartsheetView>& customViews() const noexcept { return customViews_; }
     bool hasCustomViews() const noexcept { return !customViews_.empty() || !customViewsRawXml_.empty(); }
@@ -211,7 +243,7 @@ private:
         printerSettingsData_ = std::move(data);
         printerSettingsDirty_ = false;
     }
-    void clearDirty() const noexcept { chartDirty_ = false; sheetDirty_ = false; printerSettingsDirty_ = false; }
+    void clearDirty() const noexcept { chartDirty_ = false; sheetDirty_ = false; printerSettingsDirty_ = false; headerFooterDrawingDirty_ = false; }
 
     std::string name_;
     std::optional<Chart> chart_;
@@ -229,10 +261,14 @@ private:
     std::optional<std::string> printerSettingsData_;
     std::string printerSettingsSourcePart_;
     std::string printerSettingsRelationshipId_;
+    std::string headerFooterDrawingPart_;
+    std::string headerFooterDrawingRelationshipId_;
+    std::optional<std::string> headerFooterDrawingData_;
     bool pageMarginsPresent_{false};
     bool pageSetupPresent_{false};
     bool headerFooterPresent_{false};
     bool customViewsDirty_{true};
+    mutable bool headerFooterDrawingDirty_{false};
     bool imported_{false};
     mutable bool chartDirty_{true};
     mutable bool sheetDirty_{true};

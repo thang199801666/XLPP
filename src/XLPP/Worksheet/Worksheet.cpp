@@ -1,5 +1,5 @@
 #include <XLPP/Worksheet/Worksheet.h>
-#include "WorksheetName.h"
+#include "../Internal/WorksheetName.h"
 #include <algorithm>
 #include <array>
 #include <cmath>

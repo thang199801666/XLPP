@@ -10,7 +10,8 @@ namespace xlpp::internal {
 
 std::string serializeChartsheetXml(const Chartsheet& sheet, bool strict,
                                    std::string_view drawingRelationshipId = "rId1",
-                                   std::string_view printerSettingsRelationshipId = {});
+                                   std::string_view printerSettingsRelationshipId = {},
+                                   std::string_view legacyDrawingHFRelationshipId = {});
 std::string serializeChartsheetRelationshipsXml(std::size_t drawingId, bool strict);
 std::string serializeChartsheetDrawingXml(bool strict);
 std::string serializeChartsheetDrawingRelationshipsXml(std::size_t chartId, bool strict);

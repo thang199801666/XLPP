@@ -381,6 +381,18 @@ public:
                                              std::size_t recordIndex,
                                              std::size_t fieldIndex,
                                              const PivotCacheRecordValuePatch& patch);
+    // OLAP pivot metadata. OLAP caches bind to cube/data-connection sources
+    // rather than a worksheet range; XL++ inspects the olapInfo/cacheSource
+    // identity and patches selected attributes in-place without regenerating
+    // the physical cache or truncating unmodeled olapInfo/calculatedMember XML.
+    bool updateImportedPivotOlapSource(const std::string& worksheetName,
+                                       const std::string& pivotTableName,
+                                       const PivotOlapSourcePatch& patch);
+    // Patch one <calculatedMember> in an imported OLAP pivotCacheDefinition.
+    bool updateImportedPivotCalculatedMember(const std::string& worksheetName,
+                                             const std::string& pivotTableName,
+                                             std::size_t memberIndex,
+                                             const PivotCalculatedMemberPatch& patch);
     // Validate DrawingML PivotChart sources against loaded PivotTable ownership
     // and PivotTable chartFormat/chartFormats metadata. This is read-only.
     PivotChartLinkValidationReport validatePivotChartLinks() const;

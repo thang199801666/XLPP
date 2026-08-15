@@ -91,7 +91,7 @@
     <ClInclude Include="Packaging\ZipArchive.h" />
     <ClInclude Include="Formula\ReferenceTransformer.h" />
     <ClInclude Include="Pivot\PivotStructuralEdit.h" />
-    <ClInclude Include="Worksheet\WorksheetName.h" />
+    <ClInclude Include="Internal\WorksheetName.h" />
     <ClInclude Include="Packaging\RelationshipGraph.h" />
     <ClInclude Include="Workbook\WorkbookPackageReader.h" />
     <ClInclude Include="Workbook\WorkbookChartsheetIO.h" />

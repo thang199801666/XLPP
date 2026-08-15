@@ -10,7 +10,7 @@
 #include "../Threading/ThreadPool.h"
 #include "../Vba/VbaProjectBinary.h"
 #include "../Encryption/OfficeCrypto.h"
-#include "../Worksheet/WorksheetName.h"
+#include "../Internal/WorksheetName.h"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -1994,11 +1994,44 @@ std::string pivotCacheXml(const xlpp::PivotTable& pt, bool strict) {
         }
     }
     sourceRef.erase(std::remove(sourceRef.begin(), sourceRef.end(), '$'), sourceRef.end());
-    xml << "<cacheSource type=\"worksheet\"><worksheetSource";
-    if (!cache.sourceName().empty()) xml << " name=\"" << xmlEscape(cache.sourceName()) << "\"";
-    else xml << " ref=\"" << xmlEscape(sourceRef) << "\"";
-    if (!sourceSheet.empty()) xml << " sheet=\"" << xmlEscape(sourceSheet) << "\"";
-    xml << "/></cacheSource><cacheFields count=\"" << fieldCount << "\">";
+    const auto* olap = cache.olap();
+    if (olap && olap->present()) {
+        // OLAP pivot: emit the olap cacheSource plus any calculatedMember nodes.
+        // When a raw olapInfo subtree was loaded, reuse it so unmodeled children
+        // (kpi, hierarchy metadata) stay byte-preserved.
+        xml << "<cacheSource type=\"olap\"";
+        if (olap->connectionId >= 0) xml << " connectionId=\"" << olap->connectionId << "\"";
+        xml << ">";
+        if (!olap->rawOlapInfoXml.empty()) {
+            xml << olap->rawOlapInfoXml;
+        } else {
+            xml << "<olapInfo preserveFormatting=\"" << (olap->preserveFormatting ? 1 : 0) << "\"";
+            if (!olap->localCube.empty()) xml << " localCube=\"" << xmlEscape(olap->localCube) << "\"";
+            if (!olap->localConnection.empty()) xml << " localConnection=\"" << xmlEscape(olap->localConnection) << "\"";
+            xml << "/>";
+        }
+        xml << "</cacheSource>";
+        for (const auto& member : cache.calculatedMembers()) {
+            if (!member.rawXml.empty()) {
+                xml << member.rawXml;
+            } else {
+                xml << "<calculatedMember name=\"" << xmlEscape(member.name)
+                    << "\" mdx=\"" << xmlEscape(member.mdx) << "\"";
+                if (!member.memberName.empty()) xml << " memberName=\"" << xmlEscape(member.memberName) << "\"";
+                if (member.hierarchy >= 0) xml << " hierarchy=\"" << member.hierarchy << "\"";
+                if (!member.solveOrder.empty()) xml << " solveOrder=\"" << xmlEscape(member.solveOrder) << "\"";
+                if (!member.set.empty()) xml << " set=\"" << xmlEscape(member.set) << "\"";
+                xml << "/>";
+            }
+        }
+        xml << "<cacheFields count=\"" << fieldCount << "\">";
+    } else {
+        xml << "<cacheSource type=\"worksheet\"><worksheetSource";
+        if (!cache.sourceName().empty()) xml << " name=\"" << xmlEscape(cache.sourceName()) << "\"";
+        else xml << " ref=\"" << xmlEscape(sourceRef) << "\"";
+        if (!sourceSheet.empty()) xml << " sheet=\"" << xmlEscape(sourceSheet) << "\"";
+        xml << "/></cacheSource><cacheFields count=\"" << fieldCount << "\">";
+    }
 
     for (std::size_t i = 0; i < fieldCount; ++i) {
         const auto& items = sharedItems[i];
@@ -2078,9 +2111,23 @@ std::string pivotCacheXml(const xlpp::PivotTable& pt, bool strict) {
                     if (!group->endDate.empty()) xml << " endDate=\"" << xmlEscape(group->endDate) << "\"";
                     xml << "/>";
                 }
-                if (!group->items.empty()) {
-                    xml << "<groupItems count=\"" << group->items.size() << "\">";
-                    for (const auto& item : group->items) xml << "<s v=\"" << xmlEscape(item) << "\"/>";
+                const auto itemCount = group->typedItems.empty() ? group->items.size() : group->typedItems.size();
+                if (itemCount != 0) {
+                    xml << "<groupItems count=\"" << itemCount << "\">";
+                    if (group->typedItems.empty()) {
+                        for (const auto& item : group->items) xml << "<s v=\"" << xmlEscape(item) << "\"/>";
+                    } else {
+                        for (const auto& item : group->typedItems) {
+                            switch (item.kind) {
+                                case xlpp::PivotCacheValueKind::Number: xml << "<n v=\"" << xmlEscape(item.value) << "\"/>"; break;
+                                case xlpp::PivotCacheValueKind::DateTime: xml << "<d v=\"" << xmlEscape(item.value) << "\"/>"; break;
+                                case xlpp::PivotCacheValueKind::Boolean: xml << "<b v=\"" << (item.value == "1" ? "1" : "0") << "\"/>"; break;
+                                case xlpp::PivotCacheValueKind::Error: xml << "<e v=\"" << xmlEscape(item.value) << "\"/>"; break;
+                                case xlpp::PivotCacheValueKind::Missing: xml << "<m/>"; break;
+                                case xlpp::PivotCacheValueKind::String: default: xml << "<s v=\"" << xmlEscape(item.value) << "\"/>"; break;
+                            }
+                        }
+                    }
                     xml << "</groupItems>";
                 }
                 xml << "</fieldGroup>";
@@ -7669,6 +7716,38 @@ xlpp::PivotCache loadPivotCache(const xlpp::internal::ZipArchive& z,
         if (!ref.empty()) cache.setSourceData(sheet.empty() ? ref : quotePivotSheetName(sheet) + "!" + ref);
     }
 
+    // OLAP pivot caches bind to a cube/data connection instead of a worksheet
+    // range. Keep the source identity and olapInfo metadata plus any
+    // calculatedMember nodes lossless so a selective patch never truncates MDX.
+    const auto cacheSources = xlpp::internal::tags(root, "cacheSource");
+    if (!cacheSources.empty()) {
+        const auto sourceType = xlpp::internal::attribute(cacheSources.front(), "type");
+        if (sourceType == "olap") {
+            xlpp::PivotOlapSourceInfo olap;
+            olap.sourceType = sourceType;
+            olap.connectionId = pivotIntAttribute(cacheSources.front(), "connectionId", -1);
+            const auto olapInfos = xlpp::internal::tags(cacheSources.front(), "olapInfo");
+            if (!olapInfos.empty()) {
+                olap.preserveFormatting = pivotBoolAttribute(olapInfos.front(), "preserveFormatting", true);
+                olap.localCube = xlpp::internal::attribute(olapInfos.front(), "localCube");
+                olap.localConnection = xlpp::internal::attribute(olapInfos.front(), "localConnection");
+                olap.rawOlapInfoXml = olapInfos.front();
+            }
+            for (const auto& memberNode : xlpp::internal::tags(root, "calculatedMember")) {
+                xlpp::PivotCalculatedMember member;
+                member.name = xlpp::internal::attribute(memberNode, "name");
+                member.mdx = xlpp::internal::attribute(memberNode, "mdx");
+                member.memberName = xlpp::internal::attribute(memberNode, "memberName");
+                member.hierarchy = pivotIntAttribute(memberNode, "hierarchy", -1);
+                member.solveOrder = xlpp::internal::attribute(memberNode, "solveOrder");
+                member.set = xlpp::internal::attribute(memberNode, "set");
+                member.rawXml = memberNode;
+                cache.calculatedMembers().push_back(std::move(member));
+            }
+            cache.setOlap(std::move(olap));
+        }
+    }
+
     std::vector<std::vector<std::string>> sharedItems;
     std::vector<std::vector<xlpp::PivotCacheValueKind>> sharedItemKinds;
     for (const auto& fieldNode : xlpp::internal::tags(root, "cacheField")) {
@@ -7713,7 +7792,15 @@ xlpp::PivotCache loadPivotCache(const xlpp::internal::ZipArchive& z,
             }
             const auto groupItems = xlpp::internal::tags(groupNode, "groupItems");
             if (!groupItems.empty()) {
-                for (const auto& value : pivotValueNodes(groupItems.front())) group.items.push_back(value.value);
+                for (const auto& value : pivotValueNodes(groupItems.front())) {
+                    const auto kind = value.type == "n" ? xlpp::PivotCacheValueKind::Number
+                        : value.type == "d" ? xlpp::PivotCacheValueKind::DateTime
+                        : value.type == "b" ? xlpp::PivotCacheValueKind::Boolean
+                        : value.type == "e" ? xlpp::PivotCacheValueKind::Error
+                        : value.type == "m" ? xlpp::PivotCacheValueKind::Missing
+                        : xlpp::PivotCacheValueKind::String;
+                    group.addTypedGroupItem(kind, value.value);
+                }
             }
             cache.setFieldGroup(fieldIndex, std::move(group));
         }
@@ -9334,6 +9421,25 @@ for(const auto& s : sheetNodes) {
                     z, target, printerRelationship, "chartsheet printerSettings");
                 chartSheet.setImportedPrinterSettings(
                     printerTarget, *chartSheet.pageSetup().relationshipId(), z.get(printerTarget));
+            }
+
+            // Header/footer picture ownership: the chartsheet top-level
+            // legacyDrawingHF relationship points at a VML drawing part that
+            // hosts header/footer images. Preserve the identity and bytes so a
+            // metadata edit never drops the picture part.
+            const auto headerFooterXml = internal::tags(chartSheetXml, "legacyDrawingHF");
+            if (!headerFooterXml.empty()) {
+                const auto hfRelationshipId = internal::attribute(headerFooterXml.front(), "r:id");
+                if (!hfRelationshipId.empty()) {
+                    const auto hfIt = chartSheetRelationships.find(hfRelationshipId);
+                    if (hfIt != chartSheetRelationships.end()
+                        && internal::relationshipTypeEndsWith(hfIt->second.type, "/vmlDrawing")) {
+                        const auto hfTarget = internal::requireInternalPackageTarget(
+                            z, target, hfIt->second, "chartsheet header/footer VML");
+                        chartSheet.setHeaderFooterDrawing(
+                            hfTarget, hfRelationshipId, z.get(hfTarget));
+                    }
+                }
             }
 
             Worksheet chartLoader("XLPP_Chartsheet_Loader");

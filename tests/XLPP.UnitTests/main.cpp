@@ -9012,6 +9012,166 @@ void testPivotImportedReaderAndEditorP1A(TestContext& test) {
     std::filesystem::remove(output);
 }
 
+void testPivotOlapCalculatedMembersP1Y(TestContext& test) {
+    // P1Y-A OLAP pivot metadata: model cacheSource type="olap", olapInfo and
+    // calculatedMember nodes, generate them, round-trip them and patch them
+    // in-place without regenerating the physical cache.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_p1y_olap_source.xlsx";
+    const auto edited = std::filesystem::temp_directory_path() / "xlpp_p1y_olap_edited.xlsx";
+
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    sheet.cell("A1").setValue("Placeholder");
+
+    xlpp::PivotCache cache;
+    cache.setCacheId(1);
+    cache.setFields({"Measure"});
+    cache.setTypedRecords({{"10"}}, {{xlpp::PivotCacheValueKind::Number}});
+    xlpp::PivotOlapSourceInfo olap;
+    olap.sourceType = "olap";
+    olap.preserveFormatting = true;
+    olap.connectionId = 1;
+    cache.setOlap(std::move(olap));
+    xlpp::PivotCalculatedMember member;
+    member.name = "Profit";
+    member.mdx = "[Measures].[Sales]-[Measures].[Cost]";
+    member.hierarchy = 0;
+    cache.calculatedMembers().push_back(member);
+
+    xlpp::PivotTable pivot("OlapPivot");
+    pivot.setLocation("C2");
+    pivot.cache() = cache;
+    pivot.addDataField(0);
+    sheet.addPivotTable(std::move(pivot));
+    workbook.save(source);
+
+    xlpp::Workbook loaded;
+    loaded.load(source);
+    auto* loadedSheet = loaded.worksheet("Data");
+    test.checkTrue(loadedSheet != nullptr && loadedSheet->pivotTables().size() == 1, "P1Y OLAP pivot reloads");
+    auto& loadedPivot = loadedSheet->pivotTables().front();
+    const auto* loadedOlap = static_cast<const xlpp::PivotCache&>(loadedPivot.cache()).olap();
+    test.checkTrue(loadedOlap != nullptr, "P1Y OLAP cache source identity is read");
+    test.checkEqual(loadedOlap->sourceType, std::string("olap"), "P1Y cacheSource type is read");
+    test.checkTrue(loadedOlap->preserveFormatting, "P1Y olapInfo preserveFormatting is read");
+    test.checkEqual(loadedPivot.cache().calculatedMembers().size(), std::size_t{1}, "P1Y calculated member is read");
+    test.checkEqual(loadedPivot.cache().calculatedMembers()[0].name, std::string("Profit"), "P1Y calculated member name is read");
+    test.checkEqual(loadedPivot.cache().calculatedMembers()[0].mdx,
+                    std::string("[Measures].[Sales]-[Measures].[Cost]"), "P1Y calculated member MDX is read");
+
+    // Selective patch: change preserveFormatting and the member MDX.
+    xlpp::PivotOlapSourcePatch olapPatch;
+    olapPatch.preserveFormatting = false;
+    olapPatch.connectionId = 2;
+    test.checkTrue(loaded.updateImportedPivotOlapSource("Data", "OlapPivot", olapPatch),
+                   "P1Y OLAP cache source patch succeeds");
+    xlpp::PivotCalculatedMemberPatch memberPatch;
+    memberPatch.mdx = "[Measures].[Gross]-[Measures].[Cost]";
+    memberPatch.memberName = "ProfitMember";
+    test.checkTrue(loaded.updateImportedPivotCalculatedMember("Data", "OlapPivot", 0, memberPatch),
+                   "P1Y calculated member patch succeeds");
+    loaded.save(edited);
+
+    xlpp::Workbook round; round.load(edited);
+    auto* roundSheet = round.worksheet("Data");
+    test.checkTrue(roundSheet != nullptr && roundSheet->pivotTables().size() == 1, "P1Y patched OLAP pivot reloads");
+    auto& roundPivot = roundSheet->pivotTables().front();
+    const auto* roundOlap = static_cast<const xlpp::PivotCache&>(roundPivot.cache()).olap();
+    test.checkTrue(roundOlap != nullptr, "P1Y OLAP cache identity survives edit");
+    test.checkTrue(!roundOlap->preserveFormatting, "P1Y olapInfo preserveFormatting patch round-trips");
+    test.checkEqual(roundOlap->connectionId, 2, "P1Y OLAP connectionId patch round-trips");
+    test.checkEqual(roundPivot.cache().calculatedMembers().size(), std::size_t{1}, "P1Y calculated member survives patch");
+    test.checkEqual(roundPivot.cache().calculatedMembers()[0].mdx,
+                    std::string("[Measures].[Gross]-[Measures].[Cost]"), "P1Y calculated member MDX patch round-trips");
+    test.checkEqual(roundPivot.cache().calculatedMembers()[0].memberName,
+                    std::string("ProfitMember"), "P1Y calculated member memberName patch round-trips");
+    test.checkTrue(roundOlap->rawOlapInfoXml.find("preserveFormatting=\"0\"") != std::string::npos
+                   || roundPivot.cache().calculatedMembers().front().rawXml.find("[Measures].[Gross]") != std::string::npos,
+                   "P1Y patched OLAP metadata persists in package bytes");
+
+    // Verify the patched bytes actually reached the saved package.
+    const auto archive = xlpp::internal::ZipArchive::open(edited);
+    std::string cacheXml;
+    for (int i = 1; i <= 8 && cacheXml.empty(); ++i) {
+        const auto candidate = "xl/pivotCache/pivotCacheDefinition" + std::to_string(i) + ".xml";
+        if (archive.contains(candidate)) cacheXml = archive.get(candidate);
+    }
+    test.checkTrue(cacheXml.find("preserveFormatting=\"0\"") != std::string::npos,
+                   "P1Y preserveFormatting=0 is written to the saved pivotCacheDefinition");
+    test.checkTrue(cacheXml.find("connectionId=\"2\"") != std::string::npos,
+                   "P1Y connectionId=2 is written to the saved pivotCacheDefinition");
+    test.checkTrue(cacheXml.find("preserveFormatting") != std::string::npos,
+                   "P1Y pivotCacheDefinition contains an olapInfo block");
+    test.checkTrue(cacheXml.find("[Measures].[Gross]") != std::string::npos,
+                   "P1Y patched calculated member MDX is written to the saved pivotCacheDefinition");
+
+    std::filesystem::remove(source); std::filesystem::remove(edited);
+}
+
+void testPivotTypedGroupItemsP1Y(TestContext& test) {
+    // P1Y-A preserves the physical kind of Pivot groupItems (<n>/<d>/<s>/<m>)
+    // instead of flattening every date/number bin to a plain string label.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_p1y_group_items.xlsx";
+
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    xlpp::PivotTable pivot("Bins");
+    pivot.setLocation("D2");
+    pivot.cache().setSourceData("'Data'!$A$1:$B$5");
+    pivot.cache().setFields({"OrderDate", "Amount"});
+    pivot.cache().addRecord({"2026-01-15T00:00:00", "10"});
+    pivot.cache().addRecord({"2026-02-20T00:00:00", "20"});
+    pivot.addRowField("OrderDate");
+    pivot.addDataField("Amount", "sum");
+
+    // A date-grouped field whose groupItems mix date (<d>) and number (<n>)
+    // bins plus a missing (<m>) sentinel.
+    auto& group = pivot.cache().fieldGroup(0);
+    group.groupBy = "days";
+    group.autoStart = false;
+    group.autoEnd = false;
+    group.startDate = "2026-01-01T00:00:00";
+    group.endDate = "2026-12-31T23:59:59";
+    group.addTypedGroupItem(xlpp::PivotCacheValueKind::DateTime, "2026-01-01T00:00:00");
+    group.addTypedGroupItem(xlpp::PivotCacheValueKind::DateTime, "2026-01-02T00:00:00");
+    group.addTypedGroupItem(xlpp::PivotCacheValueKind::Number, "3");
+    group.addTypedGroupItem(xlpp::PivotCacheValueKind::Missing, "");
+    sheet.addPivotTable(std::move(pivot));
+    workbook.save(source);
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto cachePart = archive.contains("xl/pivotCache/pivotCacheDefinition2.xml")
+        ? std::string("xl/pivotCache/pivotCacheDefinition2.xml") : std::string("xl/pivotCache/pivotCacheDefinition1.xml");
+    const auto cacheXml = archive.get(cachePart);
+    test.checkTrue(cacheXml.find("<d v=\"2026-01-01T00:00:00\"/>") != std::string::npos,
+                   "P1Y date group bin is serialized as a <d> element");
+    test.checkTrue(cacheXml.find("<n v=\"3\"/>") != std::string::npos,
+                   "P1Y numeric group bin is serialized as an <n> element");
+    test.checkTrue(cacheXml.find("<m/>") != std::string::npos,
+                   "P1Y missing group bin is serialized as an <m> element");
+
+    xlpp::Workbook round; round.load(source);
+    auto* roundSheet = round.worksheet("Data");
+    test.checkTrue(roundSheet != nullptr && roundSheet->pivotTables().size() == 1, "P1Y grouped pivot reloads");
+    const auto* loadedGroup = static_cast<const xlpp::PivotCache&>(roundSheet->pivotTables().front().cache()).tryFieldGroup(0);
+    test.checkTrue(loadedGroup != nullptr, "P1Y fieldGroup survives reload");
+    test.checkEqual(loadedGroup->typedItems.size(), std::size_t{4}, "P1Y typed group items are read back");
+    test.checkTrue(loadedGroup->typedGroupItem(0) != nullptr
+                   && loadedGroup->typedGroupItem(0)->kind == xlpp::PivotCacheValueKind::DateTime
+                   && loadedGroup->typedGroupItem(0)->value == "2026-01-01T00:00:00",
+                   "P1Y first date bin kind/value is preserved");
+    test.checkTrue(loadedGroup->typedGroupItem(2) != nullptr
+                   && loadedGroup->typedGroupItem(2)->kind == xlpp::PivotCacheValueKind::Number
+                   && loadedGroup->typedGroupItem(2)->value == "3",
+                   "P1Y numeric bin kind/value is preserved");
+    test.checkTrue(loadedGroup->typedGroupItem(3) != nullptr
+                   && loadedGroup->typedGroupItem(3)->kind == xlpp::PivotCacheValueKind::Missing,
+                   "P1Y missing bin kind is preserved");
+    test.checkEqual(loadedGroup->items.size(), std::size_t{4}, "P1Y legacy text view stays in sync with typed items");
+
+    std::filesystem::remove(source);
+}
+
 void testVbaClassDocumentAndProjectMetadataP1A(TestContext& test) {
     const auto first = std::filesystem::temp_directory_path() / "xlpp_p1a_vba_modules.xlsm";
     const auto second = std::filesystem::temp_directory_path() / "xlpp_p1a_vba_modules_sheet_add.xlsm";
@@ -10210,6 +10370,112 @@ std::vector<unsigned char> makeP1FButtonOrLabelObject(bool label) {
     return out;
 }
 
+// P1Y-A: builds a MS-OFORMS control object stream for the extended control
+// families (TextBox, CheckBox, OptionButton, ToggleButton, ComboBox, ListBox,
+// SpinButton, ScrollBar) with a representative PropMask and DataBlock. The
+// layout follows MS-OFORMS 2.x object-stream rules: a common 4-byte header,
+// a 32-bit (or 64-bit for list families) PropMask, fixed-size DataBlock, then
+// string payloads in ascending flag-bit order, then an 8-byte Size pair and an
+// opaque StreamData/TextProps tail.
+std::vector<unsigned char> makeP1YUserFormControlObject(xlpp::VbaUserFormControlKind kind) {
+    std::vector<unsigned char> out;
+    auto pushU16 = [&](std::uint16_t v) { out.push_back(static_cast<unsigned char>(v)); out.push_back(static_cast<unsigned char>(v >> 8)); };
+    auto pushU32 = [&](std::uint32_t v) { out.push_back(static_cast<unsigned char>(v)); out.push_back(static_cast<unsigned char>(v >> 8)); out.push_back(static_cast<unsigned char>(v >> 16)); out.push_back(static_cast<unsigned char>(v >> 24)); };
+    auto putU16 = [&](std::size_t pos, std::uint16_t v) { out[pos] = static_cast<unsigned char>(v); out[pos + 1] = static_cast<unsigned char>(v >> 8); };
+    out.push_back(0); out.push_back(2);
+    const auto cbPos = out.size(); pushU16(0); // cbControl patched below
+    const auto maskPos = out.size();
+    const bool listFamily = kind == xlpp::VbaUserFormControlKind::ComboBox || kind == xlpp::VbaUserFormControlKind::ListBox;
+    std::uint32_t mask = 0;
+    const auto setBit = [&](unsigned b) { if (b < 32) mask |= (1u << b); };
+    // Common flags: ForeColor(0), BackColor(1), VariousPropertyBits(2), Caption(3), MousePointer(6).
+    setBit(0); setBit(1); setBit(2); setBit(3); setBit(6);
+    std::uint32_t maskHigh = 0;
+    const auto dataStart = out.size() + (listFamily ? 8 : 4);
+    auto align = [&](std::size_t n) { while (((out.size() - dataStart) % n) != 0) out.push_back(0); };
+
+    if (kind == xlpp::VbaUserFormControlKind::TextBox) {
+        // Size = bit 30; SpecialEffect = bit 5; ScrollBars = bit 10;
+        // MaxLength = bit 15; Text = bit 17; PasswordChar = bit 22;
+        // MultiLine = bit 25.
+        setBit(5); setBit(10); setBit(15); setBit(17); setBit(22); setBit(25); setBit(30);
+        pushU32(mask); if (listFamily) pushU32(maskHigh);
+        align(4); pushU32(0x8000000Au); // ForeColor
+        align(4); pushU32(0x8000000Fu); // BackColor
+        align(4); pushU32(0x00000021u); // VariousPropertyBits
+        align(4); pushU32(0x80000000u | 4u); // Caption count
+        align(2); pushU16(2);            // SpecialEffect (bit 5)
+        align(1); out.push_back(1);      // MousePointer (bit 6)
+        align(2); pushU16(1);            // ScrollBars
+        align(4); pushU32(100u);         // MaxLength
+        align(4); pushU32(0x80000000u | 3u); // Text count
+        align(2); pushU16(42u);          // PasswordChar ('*')
+        align(2); pushU16(1);            // MultiLine
+        align(4); out.insert(out.end(), {'M','a','i','n'}); // Caption payload
+        align(4); out.insert(out.end(), {'A','B','C'});     // Text payload
+    } else if (kind == xlpp::VbaUserFormControlKind::CheckBox ||
+               kind == xlpp::VbaUserFormControlKind::OptionButton ||
+               kind == xlpp::VbaUserFormControlKind::ToggleButton) {
+        // SpecialEffect = bit 5; GroupName = bit 10; Value = bit 13;
+        // GroupNumber = bit 14; TripleState = bit 15; Size = bit 16.
+        setBit(5); setBit(10); setBit(13); setBit(14); setBit(15); setBit(16);
+        pushU32(mask); if (listFamily) pushU32(maskHigh);
+        align(4); pushU32(0x8000000Au);
+        align(4); pushU32(0x8000000Fu);
+        align(4); pushU32(0x0000000Bu);
+        align(4); pushU32(0x80000000u | 6u); // Caption count ("Option")
+        align(2); pushU16(2);                 // SpecialEffect (bit 5)
+        align(1); out.push_back(2);           // MousePointer (bit 6)
+        align(4); pushU32(0x80000000u | 8u);  // GroupName count ("GroupOne")
+        align(4); pushU32(0x80000000u | 4u);  // Value count ("True")
+        align(2); pushU16(3);                 // GroupNumber
+        align(2); pushU16(1);                 // TripleState
+        align(4); out.insert(out.end(), {'O','p','t','i','o','n'});
+        align(4); out.insert(out.end(), {'G','r','o','u','p','O','n','e'});
+        align(4); out.insert(out.end(), {'T','r','u','e'});
+    } else if (kind == xlpp::VbaUserFormControlKind::SpinButton ||
+               kind == xlpp::VbaUserFormControlKind::ScrollBar) {
+        // Value/Min/Max/SmallChange/LargeChange = bits 3-7, Orientation = 8,
+        // Size = bit 11.
+        setBit(3); setBit(4); setBit(5); setBit(6); setBit(7); setBit(8); setBit(11);
+        pushU32(mask); if (listFamily) pushU32(maskHigh);
+        align(4); pushU32(0x8000000Au);
+        align(4); pushU32(0x8000000Fu);
+        align(4); pushU32(0x00000003u);
+        align(4); pushU32(0);          // Value (i4)
+        align(4); pushU32(0);          // Min
+        align(4); pushU32(100u);       // Max
+        align(4); pushU32(1u);         // SmallChange
+        align(4); pushU32(10u);        // LargeChange
+        align(1); out.push_back(0);    // Orientation vertical
+    } else if (kind == xlpp::VbaUserFormControlKind::ComboBox ||
+               kind == xlpp::VbaUserFormControlKind::ListBox) {
+        // 64-bit mask: common flags + list-specific flags. ListRows = bit 15,
+        // ColumnCount = bit 19, ColumnWidths = bit 20, Size = bit 31.
+        setBit(15); setBit(19); setBit(20); setBit(31);
+        pushU32(mask); pushU32(maskHigh);
+        align(4); pushU32(0x8000000Au);
+        align(4); pushU32(0x8000000Fu);
+        align(4); pushU32(0x00000011u);
+        align(4); pushU32(0x80000000u | 5u); // Caption count
+        align(1); out.push_back(3);          // MousePointer
+        align(4); pushU32(4u);               // ListRows
+        align(4); pushU32(2u);               // ColumnCount
+        align(4); pushU32(0x80000000u | 9u); // ColumnWidths count ("75pt;90pt" = 9)
+        align(4); out.insert(out.end(), {'I','t','e','m','s'});
+        align(4); out.insert(out.end(), {'7','5','p','t',';','9','0','p','t'});
+    } else {
+        return {};
+    }
+
+    // Size pair (Width, Height) then opaque tail. cbControl covers everything
+    // up to (but excluding) the StreamData/TextProps tail, matching P1F.
+    align(4); pushU32(1600u); pushU32(400u);
+    putU16(cbPos, static_cast<std::uint16_t>(out.size() - 4));
+    out.insert(out.end(), {0xFA, 0xFB, 0xFC, 0xFD});
+    return out;
+}
+
 void testPivotSelectiveItemAndFilterMutationP1E(TestContext& test) {
     const auto source = std::filesystem::temp_directory_path() / "xlpp_p1e_pivot_source.xlsx";
     const auto edited = std::filesystem::temp_directory_path() / "xlpp_p1e_pivot_edited.xlsx";
@@ -10559,6 +10825,138 @@ void testVbaUserFormControlObjectsP1F(TestContext& test) {
     test.checkEqual(labelAfter.properties.width.value_or(0), std::int32_t{2600}, "Label Width edit round-trips");
     test.checkEqual(labelAfter.properties.borderStyle.value_or(99), std::uint16_t{0}, "Label BorderStyle edit round-trips");
     test.checkTrue(round.validateVbaDesignerProject().ok(), "P1F semantic control edits preserve Designer ownership/structure");
+    std::filesystem::remove(source); std::filesystem::remove(edited);
+}
+
+
+void testVbaUserFormExtendedControlsP1Y(TestContext& test) {
+    // P1Y-A extends semantic UserForm control-object decoding beyond
+    // CommandButton/Label to the other built-in MS-OFORMS families.
+    struct KindCase {
+        xlpp::VbaUserFormControlKind kind;
+        std::uint16_t clsid;
+        const char* name;
+    };
+    const KindCase cases[] = {
+        {xlpp::VbaUserFormControlKind::TextBox, 23, "TextBoxForm"},
+        {xlpp::VbaUserFormControlKind::CheckBox, 26, "CheckBoxForm"},
+        {xlpp::VbaUserFormControlKind::OptionButton, 27, "OptionButtonForm"},
+        {xlpp::VbaUserFormControlKind::ToggleButton, 28, "ToggleButtonForm"},
+        {xlpp::VbaUserFormControlKind::ComboBox, 25, "ComboBoxForm"},
+        {xlpp::VbaUserFormControlKind::ListBox, 24, "ListBoxForm"},
+        {xlpp::VbaUserFormControlKind::SpinButton, 16, "SpinButtonForm"},
+        {xlpp::VbaUserFormControlKind::ScrollBar, 47, "ScrollBarForm"},
+    };
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_p1y_controls_source.xlsm";
+    const auto edited = std::filesystem::temp_directory_path() / "xlpp_p1y_controls_edited.xlsm";
+
+    xlpp::Workbook workbook;
+    workbook.addWorksheet("Data").setVbaCodeName("DataSheet");
+    for (const auto& c : cases) {
+        const auto object = makeP1YUserFormControlObject(c.kind);
+        test.checkTrue(!object.empty(), std::string("P1Y object stream built for ") + c.name);
+        xlpp::VbaDesignerStorage storage;
+        storage.name = c.name;
+        storage.streams.push_back({"f", makeP1EUserFormControlStream(static_cast<std::uint32_t>(object.size()), c.clsid)});
+        storage.streams.push_back({"o", object});
+        workbook.setVbaDesignerModule(c.name, "Option Explicit\n", storage);
+    }
+    workbook.save(source);
+
+    xlpp::Workbook loaded; loaded.load(source);
+    for (const auto& c : cases) {
+        auto site = loaded.inspectVbaUserFormControls(c.name);
+        test.checkTrue(site.valid && site.controls.size() == 1 && site.controls.front().kind == c.kind,
+                       std::string("P1Y ClsidCacheIndex classifies ") + c.name);
+        auto obj = loaded.inspectVbaUserFormControlObject(c.name, 0);
+        test.checkTrue(obj.valid, std::string("P1Y object stream decoded for ") + c.name);
+        test.checkTrue(obj.properties.semanticPropertiesSupported,
+                       std::string("P1Y semantic properties enabled for ") + c.name);
+        test.checkEqual(obj.properties.foreColor.value_or(0), std::uint32_t{0x8000000Au},
+                        std::string("P1Y ForeColor decodes for ") + c.name);
+        test.checkEqual(obj.properties.width.value_or(0), std::int32_t{1600},
+                        std::string("P1Y Width decodes for ") + c.name);
+        test.checkEqual(obj.properties.height.value_or(0), std::int32_t{400},
+                        std::string("P1Y Height decodes for ") + c.name);
+        test.checkEqual(obj.trailingBytes, std::size_t{4},
+                        std::string("P1Y opaque tail preserved for ") + c.name);
+    }
+
+    // Class-specific fields.
+    {
+        auto text = loaded.inspectVbaUserFormControlObject("TextBoxForm", 0);
+        test.checkEqual(text.properties.caption.value_or(""), std::string("Main"), "P1Y TextBox Caption decodes");
+        test.checkEqual(text.properties.text.value_or(""), std::string("ABC"), "P1Y TextBox Text decodes");
+        test.checkEqual(text.properties.scrollBars.value_or(0), std::uint16_t{1}, "P1Y TextBox ScrollBars decodes");
+        test.checkEqual(text.properties.maxLength.value_or(0), std::uint32_t{100}, "P1Y TextBox MaxLength decodes");
+        test.checkEqual(text.properties.passwordChar.value_or(0), std::uint16_t{42}, "P1Y TextBox PasswordChar decodes");
+        test.checkEqual(text.properties.multiLine.value_or(0), std::uint16_t{1}, "P1Y TextBox MultiLine decodes");
+    }
+    {
+        auto option = loaded.inspectVbaUserFormControlObject("OptionButtonForm", 0);
+        test.checkEqual(option.properties.groupName.value_or(""), std::string("GroupOne"), "P1Y OptionButton GroupName decodes");
+        test.checkEqual(option.properties.value.value_or(""), std::string("True"), "P1Y OptionButton Value decodes");
+        test.checkEqual(option.properties.groupNumber.value_or(0), std::uint16_t{3}, "P1Y OptionButton GroupNumber decodes");
+        test.checkEqual(option.properties.tripleState.value_or(0), std::uint16_t{1}, "P1Y OptionButton TripleState decodes");
+    }
+    {
+        auto spin = loaded.inspectVbaUserFormControlObject("SpinButtonForm", 0);
+        test.checkEqual(spin.properties.min.value_or(999), std::uint32_t{0}, "P1Y SpinButton Min decodes");
+        test.checkEqual(spin.properties.max.value_or(0), std::uint32_t{100}, "P1Y SpinButton Max decodes");
+        test.checkEqual(spin.properties.smallChange.value_or(0), std::uint32_t{1}, "P1Y SpinButton SmallChange decodes");
+        test.checkEqual(spin.properties.largeChange.value_or(0), std::uint32_t{10}, "P1Y SpinButton LargeChange decodes");
+    }
+    {
+        auto list = loaded.inspectVbaUserFormControlObject("ListBoxForm", 0);
+        test.checkEqual(list.properties.listRows.value_or(0), std::uint32_t{4}, "P1Y ListBox ListRows decodes");
+        test.checkEqual(list.properties.columnCount.value_or(0), std::uint32_t{2}, "P1Y ListBox ColumnCount decodes");
+        test.checkEqual(list.properties.columnWidths.value_or(""), std::string("75pt;90pt"), "P1Y ListBox ColumnWidths decodes");
+    }
+
+    // Semantic edits on the newly supported families.
+    xlpp::VbaUserFormControlObjectPatch textPatch;
+    textPatch.text = "XYZ ✓"; textPatch.scrollBars = 3; textPatch.maxLength = 250;
+    test.checkTrue(loaded.updateVbaUserFormControlObject("TextBoxForm", 0, textPatch),
+                   "P1Y TextBox semantic object edit succeeds");
+    xlpp::VbaUserFormControlObjectPatch optionPatch;
+    optionPatch.value = "False"; optionPatch.groupName = "GroupTwo"; optionPatch.groupNumber = 5;
+    test.checkTrue(loaded.updateVbaUserFormControlObject("OptionButtonForm", 0, optionPatch),
+                   "P1Y OptionButton semantic object edit succeeds");
+    xlpp::VbaUserFormControlObjectPatch spinPatch;
+    spinPatch.min = 5; spinPatch.max = 200; spinPatch.smallChange = 5;
+    test.checkTrue(loaded.updateVbaUserFormControlObject("SpinButtonForm", 0, spinPatch),
+                   "P1Y SpinButton semantic object edit succeeds");
+    xlpp::VbaUserFormControlObjectPatch listPatch;
+    listPatch.columnWidths = "100pt;120pt"; listPatch.listRows = 8;
+    test.checkTrue(loaded.updateVbaUserFormControlObject("ListBoxForm", 0, listPatch),
+                   "P1Y ListBox semantic object edit succeeds");
+    loaded.save(edited);
+
+    xlpp::Workbook round; round.load(edited);
+    {
+        auto text = round.inspectVbaUserFormControlObject("TextBoxForm", 0);
+        test.checkEqual(text.properties.text.value_or(""), std::string("XYZ ✓"), "P1Y TextBox Text edit round-trips");
+        test.checkEqual(text.properties.scrollBars.value_or(0), std::uint16_t{3}, "P1Y TextBox ScrollBars edit round-trips");
+        test.checkEqual(text.properties.maxLength.value_or(0), std::uint32_t{250}, "P1Y TextBox MaxLength edit round-trips");
+    }
+    {
+        auto option = round.inspectVbaUserFormControlObject("OptionButtonForm", 0);
+        test.checkEqual(option.properties.value.value_or(""), std::string("False"), "P1Y OptionButton Value edit round-trips");
+        test.checkEqual(option.properties.groupName.value_or(""), std::string("GroupTwo"), "P1Y OptionButton GroupName edit round-trips");
+        test.checkEqual(option.properties.groupNumber.value_or(0), std::uint16_t{5}, "P1Y OptionButton GroupNumber edit round-trips");
+    }
+    {
+        auto spin = round.inspectVbaUserFormControlObject("SpinButtonForm", 0);
+        test.checkEqual(spin.properties.min.value_or(999), std::uint32_t{5}, "P1Y SpinButton Min edit round-trips");
+        test.checkEqual(spin.properties.max.value_or(0), std::uint32_t{200}, "P1Y SpinButton Max edit round-trips");
+        test.checkEqual(spin.properties.smallChange.value_or(0), std::uint32_t{5}, "P1Y SpinButton SmallChange edit round-trips");
+    }
+    {
+        auto list = round.inspectVbaUserFormControlObject("ListBoxForm", 0);
+        test.checkEqual(list.properties.columnWidths.value_or(""), std::string("100pt;120pt"), "P1Y ListBox ColumnWidths edit round-trips");
+        test.checkEqual(list.properties.listRows.value_or(0), std::uint32_t{8}, "P1Y ListBox ListRows edit round-trips");
+    }
+    test.checkTrue(round.validateVbaDesignerProject().ok(), "P1Y extended control edits preserve Designer ownership/structure");
     std::filesystem::remove(source); std::filesystem::remove(edited);
 }
 
@@ -12060,6 +12458,8 @@ int main() {
         {"Remaining public mutation APIs", testRemainingPublicMutationApis},
         {"Internal IO and scanner coverage", testInternalIoAndScannerCoverage},
         {"Pivot imported reader/editor P1A", testPivotImportedReaderAndEditorP1A},
+        {"Pivot OLAP calculated members P1Y", testPivotOlapCalculatedMembersP1Y},
+        {"Pivot typed group items P1Y", testPivotTypedGroupItemsP1Y},
         {"VBA class/document/project metadata P1A", testVbaClassDocumentAndProjectMetadataP1A},
         {"Pivot shared cache/calculated/grouping P1B", testPivotSharedCacheCalculatedGroupingP1B},
         {"Pivot date grouping/imported calculated field P1B", testPivotDateGroupingImportedCalculatedFieldP1B},
@@ -12072,6 +12472,7 @@ int main() {
         {"VBA UserForm control sites P1E", testVbaUserFormControlSitesP1E},
         {"Pivot selective data/page fields P1F", testPivotSelectiveDataAndPageFieldsP1F},
         {"VBA UserForm control objects P1F", testVbaUserFormControlObjectsP1F},
+        {"VBA UserForm extended controls P1Y", testVbaUserFormExtendedControlsP1Y},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},
         {"Workbook reference-safe structural edits P1J", testWorkbookReferenceSafeStructuralEditsP1J},
         {"Structural edit edge cases P1J", testStructuralEditEdgeCasesP1J},

@@ -506,7 +506,47 @@ struct UserFormControlObjectLayout {
     std::size_t captionBytes{0};
     bool captionCompressed{false};
     std::size_t semanticEnd{0};
+
+    // Extended control fields (P1Y-A).
+    std::optional<std::size_t> scrollBars, displayStyle, enterKeyBehavior, tabKeyBehavior,
+        maxLength, wordWrap, textCount, autoWordSelect, integralHeight, passwordChar,
+        valueCount, lineCount, multiLine, multiSelect, hideSelection, dataEntry, dragBehavior,
+        listRows;
+    std::optional<std::size_t> textData, valueData;
+    std::size_t textBytes{0}, valueBytes{0};
+    bool textCompressed{false}, valueCompressed{false};
+    std::optional<std::size_t> groupNameCount, groupNumber, tripleState;
+    std::optional<std::size_t> groupNameData;
+    std::size_t groupNameBytes{0};
+    bool groupNameCompressed{false};
+    std::optional<std::size_t> min, max, smallChange, largeChange, orientation;
+    std::optional<std::size_t> listWidth, boundColumn, textColumn, columnCount, columnWidthsCount;
+    std::optional<std::size_t> style, listStyle, matchEntry, showDropButtonWhen, dropButtonStyle,
+        matchFound, iMEMode, iMEStatus;
+    std::optional<std::size_t> columnWidthsData;
+    std::size_t columnWidthsBytes{0};
+    bool columnWidthsCompressed{false};
+    bool maskIs64Bit{false};
 };
+
+// Reads a string LengthAndCompression field plus its ExtraDataBlock payload.
+// MS-OFORMS aligns every string payload to a 4-byte boundary in the
+// ExtraDataBlock, so `extra` is aligned before the payload is claimed.
+bool takeUserFormObjectString(std::optional<std::size_t>& countOffset, std::optional<std::size_t>& dataOffset,
+                              std::size_t& byteCount, bool& compressed,
+                              const std::vector<unsigned char>& bytes, bool present,
+                              std::size_t& extra, std::size_t semanticEnd) {
+    if (!present) return true;
+    if (!countOffset) return false;
+    const auto count = userFormU32(bytes, *countOffset);
+    compressed = (count & 0x80000000u) != 0;
+    byteCount = count & 0x7FFFFFFFu;
+    extra = userFormAlign(extra, 4);
+    if (extra + byteCount > semanticEnd) return false;
+    dataOffset = extra;
+    extra += byteCount;
+    return true;
+}
 
 UserFormControlObjectLayout parseSimpleUserFormControlObject(const std::vector<unsigned char>& bytes,
                                                               VbaUserFormControlKind kind) {
@@ -527,19 +567,23 @@ UserFormControlObjectLayout parseSimpleUserFormControlObject(const std::vector<u
     out.inspection.semanticSectionBytes = out.semanticEnd;
     out.inspection.trailingBytes = bytes.size() - out.semanticEnd;
 
-    if (kind != VbaUserFormControlKind::CommandButton && kind != VbaUserFormControlKind::Label) {
-        // The other built-in families have different PropMask widths/layouts
-        // (notably MorphData uses a 64-bit mask). P1F validates the common
-        // header and exposes the type without pretending those layouts match.
-        out.inspection.valid = true;
-        return out;
-    }
-    if (bytes.size() < 8) return fail("CommandButton/Label object stream is shorter than PropMask");
+    // Only ComboBox, ListBox, MultiPage and TabStrip use a 64-bit PropMask in
+    // MS-OFORMS 2.x. ScrollBar/SpinButton and the toggle-family controls keep
+    // a single 32-bit flag word.
+    out.maskIs64Bit = kind == VbaUserFormControlKind::ComboBox || kind == VbaUserFormControlKind::ListBox ||
+                      kind == VbaUserFormControlKind::MultiPage || kind == VbaUserFormControlKind::TabStrip;
+    const std::size_t maskBytes = out.maskIs64Bit ? 8u : 4u;
+    if (bytes.size() < 4u + maskBytes) return fail("UserForm control object stream is shorter than PropMask");
     const auto mask = userFormU32(bytes, 4);
     out.inspection.properties.propertyMask = mask;
+    if (out.maskIs64Bit) out.inspection.properties.propertyMaskHigh = userFormU32(bytes, 8);
     out.inspection.properties.semanticPropertiesSupported = true;
-    const auto has = [&](unsigned bit) { return (mask & (1u << bit)) != 0; };
-    const std::size_t dataStart = 8;
+
+    const auto has = [&](unsigned bit) {
+        if (bit < 32) return (mask & (1u << bit)) != 0;
+        return (out.inspection.properties.propertyMaskHigh & (1u << (bit - 32))) != 0;
+    };
+    const std::size_t dataStart = 4u + maskBytes;
     std::size_t rel = 0;
     const auto take = [&](unsigned bit, std::size_t size, std::optional<std::size_t>& target) {
         if (!has(bit)) return true;
@@ -549,35 +593,196 @@ UserFormControlObjectLayout parseSimpleUserFormControlObject(const std::vector<u
         rel += size;
         return true;
     };
-    if (!take(0, 4, out.foreColor) || !take(1, 4, out.backColor)
-        || !take(2, 4, out.variousPropertyBits) || !take(3, 4, out.captionCount)
-        || !take(4, 4, out.picturePosition) || !take(6, 1, out.mousePointer))
-        return fail("CommandButton/Label DataBlock exceeds cbControl");
+
+    // DataBlock fields are serialized in ascending flag-bit order for the
+    // owning control class. Common bits 0-2 (ForeColor/BackColor/
+    // VariousPropertyBits) are identical across families; everything from bit 3
+    // on is class-specific and is decoded in the per-class switch below.
+    if (!take(0, 4, out.foreColor) || !take(1, 4, out.backColor) || !take(2, 4, out.variousPropertyBits))
+        return fail("Control DataBlock exceeds cbControl");
 
     std::optional<std::size_t> picture, mouseIcon;
-    if (kind == VbaUserFormControlKind::CommandButton) {
-        if (!take(7, 2, picture) || !take(8, 2, out.accelerator) || !take(10, 2, mouseIcon))
-            return fail("CommandButton DataBlock exceeds cbControl");
-    } else {
-        if (!take(7, 4, out.borderColor) || !take(8, 2, out.borderStyle)
-            || !take(9, 2, out.specialEffect) || !take(10, 2, picture)
-            || !take(11, 2, out.accelerator) || !take(12, 2, mouseIcon))
-            return fail("Label DataBlock exceeds cbControl");
+    switch (kind) {
+        case VbaUserFormControlKind::CommandButton:
+            // bits: 3 Caption, 4 PicturePosition, 5 Size, 6 MousePointer,
+            // 7 Picture, 8 Accelerator, 10 MouseIcon.
+            if (!take(3, 4, out.captionCount) || !take(4, 4, out.picturePosition) || !take(6, 1, out.mousePointer)
+                || !take(7, 2, picture) || !take(8, 2, out.accelerator) || !take(10, 2, mouseIcon))
+                return fail("CommandButton DataBlock exceeds cbControl");
+            break;
+        case VbaUserFormControlKind::Label:
+            // bits: 3 Caption, 5 Size, 6 MousePointer, 7 BorderColor,
+            // 8 BorderStyle, 9 SpecialEffect, 10 Picture, 11 Accelerator,
+            // 12 MouseIcon.
+            if (!take(3, 4, out.captionCount) || !take(6, 1, out.mousePointer)
+                || !take(7, 4, out.borderColor) || !take(8, 2, out.borderStyle)
+                || !take(9, 2, out.specialEffect) || !take(10, 2, picture)
+                || !take(11, 2, out.accelerator) || !take(12, 2, mouseIcon))
+                return fail("Label DataBlock exceeds cbControl");
+            break;
+        case VbaUserFormControlKind::TextBox:
+            // bits: 3 Caption, 4 PicturePosition, 5 SpecialEffect,
+            // 6 MousePointer, 7 Picture, 8 BorderColor, 9 BorderStyle,
+            // 10 ScrollBars, 11 DisplayStyle, 12 MouseIcon, 13 EnterKeyBehavior,
+            // 14 TabKeyBehavior, 15 MaxLength, 16 WordWrap, 17 Text,
+            // 18 IMEMode, 19 IMEStatus, 20 AutoWordSelect, 21 IntegralHeight,
+            // 22 PasswordChar, 23 Value, 24 LineCount, 25 MultiLine,
+            // 26 MultiSelect, 27 HideSelection, 28 DataEntry, 29 DragBehavior,
+            // 30 Size, 31 ListRows.
+            if (!take(3, 4, out.captionCount) || !take(4, 4, out.picturePosition) || !take(5, 2, out.specialEffect)
+                || !take(6, 1, out.mousePointer) || !take(7, 2, picture)
+                || !take(8, 4, out.borderColor) || !take(9, 2, out.borderStyle) || !take(10, 2, out.scrollBars)
+                || !take(11, 1, out.displayStyle) || !take(12, 2, mouseIcon)
+                || !take(13, 1, out.enterKeyBehavior) || !take(14, 1, out.tabKeyBehavior)
+                || !take(15, 4, out.maxLength) || !take(16, 2, out.wordWrap) || !take(17, 4, out.textCount)
+                || !take(18, 1, out.iMEMode) || !take(19, 1, out.iMEStatus)
+                || !take(20, 1, out.autoWordSelect) || !take(21, 1, out.integralHeight)
+                || !take(22, 2, out.passwordChar) || !take(23, 4, out.valueCount)
+                || !take(24, 4, out.lineCount) || !take(25, 2, out.multiLine) || !take(26, 2, out.multiSelect)
+                || !take(27, 2, out.hideSelection) || !take(28, 1, out.dataEntry) || !take(29, 1, out.dragBehavior)
+                || !take(31, 4, out.listRows))
+                return fail("TextBox DataBlock exceeds cbControl");
+            break;
+        case VbaUserFormControlKind::CheckBox:
+        case VbaUserFormControlKind::OptionButton:
+        case VbaUserFormControlKind::ToggleButton:
+            // bits: 3 Caption, 4 PicturePosition, 5 SpecialEffect,
+            // 6 MousePointer, 7 Picture, 8 BorderColor, 9 BorderStyle,
+            // 10 GroupName, 11 Accelerator, 12 MouseIcon, 13 Value,
+            // 14 GroupNumber, 15 TripleState, 16 Size.
+            if (!take(3, 4, out.captionCount) || !take(4, 4, out.picturePosition) || !take(5, 2, out.specialEffect)
+                || !take(6, 1, out.mousePointer) || !take(7, 2, picture)
+                || !take(8, 4, out.borderColor) || !take(9, 2, out.borderStyle) || !take(10, 4, out.groupNameCount)
+                || !take(11, 2, out.accelerator) || !take(12, 2, mouseIcon) || !take(13, 4, out.valueCount)
+                || !take(14, 2, out.groupNumber) || !take(15, 2, out.tripleState))
+                return fail("Toggle-family DataBlock exceeds cbControl");
+            break;
+        case VbaUserFormControlKind::ScrollBar:
+        case VbaUserFormControlKind::SpinButton:
+            // ScrollBar/SpinButton use a 32-bit mask and store Value/Min/Max/
+            // SmallChange/LargeChange as 32-bit signed integers (not strings).
+            if (!take(3, 4, out.valueCount) || !take(4, 4, out.min) || !take(5, 4, out.max)
+                || !take(6, 4, out.smallChange) || !take(7, 4, out.largeChange) || !take(8, 1, out.orientation)
+                || !take(9, 1, out.mousePointer) || !take(10, 2, mouseIcon))
+                return fail("SpinButton/ScrollBar DataBlock exceeds cbControl");
+            break;
+        case VbaUserFormControlKind::ComboBox:
+        case VbaUserFormControlKind::ListBox:
+            // bits (first flag word): 3 Caption, 4 PicturePosition,
+            // 5 SpecialEffect, 6 MousePointer, 7 Picture, 8 BorderColor,
+            // 9 BorderStyle, 10 ScrollBars, 11 DisplayStyle, 12 MouseIcon,
+            // 15 ListRows, 16 ListWidth, 17 BoundColumn, 18 TextColumn,
+            // 19 ColumnCount, 20 ColumnWidths, 21 Style, 22 ListStyle,
+            // 23 MatchEntry, 24 ShowDropButtonWhen, 25 DropButtonStyle,
+            // 26 MultiSelect, 27 Value, 28 MatchFound, 29 IMEMode,
+            // 30 IMEStatus, 31 Size.
+            if (!take(3, 4, out.captionCount) || !take(4, 4, out.picturePosition) || !take(5, 2, out.specialEffect)
+                || !take(6, 1, out.mousePointer) || !take(7, 2, picture)
+                || !take(8, 4, out.borderColor) || !take(9, 2, out.borderStyle) || !take(10, 2, out.scrollBars)
+                || !take(11, 1, out.displayStyle) || !take(12, 2, mouseIcon)
+                || !take(15, 4, out.listRows) || !take(16, 4, out.listWidth) || !take(17, 4, out.boundColumn)
+                || !take(18, 4, out.textColumn) || !take(19, 4, out.columnCount) || !take(20, 4, out.columnWidthsCount)
+                || !take(21, 1, out.style) || !take(22, 1, out.listStyle) || !take(23, 1, out.matchEntry)
+                || !take(24, 1, out.showDropButtonWhen) || !take(25, 1, out.dropButtonStyle)
+                || !take(26, 2, out.multiSelect) || !take(27, 4, out.valueCount)
+                || !take(28, 1, out.matchFound) || !take(29, 1, out.iMEMode) || !take(30, 1, out.iMEStatus))
+                return fail("ComboBox/ListBox DataBlock exceeds cbControl");
+            break;
+        default:
+            // Unsupported built-in families expose only the common header and
+            // PropMask without pretending the class-specific layout matches.
+            out.inspection.properties.semanticPropertiesSupported = false;
+            out.inspection.valid = true;
+            return out;
     }
+
     const auto extraStart = dataStart + userFormAlign(rel, 4);
-    if (extraStart > out.semanticEnd) return fail("CommandButton/Label DataBlock padding exceeds cbControl");
+    if (extraStart > out.semanticEnd) return fail("Control DataBlock padding exceeds cbControl");
     std::size_t extra = extraStart;
-    if (has(3)) {
-        if (!out.captionCount) return fail("Control caption flag has no length/compression field");
-        const auto count = userFormU32(bytes, *out.captionCount);
-        out.captionCompressed = (count & 0x80000000u) != 0;
-        out.captionBytes = count & 0x7FFFFFFFu;
-        if (extra + out.captionBytes > out.semanticEnd) return fail("Control caption extends past cbControl");
-        out.captionData = extra;
-        out.inspection.properties.caption = decodeUserFormString(bytes, extra, out.captionBytes, out.captionCompressed);
-        extra += out.captionBytes;
+
+    const auto decodeString = [&](std::optional<std::size_t>& dataOff, std::size_t byteCount, bool compressed,
+                                  std::optional<std::string>& target) {
+        if (!dataOff) return;
+        target = decodeUserFormString(bytes, *dataOff, byteCount, compressed);
+    };
+    // ExtraDataBlock strings are emitted in ascending flag-bit order for the
+    // owning control class. MS-OFORMS always serializes string payloads after
+    // the fixed-size DataBlock, in the same relative order as their flags.
+    auto failString = [&](const char* what) { return fail(std::string("Control ") + what + " extends past cbControl"); };
+    switch (kind) {
+        case VbaUserFormControlKind::TextBox:
+            // bits: 3 Caption, 17 Text, 23 Value.
+            if (!takeUserFormObjectString(out.captionCount, out.captionData, out.captionBytes, out.captionCompressed,
+                                          bytes, has(3), extra, out.semanticEnd)) return failString("caption");
+            if (!takeUserFormObjectString(out.textCount, out.textData, out.textBytes, out.textCompressed,
+                                          bytes, has(17), extra, out.semanticEnd)) return failString("TextBox Text");
+            if (!takeUserFormObjectString(out.valueCount, out.valueData, out.valueBytes, out.valueCompressed,
+                                          bytes, has(23), extra, out.semanticEnd)) return failString("Value");
+            break;
+        case VbaUserFormControlKind::CheckBox:
+        case VbaUserFormControlKind::OptionButton:
+        case VbaUserFormControlKind::ToggleButton:
+            // bits: 3 Caption, 10 GroupName, 13 Value.
+            if (!takeUserFormObjectString(out.captionCount, out.captionData, out.captionBytes, out.captionCompressed,
+                                          bytes, has(3), extra, out.semanticEnd)) return failString("caption");
+            if (!takeUserFormObjectString(out.groupNameCount, out.groupNameData, out.groupNameBytes, out.groupNameCompressed,
+                                          bytes, has(10), extra, out.semanticEnd)) return failString("GroupName");
+            if (!takeUserFormObjectString(out.valueCount, out.valueData, out.valueBytes, out.valueCompressed,
+                                          bytes, has(13), extra, out.semanticEnd)) return failString("Value");
+            break;
+        case VbaUserFormControlKind::ComboBox:
+        case VbaUserFormControlKind::ListBox:
+            // bits: 3 Caption, 20 ColumnWidths, 27 Value.
+            if (!takeUserFormObjectString(out.captionCount, out.captionData, out.captionBytes, out.captionCompressed,
+                                          bytes, has(3), extra, out.semanticEnd)) return failString("caption");
+            if (!takeUserFormObjectString(out.columnWidthsCount, out.columnWidthsData, out.columnWidthsBytes, out.columnWidthsCompressed,
+                                          bytes, has(20), extra, out.semanticEnd)) return failString("ColumnWidths");
+            if (!takeUserFormObjectString(out.valueCount, out.valueData, out.valueBytes, out.valueCompressed,
+                                          bytes, has(27), extra, out.semanticEnd)) return failString("Value");
+            break;
+        case VbaUserFormControlKind::ScrollBar:
+        case VbaUserFormControlKind::SpinButton:
+            // bits: 3 Value is a 32-bit integer, not a string. Skip string payloads.
+            break;
+        default:
+            if (!takeUserFormObjectString(out.captionCount, out.captionData, out.captionBytes, out.captionCompressed,
+                                          bytes, has(3), extra, out.semanticEnd)) return failString("caption");
+            break;
     }
-    if (has(5)) {
+
+    // Size field bit depends on the class per MS-OFORMS 2.x:
+    //   CommandButton/Label ...... bit 5
+    //   TextBox ................. bit 30
+    //   CheckBox/OptionButton/ToggleButton ... bit 16
+    //   ScrollBar/SpinButton ..... bit 11
+    //   ComboBox/ListBox ......... bit 31
+    bool hasSize = false;
+    switch (kind) {
+        case VbaUserFormControlKind::CommandButton:
+        case VbaUserFormControlKind::Label:
+            hasSize = has(5);
+            break;
+        case VbaUserFormControlKind::TextBox:
+            hasSize = has(30);
+            break;
+        case VbaUserFormControlKind::CheckBox:
+        case VbaUserFormControlKind::OptionButton:
+        case VbaUserFormControlKind::ToggleButton:
+            hasSize = has(16);
+            break;
+        case VbaUserFormControlKind::ScrollBar:
+        case VbaUserFormControlKind::SpinButton:
+            hasSize = has(11);
+            break;
+        case VbaUserFormControlKind::ComboBox:
+        case VbaUserFormControlKind::ListBox:
+            hasSize = has(31);
+            break;
+        default:
+            hasSize = has(5);
+            break;
+    }
+    if (hasSize) {
         extra = userFormAlign(extra, 4);
         if (extra + 8 > out.semanticEnd) return fail("Control Size extends past cbControl");
         out.size = extra;
@@ -585,18 +790,58 @@ UserFormControlObjectLayout parseSimpleUserFormControlObject(const std::vector<u
         out.inspection.properties.height = userFormI32(bytes, extra + 4);
         extra += 8;
     }
-    // StreamData/TextProps begin after cbControl and remain opaque. Within the
-    // semantic section only undefined alignment bytes may remain.
     if (extra > out.semanticEnd) return fail("Control ExtraDataBlock exceeds cbControl");
-    if (out.foreColor) out.inspection.properties.foreColor = userFormU32(bytes, *out.foreColor);
-    if (out.backColor) out.inspection.properties.backColor = userFormU32(bytes, *out.backColor);
-    if (out.variousPropertyBits) out.inspection.properties.variousPropertyBits = userFormU32(bytes, *out.variousPropertyBits);
-    if (out.picturePosition) out.inspection.properties.picturePosition = userFormU32(bytes, *out.picturePosition);
-    if (out.mousePointer) out.inspection.properties.mousePointer = bytes[*out.mousePointer];
-    if (out.borderColor) out.inspection.properties.borderColor = userFormU32(bytes, *out.borderColor);
-    if (out.borderStyle) out.inspection.properties.borderStyle = userFormU16(bytes, *out.borderStyle);
-    if (out.specialEffect) out.inspection.properties.specialEffect = userFormU16(bytes, *out.specialEffect);
-    if (out.accelerator) out.inspection.properties.accelerator = userFormU16(bytes, *out.accelerator);
+
+    auto& props = out.inspection.properties;
+    if (out.foreColor) props.foreColor = userFormU32(bytes, *out.foreColor);
+    if (out.backColor) props.backColor = userFormU32(bytes, *out.backColor);
+    if (out.variousPropertyBits) props.variousPropertyBits = userFormU32(bytes, *out.variousPropertyBits);
+    if (out.picturePosition) props.picturePosition = userFormU32(bytes, *out.picturePosition);
+    if (out.mousePointer) props.mousePointer = bytes[*out.mousePointer];
+    if (out.borderColor) props.borderColor = userFormU32(bytes, *out.borderColor);
+    if (out.borderStyle) props.borderStyle = userFormU16(bytes, *out.borderStyle);
+    if (out.specialEffect) props.specialEffect = userFormU16(bytes, *out.specialEffect);
+    if (out.accelerator) props.accelerator = userFormU16(bytes, *out.accelerator);
+    decodeString(out.captionData, out.captionBytes, out.captionCompressed, props.caption);
+    decodeString(out.textData, out.textBytes, out.textCompressed, props.text);
+    decodeString(out.valueData, out.valueBytes, out.valueCompressed, props.value);
+    decodeString(out.groupNameData, out.groupNameBytes, out.groupNameCompressed, props.groupName);
+    decodeString(out.columnWidthsData, out.columnWidthsBytes, out.columnWidthsCompressed, props.columnWidths);
+    if (out.scrollBars) props.scrollBars = userFormU16(bytes, *out.scrollBars);
+    if (out.displayStyle) props.displayStyle = bytes[*out.displayStyle];
+    if (out.enterKeyBehavior) props.enterKeyBehavior = bytes[*out.enterKeyBehavior];
+    if (out.tabKeyBehavior) props.tabKeyBehavior = bytes[*out.tabKeyBehavior];
+    if (out.maxLength) props.maxLength = userFormU32(bytes, *out.maxLength);
+    if (out.wordWrap) props.wordWrap = userFormU16(bytes, *out.wordWrap);
+    if (out.autoWordSelect) props.autoWordSelect = bytes[*out.autoWordSelect];
+    if (out.integralHeight) props.integralHeight = bytes[*out.integralHeight];
+    if (out.passwordChar) props.passwordChar = userFormU16(bytes, *out.passwordChar);
+    if (out.lineCount) props.lineCount = userFormU32(bytes, *out.lineCount);
+    if (out.multiLine) props.multiLine = userFormU16(bytes, *out.multiLine);
+    if (out.multiSelect) props.multiSelect = userFormU16(bytes, *out.multiSelect);
+    if (out.hideSelection) props.hideSelection = userFormU16(bytes, *out.hideSelection);
+    if (out.dataEntry) props.dataEntry = bytes[*out.dataEntry];
+    if (out.dragBehavior) props.dragBehavior = bytes[*out.dragBehavior];
+    if (out.listRows) props.listRows = userFormU32(bytes, *out.listRows);
+    if (out.groupNumber) props.groupNumber = userFormU16(bytes, *out.groupNumber);
+    if (out.tripleState) props.tripleState = userFormU16(bytes, *out.tripleState);
+    if (out.min) props.min = userFormU32(bytes, *out.min);
+    if (out.max) props.max = userFormU32(bytes, *out.max);
+    if (out.smallChange) props.smallChange = userFormU32(bytes, *out.smallChange);
+    if (out.largeChange) props.largeChange = userFormU32(bytes, *out.largeChange);
+    if (out.orientation) props.orientation = bytes[*out.orientation];
+    if (out.listWidth) props.listWidth = userFormU32(bytes, *out.listWidth);
+    if (out.boundColumn) props.boundColumn = userFormU32(bytes, *out.boundColumn);
+    if (out.textColumn) props.textColumn = userFormU32(bytes, *out.textColumn);
+    if (out.columnCount) props.columnCount = userFormU32(bytes, *out.columnCount);
+    if (out.style) props.style = bytes[*out.style];
+    if (out.listStyle) props.listStyle = bytes[*out.listStyle];
+    if (out.matchEntry) props.matchEntry = bytes[*out.matchEntry];
+    if (out.showDropButtonWhen) props.showDropButtonWhen = bytes[*out.showDropButtonWhen];
+    if (out.dropButtonStyle) props.dropButtonStyle = bytes[*out.dropButtonStyle];
+    if (out.matchFound) props.matchFound = bytes[*out.matchFound];
+    if (out.iMEMode) props.iMEMode = bytes[*out.iMEMode];
+    if (out.iMEStatus) props.iMEStatus = bytes[*out.iMEStatus];
     out.inspection.valid = true;
     return out;
 }
@@ -788,6 +1033,47 @@ bool Workbook::updateVbaUserFormControlObject(const std::string& storageName,
     requireUserFormObjectField(patch.accelerator.has_value(), layout.accelerator, "Accelerator");
     requireUserFormObjectField(patch.width.has_value() || patch.height.has_value(), layout.size, "Size");
 
+    // P1Y-A extended control fields. Each is optional in the patch; a field is
+    // written only when the target control actually materializes it.
+    requireUserFormObjectField(patch.scrollBars.has_value(), layout.scrollBars, "ScrollBars");
+    requireUserFormObjectField(patch.displayStyle.has_value(), layout.displayStyle, "DisplayStyle");
+    requireUserFormObjectField(patch.enterKeyBehavior.has_value(), layout.enterKeyBehavior, "EnterKeyBehavior");
+    requireUserFormObjectField(patch.tabKeyBehavior.has_value(), layout.tabKeyBehavior, "TabKeyBehavior");
+    requireUserFormObjectField(patch.maxLength.has_value(), layout.maxLength, "MaxLength");
+    requireUserFormObjectField(patch.wordWrap.has_value(), layout.wordWrap, "WordWrap");
+    requireUserFormObjectField(patch.text.has_value(), layout.textCount, "Text");
+    requireUserFormObjectField(patch.autoWordSelect.has_value(), layout.autoWordSelect, "AutoWordSelect");
+    requireUserFormObjectField(patch.integralHeight.has_value(), layout.integralHeight, "IntegralHeight");
+    requireUserFormObjectField(patch.passwordChar.has_value(), layout.passwordChar, "PasswordChar");
+    requireUserFormObjectField(patch.value.has_value(), layout.valueCount, "Value");
+    requireUserFormObjectField(patch.multiLine.has_value(), layout.multiLine, "MultiLine");
+    requireUserFormObjectField(patch.multiSelect.has_value(), layout.multiSelect, "MultiSelect");
+    requireUserFormObjectField(patch.hideSelection.has_value(), layout.hideSelection, "HideSelection");
+    requireUserFormObjectField(patch.dataEntry.has_value(), layout.dataEntry, "DataEntry");
+    requireUserFormObjectField(patch.dragBehavior.has_value(), layout.dragBehavior, "DragBehavior");
+    requireUserFormObjectField(patch.listRows.has_value(), layout.listRows, "ListRows");
+    requireUserFormObjectField(patch.groupName.has_value(), layout.groupNameCount, "GroupName");
+    requireUserFormObjectField(patch.groupNumber.has_value(), layout.groupNumber, "GroupNumber");
+    requireUserFormObjectField(patch.tripleState.has_value(), layout.tripleState, "TripleState");
+    requireUserFormObjectField(patch.min.has_value(), layout.min, "Min");
+    requireUserFormObjectField(patch.max.has_value(), layout.max, "Max");
+    requireUserFormObjectField(patch.smallChange.has_value(), layout.smallChange, "SmallChange");
+    requireUserFormObjectField(patch.largeChange.has_value(), layout.largeChange, "LargeChange");
+    requireUserFormObjectField(patch.orientation.has_value(), layout.orientation, "Orientation");
+    requireUserFormObjectField(patch.listWidth.has_value(), layout.listWidth, "ListWidth");
+    requireUserFormObjectField(patch.boundColumn.has_value(), layout.boundColumn, "BoundColumn");
+    requireUserFormObjectField(patch.textColumn.has_value(), layout.textColumn, "TextColumn");
+    requireUserFormObjectField(patch.columnCount.has_value(), layout.columnCount, "ColumnCount");
+    requireUserFormObjectField(patch.columnWidths.has_value(), layout.columnWidthsCount, "ColumnWidths");
+    requireUserFormObjectField(patch.style.has_value(), layout.style, "Style");
+    requireUserFormObjectField(patch.listStyle.has_value(), layout.listStyle, "ListStyle");
+    requireUserFormObjectField(patch.matchEntry.has_value(), layout.matchEntry, "MatchEntry");
+    requireUserFormObjectField(patch.showDropButtonWhen.has_value(), layout.showDropButtonWhen, "ShowDropButtonWhen");
+    requireUserFormObjectField(patch.dropButtonStyle.has_value(), layout.dropButtonStyle, "DropButtonStyle");
+    requireUserFormObjectField(patch.matchFound.has_value(), layout.matchFound, "MatchFound");
+    requireUserFormObjectField(patch.iMEMode.has_value(), layout.iMEMode, "IMEMode");
+    requireUserFormObjectField(patch.iMEStatus.has_value(), layout.iMEStatus, "IMEStatus");
+
     if (patch.caption) {
         requireUserFormObjectField(true, layout.captionData, "Caption");
         auto [encoded, compressed] = encodeUserFormString(*patch.caption);
@@ -820,6 +1106,83 @@ bool Workbook::updateVbaUserFormControlObject(const std::string& storageName,
     if (patch.accelerator) userFormPutU16(object, *layout.accelerator, *patch.accelerator);
     if (patch.width) userFormPutI32(object, *layout.size, *patch.width);
     if (patch.height) userFormPutI32(object, *layout.size + 4, *patch.height);
+
+    // P1Y-A extended scalar field writes.
+    if (patch.scrollBars) userFormPutU16(object, *layout.scrollBars, *patch.scrollBars);
+    if (patch.displayStyle) object[*layout.displayStyle] = *patch.displayStyle;
+    if (patch.enterKeyBehavior) object[*layout.enterKeyBehavior] = *patch.enterKeyBehavior;
+    if (patch.tabKeyBehavior) object[*layout.tabKeyBehavior] = *patch.tabKeyBehavior;
+    if (patch.maxLength) userFormPutU32(object, *layout.maxLength, *patch.maxLength);
+    if (patch.wordWrap) userFormPutU16(object, *layout.wordWrap, *patch.wordWrap);
+    if (patch.autoWordSelect) object[*layout.autoWordSelect] = *patch.autoWordSelect;
+    if (patch.integralHeight) object[*layout.integralHeight] = *patch.integralHeight;
+    if (patch.passwordChar) userFormPutU16(object, *layout.passwordChar, *patch.passwordChar);
+    if (patch.multiLine) userFormPutU16(object, *layout.multiLine, *patch.multiLine);
+    if (patch.multiSelect) userFormPutU16(object, *layout.multiSelect, *patch.multiSelect);
+    if (patch.hideSelection) userFormPutU16(object, *layout.hideSelection, *patch.hideSelection);
+    if (patch.dataEntry) object[*layout.dataEntry] = *patch.dataEntry;
+    if (patch.dragBehavior) object[*layout.dragBehavior] = *patch.dragBehavior;
+    if (patch.listRows) userFormPutU32(object, *layout.listRows, *patch.listRows);
+    if (patch.groupNumber) userFormPutU16(object, *layout.groupNumber, *patch.groupNumber);
+    if (patch.tripleState) userFormPutU16(object, *layout.tripleState, *patch.tripleState);
+    if (patch.min) userFormPutU32(object, *layout.min, *patch.min);
+    if (patch.max) userFormPutU32(object, *layout.max, *patch.max);
+    if (patch.smallChange) userFormPutU32(object, *layout.smallChange, *patch.smallChange);
+    if (patch.largeChange) userFormPutU32(object, *layout.largeChange, *patch.largeChange);
+    if (patch.orientation) object[*layout.orientation] = *patch.orientation;
+    if (patch.listWidth) userFormPutU32(object, *layout.listWidth, *patch.listWidth);
+    if (patch.boundColumn) userFormPutU32(object, *layout.boundColumn, *patch.boundColumn);
+    if (patch.textColumn) userFormPutU32(object, *layout.textColumn, *patch.textColumn);
+    if (patch.columnCount) userFormPutU32(object, *layout.columnCount, *patch.columnCount);
+    if (patch.style) object[*layout.style] = *patch.style;
+    if (patch.listStyle) object[*layout.listStyle] = *patch.listStyle;
+    if (patch.matchEntry) object[*layout.matchEntry] = *patch.matchEntry;
+    if (patch.showDropButtonWhen) object[*layout.showDropButtonWhen] = *patch.showDropButtonWhen;
+    if (patch.dropButtonStyle) object[*layout.dropButtonStyle] = *patch.dropButtonStyle;
+    if (patch.matchFound) object[*layout.matchFound] = *patch.matchFound;
+    if (patch.iMEMode) object[*layout.iMEMode] = *patch.iMEMode;
+    if (patch.iMEStatus) object[*layout.iMEStatus] = *patch.iMEStatus;
+
+    // Variable-length string replacements for Text, Value and GroupName. These
+    // follow the same length-and-compression rebuild used for Caption.
+    const auto patchObjectString = [&](const std::optional<std::string>& requested,
+                                       const std::optional<std::size_t>& countOffset,
+                                       const std::optional<std::size_t>& dataOffset,
+                                       std::size_t oldBytes) {
+        if (!requested) return;
+        if (!countOffset || !dataOffset)
+            throw std::invalid_argument("UserForm control string property is not materialized in PropMask");
+        auto [encoded, compressed] = encodeUserFormString(*requested);
+        const auto oldBegin = *dataOffset;
+        const auto oldEnd = oldBegin + oldBytes;
+        // MS-OFORMS aligns every ExtraDataBlock string payload to a 4-byte
+        // boundary and emits alignment bytes after the payload. When a string
+        // length changes, the following string/Size fields must stay aligned.
+        // Rebuild the prefix up to the old payload start, insert the new
+        // payload, align to 4, then copy the tail from the old aligned Size
+        // boundary so Size/StreamData keep their 4-byte phase.
+        const auto oldTailStart = userFormAlign(oldEnd, 4);
+        std::vector<unsigned char> rebuilt;
+        rebuilt.reserve(object.size() - oldBytes + encoded.size() + 3);
+        rebuilt.insert(rebuilt.end(), object.begin(), object.begin() + static_cast<std::ptrdiff_t>(oldBegin));
+        rebuilt.insert(rebuilt.end(), encoded.begin(), encoded.end());
+        while ((rebuilt.size() % 4) != 0) rebuilt.push_back(0);
+        rebuilt.insert(rebuilt.end(), object.begin() + static_cast<std::ptrdiff_t>(oldTailStart), object.end());
+        userFormPutU32(rebuilt, *countOffset,
+                       static_cast<std::uint32_t>(encoded.size()) | (compressed ? 0x80000000u : 0u));
+        const auto newCb = static_cast<std::ptrdiff_t>(rebuilt.size()) - static_cast<std::ptrdiff_t>(4);
+        if (newCb < 4 || newCb > 0xFFFF)
+            throw std::overflow_error("UserForm control cbControl exceeds 16-bit storage after string edit");
+        userFormPutU16(rebuilt, 2, static_cast<std::uint16_t>(newCb));
+        object = std::move(rebuilt);
+        layout = parseSimpleUserFormControlObject(object, site.site.kind);
+        if (!layout.inspection.valid)
+            throw std::runtime_error("UserForm control object became malformed after string edit: " + layout.inspection.error);
+    };
+    patchObjectString(patch.text, layout.textCount, layout.textData, layout.textBytes);
+    patchObjectString(patch.value, layout.valueCount, layout.valueData, layout.valueBytes);
+    patchObjectString(patch.groupName, layout.groupNameCount, layout.groupNameData, layout.groupNameBytes);
+    patchObjectString(patch.columnWidths, layout.columnWidthsCount, layout.columnWidthsData, layout.columnWidthsBytes);
 
     if (object.size() != objectSize) {
         requireUserFormSiteField(true, site.objectStreamSize, "ObjectStreamSize");

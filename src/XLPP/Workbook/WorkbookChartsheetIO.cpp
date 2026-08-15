@@ -218,7 +218,8 @@ std::string serializeCustomViews(const Chartsheet& sheet) {
 
 
 std::string serializeChartsheetXml(const Chartsheet& sheet, bool strict, std::string_view drawingRelationshipId,
-                                   std::string_view printerSettingsRelationshipId) {
+                                   std::string_view printerSettingsRelationshipId,
+                                   std::string_view legacyDrawingHFRelationshipId) {
     std::ostringstream xml;
     xml.precision(17);
     xml << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><chartsheet xmlns=\"" << nsMain(strict)
@@ -258,9 +259,14 @@ std::string serializeChartsheetXml(const Chartsheet& sheet, bool strict, std::st
     if (sheet.hasHeaderFooter()) writeHeaderFooter(xml, sheet.headerFooter());
     xml << "<drawing r:id=\"" << xmlEscape(std::string(drawingRelationshipId)) << "\"/>";
 
-    // Unsupported/opaque chart-sheet extension nodes remain preservation-first.
+    // Header/footer picture ownership is modeled explicitly: when the
+    // Chartsheet owns a VML legacyDrawingHF part, emit its relationship
+    // reference. Otherwise fall back to preservation of the original tag.
     const auto& source = WorkbookChartsheetIOAccess::sourceXml(sheet);
-    if (!source.empty()) {
+    if (!legacyDrawingHFRelationshipId.empty()) {
+        xml << "<legacyDrawingHF r:id=\"" << xmlEscape(std::string(legacyDrawingHFRelationshipId)) << "\"/>";
+    } else if (!source.empty()) {
+        // Unsupported/opaque chart-sheet extension nodes remain preservation-first.
         for (const auto* tag : {"legacyDrawingHF", "picture", "webPublishItems", "extLst"})
             for (const auto& block : tags(source, tag)) xml << block;
     }

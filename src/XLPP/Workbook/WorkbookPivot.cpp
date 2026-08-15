@@ -814,5 +814,217 @@ PivotChartLinkValidationReport Workbook::validatePivotChartLinks() const {
     return report;
 }
 
+bool Workbook::updateImportedPivotOlapSource(const std::string& worksheetName,
+                                             const std::string& pivotTableName,
+                                             const PivotOlapSourcePatch& patch) {
+    auto sheetIt = std::find_if(sheets_.begin(), sheets_.end(), [&](const auto& sheet) {
+        return sheet.name() == worksheetName;
+    });
+    if (sheetIt == sheets_.end()) return false;
+    auto pivotIt = std::find_if(sheetIt->pivotTables_.begin(), sheetIt->pivotTables_.end(), [&](const auto& pivot) {
+        return pivot.name() == pivotTableName;
+    });
+    if (pivotIt == sheetIt->pivotTables_.end()) return false;
+    const auto cachePart = pivotIt->cache().sharedCacheKey();
+    if (cachePart.empty() || cachePart.rfind("xl/pivotCache/pivotCacheDefinition", 0) != 0) return false;
+    const auto* olap = static_cast<const xlpp::PivotCache&>(pivotIt->cache()).olap();
+    if (!olap) return false; // OLAP patch is only valid for OLAP-backed caches.
+
+    auto partIt = std::find_if(preservedParts_.begin(), preservedParts_.end(), [&](const auto& part) {
+        return part.name == cachePart;
+    });
+    if (partIt == preservedParts_.end()) return false;
+    auto xml = partIt->data;
+
+    auto patchOlapAttribute = [&](const std::string& name, const std::optional<std::string>& value) {
+        if (!value) return;
+        const auto olapBegin = xml.find("<olapInfo");
+        if (olapBegin == std::string::npos) return;
+        const auto olapEnd = xml.find('>', olapBegin);
+        if (olapEnd == std::string::npos) throw std::runtime_error("Malformed OLAP info start tag");
+        std::string olapTag = xml.substr(olapBegin, olapEnd - olapBegin + 1);
+        const auto key = name + "=\"";
+        const auto begin = olapTag.find(key);
+        if (value->empty()) {
+            if (begin != std::string::npos) {
+                auto eraseBegin = begin;
+                while (eraseBegin > 0 && std::isspace(static_cast<unsigned char>(olapTag[eraseBegin - 1]))) --eraseBegin;
+                const auto valueBegin = begin + key.size();
+                const auto valueEnd = olapTag.find('"', valueBegin);
+                if (valueEnd == std::string::npos) throw std::runtime_error("Malformed OLAP info attribute");
+                olapTag.erase(eraseBegin, valueEnd - eraseBegin + 1);
+            }
+        } else if (begin != std::string::npos) {
+            const auto valueBegin = begin + key.size();
+            const auto valueEnd = olapTag.find('"', valueBegin);
+            if (valueEnd == std::string::npos) throw std::runtime_error("Malformed OLAP info attribute");
+            olapTag.replace(valueBegin, valueEnd - valueBegin, *value);
+        } else {
+            auto insertPos = olapTag.size() - 1;
+            if (insertPos > 0 && olapTag[insertPos - 1] == '/') --insertPos;
+            olapTag.insert(insertPos, " " + name + "=\"" + *value + "\"");
+        }
+        xml.replace(olapBegin, olapEnd - olapBegin + 1, olapTag);
+    };
+
+    if (patch.preserveFormatting) patchOlapAttribute("preserveFormatting",
+        std::optional<std::string>(*patch.preserveFormatting ? "1" : "0"));
+    if (patch.localCube) patchOlapAttribute("localCube", *patch.localCube);
+    if (patch.localConnection) patchOlapAttribute("localConnection", *patch.localConnection);
+    // connectionId is a cacheSource attribute in SpreadsheetML, not a
+    // pivotCacheDefinition root attribute.
+    if (patch.connectionId) {
+        const auto sourceBegin = xml.find("<cacheSource");
+        if (sourceBegin == std::string::npos) return false;
+        const auto sourceEnd = xml.find('>', sourceBegin);
+        if (sourceEnd == std::string::npos) throw std::runtime_error("Malformed pivot cacheSource start tag");
+        std::string sourceTag = xml.substr(sourceBegin, sourceEnd - sourceBegin + 1);
+        const auto key = std::string("connectionId=\"");
+        const auto begin = sourceTag.find(key);
+        if (begin != std::string::npos) {
+            const auto valueBegin = begin + key.size();
+            const auto valueEnd = sourceTag.find('"', valueBegin);
+            if (valueEnd == std::string::npos) throw std::runtime_error("Malformed cacheSource connectionId");
+            sourceTag.replace(valueBegin, valueEnd - valueBegin, std::to_string(*patch.connectionId));
+        } else {
+            auto insertPos = sourceTag.size() - 1;
+            if (insertPos > 0 && sourceTag[insertPos - 1] == '/') --insertPos;
+            sourceTag.insert(insertPos, " connectionId=\"" + std::to_string(*patch.connectionId) + "\"");
+        }
+        xml.replace(sourceBegin, sourceEnd - sourceBegin + 1, sourceTag);
+    }
+
+    // Refresh raw olapInfo bytes for the in-memory model BEFORE moving xml.
+    const auto olapInfoBegin = xml.find("<olapInfo");
+    std::string refreshedOlapInfo;
+    if (olapInfoBegin != std::string::npos) {
+        const auto openEnd = xml.find('>', olapInfoBegin);
+        if (openEnd != std::string::npos) {
+            if (openEnd > olapInfoBegin && xml[openEnd - 1] == '/') {
+                refreshedOlapInfo = xml.substr(olapInfoBegin, openEnd - olapInfoBegin + 1);
+            } else {
+                const auto close = xml.find("</olapInfo>", openEnd);
+                if (close != std::string::npos)
+                    refreshedOlapInfo = xml.substr(olapInfoBegin, close + std::string("</olapInfo>").size() - olapInfoBegin);
+            }
+        }
+    }
+    partIt->data = std::move(xml);
+    for (auto& sheet : sheets_) {
+        for (auto& pivot : sheet.pivotTables_) {
+            if (pivot.cache().sharedCacheKey() != cachePart) continue;
+            auto& model = pivot.cache().olap();
+            if (patch.preserveFormatting) model.preserveFormatting = *patch.preserveFormatting;
+            if (patch.localCube) model.localCube = *patch.localCube;
+            if (patch.localConnection) model.localConnection = *patch.localConnection;
+            if (patch.connectionId) model.connectionId = *patch.connectionId;
+            if (!refreshedOlapInfo.empty()) model.rawOlapInfoXml = refreshedOlapInfo;
+        }
+    }
+    return true;
+}
+
+bool Workbook::updateImportedPivotCalculatedMember(const std::string& worksheetName,
+                                                   const std::string& pivotTableName,
+                                                   std::size_t memberIndex,
+                                                   const PivotCalculatedMemberPatch& patch) {
+    auto sheetIt = std::find_if(sheets_.begin(), sheets_.end(), [&](const auto& sheet) {
+        return sheet.name() == worksheetName;
+    });
+    if (sheetIt == sheets_.end()) return false;
+    auto pivotIt = std::find_if(sheetIt->pivotTables_.begin(), sheetIt->pivotTables_.end(), [&](const auto& pivot) {
+        return pivot.name() == pivotTableName;
+    });
+    if (pivotIt == sheetIt->pivotTables_.end()) return false;
+    const auto cachePart = pivotIt->cache().sharedCacheKey();
+    if (cachePart.empty() || cachePart.rfind("xl/pivotCache/pivotCacheDefinition", 0) != 0) return false;
+    if (memberIndex >= pivotIt->cache().calculatedMembers().size()) return false;
+
+    auto partIt = std::find_if(preservedParts_.begin(), preservedParts_.end(), [&](const auto& part) {
+        return part.name == cachePart;
+    });
+    if (partIt == preservedParts_.end()) return false;
+    auto xml = partIt->data;
+
+    std::size_t search = 0;
+    std::size_t begin = std::string::npos;
+    for (std::size_t i = 0; i <= memberIndex; ++i) {
+        while (true) {
+            begin = xml.find("<calculatedMember", search);
+            if (begin == std::string::npos) return false;
+            const auto after = begin + std::string("<calculatedMember").size();
+            if (after >= xml.size() || std::isspace(static_cast<unsigned char>(xml[after])) || xml[after] == '>' || xml[after] == '/') break;
+            search = after;
+        }
+        if (i != memberIndex) search = begin + 1;
+    }
+    const auto end = xml.find('>', begin);
+    if (end == std::string::npos) return false;
+    auto head = xml.substr(begin, end - begin + 1);
+    const auto setAttribute = [&](const std::string& name, const std::optional<std::string>& value) {
+        const auto key = name + "=\"";
+        const auto attrBegin = head.find(key);
+        if (!value || value->empty()) {
+            if (attrBegin != std::string::npos) {
+                auto eraseBegin = attrBegin;
+                while (eraseBegin > 0 && std::isspace(static_cast<unsigned char>(head[eraseBegin - 1]))) --eraseBegin;
+                const auto valueBegin = attrBegin + key.size();
+                const auto valueEnd = head.find('"', valueBegin);
+                if (valueEnd == std::string::npos) throw std::runtime_error("Malformed calculatedMember attribute");
+                head.erase(eraseBegin, valueEnd - eraseBegin + 1);
+            }
+            return;
+        }
+        if (attrBegin != std::string::npos) {
+            const auto valueBegin = attrBegin + key.size();
+            const auto valueEnd = head.find('"', valueBegin);
+            if (valueEnd == std::string::npos) throw std::runtime_error("Malformed calculatedMember attribute");
+            head.replace(valueBegin, valueEnd - valueBegin, *value);
+            return;
+        }
+        auto insertPos = head.size() - 1;
+        if (insertPos > 0 && head[insertPos - 1] == '/') --insertPos;
+        head.insert(insertPos, " " + name + "=\"" + *value + "\"");
+    };
+
+    if (patch.mdx) setAttribute("mdx", *patch.mdx);
+    if (patch.memberName) setAttribute("memberName", *patch.memberName);
+    if (patch.hierarchy) setAttribute("hierarchy", std::optional<std::string>(std::to_string(*patch.hierarchy)));
+    if (patch.solveOrder) setAttribute("solveOrder", *patch.solveOrder);
+    if (patch.set) setAttribute("set", *patch.set);
+    xml.replace(begin, end - begin + 1, head);
+    // Refresh the patched member's raw XML so a later save re-emits the edited
+    // tag instead of the stale pre-patch subtree.
+    const auto patchedBegin = xml.find("<calculatedMember", begin);
+    const auto patchedEnd = xml.find('>', patchedBegin == std::string::npos ? 0 : patchedBegin);
+    std::string refreshedRawXml;
+    if (patchedBegin != std::string::npos && patchedEnd != std::string::npos) {
+        refreshedRawXml = xml.substr(patchedBegin, patchedEnd - patchedBegin + 1);
+        if (!refreshedRawXml.empty() && refreshedRawXml.back() == '>' && refreshedRawXml[refreshedRawXml.size() - 2] != '/') {
+            const auto close = xml.find("</calculatedMember>", patchedEnd);
+            if (close != std::string::npos)
+                refreshedRawXml = xml.substr(patchedBegin, close + std::string("</calculatedMember>").size() - patchedBegin);
+        }
+    }
+    partIt->data = std::move(xml);
+
+    // Mirror scalar edits into the loaded model so repeated edits stay coherent.
+    for (auto& sheet : sheets_) {
+        for (auto& pivot : sheet.pivotTables_) {
+            if (pivot.cache().sharedCacheKey() != cachePart) continue;
+            auto& members = pivot.cache().calculatedMembers();
+            if (memberIndex >= members.size()) continue;
+            auto& member = members[memberIndex];
+            if (patch.mdx) member.mdx = *patch.mdx;
+            if (patch.memberName) member.memberName = *patch.memberName;
+            if (patch.hierarchy) member.hierarchy = *patch.hierarchy;
+            if (patch.solveOrder) member.solveOrder = *patch.solveOrder;
+            if (patch.set) member.set = *patch.set;
+            if (!refreshedRawXml.empty()) member.rawXml = refreshedRawXml;
+        }
+    }
+    return true;
+}
+
 
 } // namespace xlpp

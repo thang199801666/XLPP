@@ -212,6 +212,10 @@ struct VbaUserFormControlObjectProperties {
     std::uint8_t majorVersion{0};
     std::uint16_t cbControl{0};
     std::uint32_t propertyMask{0};
+    // Controls with a 64-bit PropMask (ComboBox, ListBox, ScrollBar,
+    // SpinButton, MultiPage, TabStrip) carry the full two-word mask here so
+    // callers can distinguish first-word and second-word flag bits.
+    std::uint32_t propertyMaskHigh{0};
     bool semanticPropertiesSupported{false};
     std::optional<std::uint32_t> foreColor;
     std::optional<std::uint32_t> backColor;
@@ -225,6 +229,53 @@ struct VbaUserFormControlObjectProperties {
     std::optional<std::uint16_t> accelerator;
     std::optional<std::int32_t> width;
     std::optional<std::int32_t> height;
+
+    // ---- TextBox (32-bit mask) ----
+    std::optional<std::uint16_t> scrollBars;       // 0=none,1=vertical,2=horizontal,3=both
+    std::optional<std::uint8_t> displayStyle;
+    std::optional<std::uint8_t> enterKeyBehavior;
+    std::optional<std::uint8_t> tabKeyBehavior;
+    std::optional<std::uint32_t> maxLength;
+    std::optional<std::uint16_t> wordWrap;
+    std::optional<std::string> text;               // TextBox Text (distinct from Caption)
+    std::optional<std::uint8_t> autoWordSelect;
+    std::optional<std::uint8_t> integralHeight;
+    std::optional<std::uint16_t> passwordChar;
+    std::optional<std::string> value;              // CheckBox/OptionButton/ToggleButton Value
+    std::optional<std::uint32_t> lineCount;
+    std::optional<std::uint16_t> multiLine;
+    std::optional<std::uint16_t> multiSelect;
+    std::optional<std::uint16_t> hideSelection;
+    std::optional<std::uint8_t> dataEntry;
+    std::optional<std::uint8_t> dragBehavior;
+    std::optional<std::uint32_t> listRows;
+
+    // ---- CheckBox / OptionButton / ToggleButton (32-bit mask) ----
+    std::optional<std::string> groupName;
+    std::optional<std::uint16_t> groupNumber;
+    std::optional<std::uint16_t> tripleState;
+
+    // ---- SpinButton / ScrollBar (64-bit mask) ----
+    std::optional<std::uint32_t> min;
+    std::optional<std::uint32_t> max;
+    std::optional<std::uint32_t> smallChange;
+    std::optional<std::uint32_t> largeChange;
+    std::optional<std::uint8_t> orientation;
+
+    // ---- ComboBox / ListBox (64-bit mask) ----
+    std::optional<std::uint32_t> listWidth;
+    std::optional<std::uint32_t> boundColumn;
+    std::optional<std::uint32_t> textColumn;
+    std::optional<std::uint32_t> columnCount;
+    std::optional<std::string> columnWidths;
+    std::optional<std::uint8_t> style;             // ComboBox Style (0=dropdown,2=dropdown list)
+    std::optional<std::uint8_t> listStyle;
+    std::optional<std::uint8_t> matchEntry;
+    std::optional<std::uint8_t> showDropButtonWhen;
+    std::optional<std::uint8_t> dropButtonStyle;
+    std::optional<std::uint8_t> matchFound;
+    std::optional<std::uint8_t> iMEMode;
+    std::optional<std::uint8_t> iMEStatus;
 };
 
 struct VbaUserFormControlObjectInspection {
@@ -249,6 +300,46 @@ struct VbaUserFormControlObjectPatch {
     std::optional<std::uint16_t> accelerator;
     std::optional<std::int32_t> width;
     std::optional<std::int32_t> height;
+
+    // ---- TextBox / toggle-family / list-family extensions (P1Y-A) ----
+    std::optional<std::uint16_t> scrollBars;
+    std::optional<std::uint8_t> displayStyle;
+    std::optional<std::uint8_t> enterKeyBehavior;
+    std::optional<std::uint8_t> tabKeyBehavior;
+    std::optional<std::uint32_t> maxLength;
+    std::optional<std::uint16_t> wordWrap;
+    std::optional<std::string> text;
+    std::optional<std::uint8_t> autoWordSelect;
+    std::optional<std::uint8_t> integralHeight;
+    std::optional<std::uint16_t> passwordChar;
+    std::optional<std::string> value;
+    std::optional<std::uint16_t> multiLine;
+    std::optional<std::uint16_t> multiSelect;
+    std::optional<std::uint16_t> hideSelection;
+    std::optional<std::uint8_t> dataEntry;
+    std::optional<std::uint8_t> dragBehavior;
+    std::optional<std::uint32_t> listRows;
+    std::optional<std::string> groupName;
+    std::optional<std::uint16_t> groupNumber;
+    std::optional<std::uint16_t> tripleState;
+    std::optional<std::uint32_t> min;
+    std::optional<std::uint32_t> max;
+    std::optional<std::uint32_t> smallChange;
+    std::optional<std::uint32_t> largeChange;
+    std::optional<std::uint8_t> orientation;
+    std::optional<std::uint32_t> listWidth;
+    std::optional<std::uint32_t> boundColumn;
+    std::optional<std::uint32_t> textColumn;
+    std::optional<std::uint32_t> columnCount;
+    std::optional<std::string> columnWidths;
+    std::optional<std::uint8_t> style;
+    std::optional<std::uint8_t> listStyle;
+    std::optional<std::uint8_t> matchEntry;
+    std::optional<std::uint8_t> showDropButtonWhen;
+    std::optional<std::uint8_t> dropButtonStyle;
+    std::optional<std::uint8_t> matchFound;
+    std::optional<std::uint8_t> iMEMode;
+    std::optional<std::uint8_t> iMEStatus;
 };
 
 struct VbaUserFormControlsInspection {

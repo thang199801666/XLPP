@@ -54,6 +54,14 @@ std::string firstEntry(const xlpp::internal::ZipArchive& zip, const std::string&
 
 void assertPackageValid(const xlpp::internal::ZipArchive& zip, const char* message) {
     const auto report = xlpp::internal::RelationshipGraph::fromArchive(zip).validate();
+    if (!report.ok()) {
+        for (const auto& e : report.relationshipSyntaxErrors) std::cerr << "  SYNTAX: " << e << '\n';
+        for (const auto& e : report.duplicateRelationshipIds) std::cerr << "  DUP: " << e << '\n';
+        for (const auto& e : report.danglingRelationships) std::cerr << "  DANGLING: " << e << '\n';
+        for (const auto& e : report.orphanedParts) std::cerr << "  ORPHAN: " << e << '\n';
+        for (const auto& e : report.contentTypeErrors) std::cerr << "  CTYPE: " << e << '\n';
+        for (const auto& e : report.ownerReferenceErrors) std::cerr << "  OWNER: " << e << '\n';
+    }
     check(report.ok(), message);
 }
 
@@ -236,12 +244,63 @@ void testPrinterSettingsSurviveImportedChartRegenerationAndRemoval() {
     cleanup(source); cleanup(regenerated); cleanup(removed);
 }
 
+void testHeaderFooterDrawingModelOwnership() {
+    // P1Y-A: the Chartsheet header/footer drawing (legacyDrawingHF -> VML part)
+    // is modeled explicitly, not merely copied from the imported source XML.
+    const auto fixture = makeLegacyDrawingHFFixture();
+    const auto metadata = tempPath("xlpp_p1w_hf_model_metadata", ".xltx");
+    const auto replaced = tempPath("xlpp_p1w_hf_model_replaced", ".xltx");
+
+    xlpp::Workbook wb;
+    wb.load(fixture);
+    auto* cs = wb.chartsheet("Dashboard");
+    check(cs && cs->hasHeaderFooterDrawing(), "Imported Chartsheet models legacyDrawingHF ownership");
+    if (!cs) { cleanup(fixture); return; }
+    check(cs->headerFooterDrawingPart() == "xl/drawings/vmlDrawingHF1.vml",
+          "Imported Chartsheet resolves the header/footer VML part path");
+    check(cs->headerFooterDrawingRelationshipId() == "rIdHF",
+          "Imported Chartsheet retains the legacyDrawingHF relationship identity");
+    check(cs->headerFooterDrawingData() && cs->headerFooterDrawingData()->find("HFLogo") != std::string::npos,
+          "Imported Chartsheet retains the header/footer VML payload");
+
+    // Metadata edit keeps the modeled drawing ownership.
+    cs->view().setZoomScale(135);
+    wb.save(metadata);
+    checkLegacyDrawingHFOwnership(xlpp::internal::ZipArchive::open(metadata),
+                                  "Metadata-edited Chartsheet keeps header/footer drawing");
+
+    // Replacing the VML payload updates the bytes without regenerating the chart.
+    const std::string newVml = "<xml xmlns:v=\"urn:schemas-microsoft-com:vml\"><v:shape id=\"NewLogo\"/></xml>";
+    cs->setHeaderFooterDrawing("xl/drawings/vmlDrawingHF1.vml", "rIdHF", newVml);
+    wb.save(replaced);
+    auto replacedZip = xlpp::internal::ZipArchive::open(replaced);
+    check(replacedZip.contains("xl/drawings/vmlDrawingHF1.vml")
+          && replacedZip.get("xl/drawings/vmlDrawingHF1.vml").find("NewLogo") != std::string::npos,
+          "Replacing header/footer VML payload updates the package bytes");
+    const auto replacedSheet = firstEntry(replacedZip, "xl/chartsheets/sheet", ".xml");
+    check(!replacedSheet.empty() && replacedZip.get(replacedSheet).find("<legacyDrawingHF") != std::string::npos,
+          "Replaced header/footer drawing retains the legacyDrawingHF owner node");
+    assertPackageValid(replacedZip, "Replaced header/footer drawing package validates");
+
+    // Reload round-trips the modeled ownership.
+    xlpp::Workbook round;
+    round.load(replaced);
+    auto* roundCs = round.chartsheet("Dashboard");
+    check(roundCs && roundCs->hasHeaderFooterDrawing() && roundCs->headerFooterDrawingPart() == "xl/drawings/vmlDrawingHF1.vml"
+          && roundCs->headerFooterDrawingData()
+          && roundCs->headerFooterDrawingData()->find("NewLogo") != std::string::npos,
+          "Header/footer drawing ownership round-trips through save/load");
+
+    cleanup(fixture); cleanup(metadata); cleanup(replaced);
+}
+
 } // namespace
 
 int main() {
     testGeneratedPrinterSettingsRoundTripAndClear();
     testLegacyDrawingHFPreservationAcrossMetadataAndChartRegeneration();
     testPrinterSettingsSurviveImportedChartRegenerationAndRemoval();
+    testHeaderFooterDrawingModelOwnership();
     if (failures == 0) { std::cout << "P1W Chartsheet package-ownership regression: PASS\n"; return 0; }
     std::cerr << failures << " P1W Chartsheet package-ownership check(s) failed\n";
     return 1;

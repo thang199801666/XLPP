@@ -1,5 +1,5 @@
 #include "ReferenceTransformer.h"
-#include "XLPP/Worksheet/WorksheetName.h"
+#include "../Internal/WorksheetName.h"
 #include <XLPP/Cell/CellReference.h>
 #include <algorithm>
 #include <cctype>
