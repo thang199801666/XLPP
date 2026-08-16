@@ -79,6 +79,13 @@ struct UserFormControlObjectLayout {
     bool maskIs64Bit{false};
 };
 
+// Serializes a high-level VbaUserFormDesign into a complete Designer Storage
+// ("f" FormControl + FormSiteData, "o" control-object streams, "f3"
+// FormControlEx and "Designer" Designer_CompData). The result round-trips
+// through the inspection parsers in this module and is installable through
+// Workbook::addUserForm / setVbaDesignerStorage.
+VbaDesignerStorage buildUserFormDesign(const VbaUserFormDesign& design);
+
 // Byte-level MS-OFORMS primitives shared by UserForm readers and writers.
 std::size_t userFormAlign(std::size_t offset, std::size_t alignment);
 std::uint16_t userFormU16(const std::vector<unsigned char>& bytes, std::size_t offset);

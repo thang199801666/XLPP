@@ -366,6 +366,50 @@ struct VbaDesignerValidationReport {
     bool ok() const noexcept { return issues.empty(); }
 };
 
+// High-level authoring model for a Microsoft Forms 2.0 UserForm. buildUserFormDesign()
+// (see Workbook/WorkbookUserForm.h) turns this into the binary "f"/"o"/"f3"/
+// "Designer" streams of a VbaDesignerStorage that Workbook::addUserForm installs.
+struct VbaUserFormControlDesign {
+    VbaUserFormControlKind kind{VbaUserFormControlKind::Label};
+    std::string name;
+    std::string caption;
+    std::string text;                       // TextBox Text
+    bool value{false};                      // CheckBox/OptionButton/ToggleButton Value
+    std::int32_t top{0};
+    std::int32_t left{0};
+    std::int32_t width{120};
+    std::int32_t height{24};
+    std::uint32_t foreColor{0x80000008};    // window text
+    std::uint32_t backColor{0x80000005};    // window background
+    std::uint32_t borderColor{0x80000012};
+    std::uint32_t variousPropertyBits{0x60000000};
+    std::string controlTipText;
+    std::uint16_t tabIndex{0};
+    bool wordWrap{true};
+    bool multiLine{false};
+    bool passwordChar{false};
+    std::uint32_t maxLength{0};
+    bool groupName{false};
+};
+
+// Authoring-level UserForm description consumed by buildUserFormDesign().
+struct VbaUserFormDesign {
+    std::string name{"UserForm1"};
+    std::string caption{"UserForm1"};
+    std::int32_t width{360};
+    std::int32_t height{180};
+    std::uint32_t backColor{0x8000000F};    // button face
+    std::uint32_t foreColor{0x80000012};
+    std::uint32_t borderColor{0x80000012};
+    std::uint32_t booleanProperties{0x00000E00};
+    std::uint8_t borderStyle{0};            // 0=fixed dialog, 1=sizable
+    std::uint8_t specialEffect{0};
+    std::uint8_t scrollBars{0};
+    std::uint8_t cycle{0};
+    std::string vbaSource{"Option Explicit\n"};
+    std::vector<VbaUserFormControlDesign> controls;
+};
+
 struct VbaProjectInfo {
     std::string name{"VBAProject"};
     std::string description;

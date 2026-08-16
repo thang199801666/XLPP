@@ -424,6 +424,10 @@ public:
     // MS-OFORMS streams remain byte-preserved.
     void setVbaDesignerModule(std::string moduleName, std::string source, VbaDesignerStorage storage,
                               std::string designerClassId = "{AC9F2F90-E877-11CE-9F68-00AA00574A4F}");
+    // Author a Microsoft Forms 2.0 UserForm from a high-level design. Builds
+    // the "f"/"o"/"f3"/"Designer" binary streams, installs the Designer module
+    // (with the UserForm source) and registers the designer storage.
+    void addUserForm(const VbaUserFormDesign& design);
     std::vector<VbaDesignerStorage> vbaDesignerStorages() const;
     void setVbaDesignerStorage(VbaDesignerStorage storage);
     bool removeVbaDesignerStorage(const std::string& storageName);

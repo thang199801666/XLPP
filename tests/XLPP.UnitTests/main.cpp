@@ -4477,6 +4477,78 @@ void testFormulaCalculation(TestContext& test) {
     static_cast<void>(diagnostic);
 }
 
+void testUserFormAuthoring(TestContext& test) {
+    // Author a UserForm from a high-level design, save, reload and verify the
+    // binary MS-OFORMS streams decode back through the inspection parsers.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_userform.xlsm";
+    xlpp::VbaUserFormDesign design;
+    design.name = "UserForm1";
+    design.caption = "My Form";
+    design.width = 320;
+    design.height = 160;
+
+    xlpp::VbaUserFormControlDesign label;
+    label.kind = xlpp::VbaUserFormControlKind::Label;
+    label.name = "lblTitle";
+    label.caption = "Enter your name:";
+    label.top = 12; label.left = 12; label.width = 120; label.height = 18;
+    design.controls.push_back(label);
+
+    xlpp::VbaUserFormControlDesign input;
+    input.kind = xlpp::VbaUserFormControlKind::TextBox;
+    input.name = "txtName";
+    input.text = "default";
+    input.top = 36; input.left = 12; input.width = 200; input.height = 22;
+    design.controls.push_back(input);
+
+    xlpp::VbaUserFormControlDesign ok;
+    ok.kind = xlpp::VbaUserFormControlKind::CommandButton;
+    ok.name = "cmdOK";
+    ok.caption = "OK";
+    ok.top = 80; ok.left = 240; ok.width = 60; ok.height = 22;
+    design.controls.push_back(ok);
+
+    xlpp::Workbook wb;
+    wb.addWorksheet("S1");
+    wb.addUserForm(design);
+    wb.save(source);
+
+    xlpp::Workbook loaded;
+    try {
+        loaded.load(source);
+    } catch (const std::exception& e) {
+        test.checkTrue(false, std::string("UserForm authoring load threw: ") + e.what());
+        std::filesystem::remove(source);
+        return;
+    }
+    test.checkTrue(loaded.hasVbaProject(), "UserForm workbook keeps its VBA project");
+    const auto modules = loaded.vbaModules();
+    test.checkTrue(std::any_of(modules.begin(), modules.end(), [](const auto& module) {
+        return module.name == "UserForm1" && module.type == xlpp::VbaModuleType::Designer;
+    }), "UserForm1 Designer module is present");
+
+    const auto info = loaded.inspectVbaUserForm("UserForm1");
+    test.checkTrue(info.valid, "Form stream decodes");
+    test.checkTrue(info.properties.caption.has_value() && *info.properties.caption == "My Form", "Form caption round-trips");
+    test.checkEqual(info.properties.logicalWidth.value_or(0), std::int32_t{320}, "Form logical width round-trips");
+
+    const auto controls = loaded.inspectVbaUserFormControls("UserForm1");
+    test.checkTrue(controls.valid, "FormSiteData decodes");
+    test.checkEqual(controls.controls.size(), std::size_t{3}, "Three control sites");
+    test.checkEqual(controls.controls[0].name.value_or(""), std::string("lblTitle"), "First control name");
+    test.checkTrue(controls.controls[0].kind == xlpp::VbaUserFormControlKind::Label, "First control is a Label");
+    test.checkTrue(controls.controls[1].kind == xlpp::VbaUserFormControlKind::TextBox, "Second control is a TextBox");
+    test.checkTrue(controls.controls[2].kind == xlpp::VbaUserFormControlKind::CommandButton, "Third control is a CommandButton");
+
+    const auto obj = loaded.inspectVbaUserFormControlObject("UserForm1", 0);
+    test.checkTrue(obj.valid, "Label object stream decodes");
+    test.checkEqual(obj.properties.caption.value_or(""), std::string("Enter your name:"), "Label caption round-trips");
+    const auto txt = loaded.inspectVbaUserFormControlObject("UserForm1", 1);
+    test.checkTrue(txt.valid, "TextBox object stream decodes");
+    test.checkEqual(txt.properties.text.value_or(""), std::string("default"), "TextBox text round-trips");
+    std::filesystem::remove(source);
+}
+
 void testNumberFormatDetection(TestContext& test) {
     test.checkTrue(xlpp::isDateFormatCode("yyyy-mm-dd", 0), "Literal date format detected");
     test.checkTrue(xlpp::isDateFormatCode("m/d/yy", 14), "Built-in id 14 is a date");
@@ -13469,6 +13541,7 @@ int main() {
     {"XLSB writer round-trip", testXlsbWriterRoundTrip},
     {"Shape authoring", testShapeAuthoring},
     {"Formula calculation engine", testFormulaCalculation},
+    {"UserForm authoring", testUserFormAuthoring},
         {"Legacy XLS round-trip", testLegacyXlsRoundTrip},
         {"Comment mutation after cached save", testCommentMutationAfterSave},
         {"Rich-text legacy comment import", testRichTextCommentImport},

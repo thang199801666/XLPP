@@ -653,6 +653,15 @@ void Workbook::setVbaClassModuleText(std::string moduleName, std::string source)
     setVbaModule({std::move(moduleName), std::move(source), VbaModuleType::Class});
 }
 
+void Workbook::addUserForm(const VbaUserFormDesign& design) {
+    auto storage = internal::buildUserFormDesign(design);
+    std::string source = design.vbaSource;
+    source += "\nPrivate Sub UserForm_Initialize()\n";
+    source += "Me.Caption = \"" + design.caption + "\"\n";
+    source += "End Sub\n";
+    setVbaDesignerModule(design.name, source, std::move(storage));
+}
+
 void Workbook::setVbaDesignerModule(std::string moduleName, std::string source, VbaDesignerStorage storage,
                                     std::string designerClassId) {
     if (storage.name.empty()) storage.name = moduleName;

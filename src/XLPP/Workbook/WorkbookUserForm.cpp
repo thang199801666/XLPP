@@ -750,6 +750,372 @@ void requireUserFormObjectField(bool requested, const std::optional<std::size_t>
 void requireUserFormSiteField(bool requested, const std::optional<std::size_t>& offset, const char* name) {
     if (requested && !offset) throw std::invalid_argument(std::string("UserForm control-site property is not materialized in SitePropMask: ") + name);
 }
+
+namespace {
+
+void ufPutU8(std::vector<unsigned char>& out, std::uint8_t value) { out.push_back(value); }
+void ufPutU16(std::vector<unsigned char>& out, std::uint16_t value) {
+    out.push_back(static_cast<unsigned char>(value & 0xFFu));
+    out.push_back(static_cast<unsigned char>((value >> 8) & 0xFFu));
+}
+void ufPutU32(std::vector<unsigned char>& out, std::uint32_t value) {
+    ufPutU16(out, static_cast<std::uint16_t>(value & 0xFFFFu));
+    ufPutU16(out, static_cast<std::uint16_t>((value >> 16) & 0xFFFFu));
+}
+void ufPutI32(std::vector<unsigned char>& out, std::int32_t value) { ufPutU32(out, static_cast<std::uint32_t>(value)); }
+
+struct UfString {
+    bool present{false};
+    std::vector<unsigned char> bytes;
+    std::uint32_t count{0};
+};
+UfString ufEncodeString(const std::string& text) {
+    UfString field;
+    auto [payload, compressed] = encodeUserFormString(text);
+    field.bytes = std::move(payload);
+    field.count = (compressed ? 0x80000000u : 0u) | static_cast<std::uint32_t>(field.bytes.size());
+    field.present = true;
+    return field;
+}
+
+std::uint16_t ufClsidCacheIndex(VbaUserFormControlKind kind) {
+    switch (kind) {
+        case VbaUserFormControlKind::Form: return 7;
+        case VbaUserFormControlKind::Image: return 12;
+        case VbaUserFormControlKind::Frame: return 14;
+        case VbaUserFormControlKind::MorphData: return 15;
+        case VbaUserFormControlKind::SpinButton: return 16;
+        case VbaUserFormControlKind::CommandButton: return 17;
+        case VbaUserFormControlKind::TabStrip: return 18;
+        case VbaUserFormControlKind::Label: return 21;
+        case VbaUserFormControlKind::TextBox: return 23;
+        case VbaUserFormControlKind::ListBox: return 24;
+        case VbaUserFormControlKind::ComboBox: return 25;
+        case VbaUserFormControlKind::CheckBox: return 26;
+        case VbaUserFormControlKind::OptionButton: return 27;
+        case VbaUserFormControlKind::ToggleButton: return 28;
+        case VbaUserFormControlKind::ScrollBar: return 47;
+        case VbaUserFormControlKind::MultiPage: return 57;
+        default: return 0;
+    }
+}
+
+// Serialize the control-object stream for one control (the "o" stream slice).
+std::vector<unsigned char> ufBuildControlObject(const VbaUserFormControlDesign& c) {
+    const auto kind = c.kind;
+    const bool mask64 = kind == VbaUserFormControlKind::ComboBox || kind == VbaUserFormControlKind::ListBox;
+    const auto caption = ufEncodeString(c.caption);
+    const auto text = ufEncodeString(c.text);
+    const auto value = ufEncodeString(c.value ? "True" : "False");
+    const auto groupName = ufEncodeString("");
+    const auto columnWidths = ufEncodeString("");
+
+    std::vector<unsigned char> body;
+    std::uint32_t mask = 0;
+    std::uint32_t maskHigh = 0;
+    auto setBit = [&](unsigned bit) {
+        if (bit < 32) mask |= (1u << bit);
+        else maskHigh |= (1u << (bit - 32));
+    };
+    setBit(0); setBit(1); setBit(2);
+    ufPutU32(body, mask);                 // placeholder; patched after the switch
+    if (mask64) ufPutU32(body, maskHigh);
+
+    // Declare every field this class serializes; the emitter below follows the
+    // same ascending flag-bit order as the reader's `take` calls.
+    auto align = [&](std::size_t size) {
+        const std::size_t pad = std::min<std::size_t>(size, 4);
+        while (body.size() % pad != 0) body.push_back(0);
+    };
+    auto rel = [&]() -> std::size_t { return body.size(); };
+
+    switch (kind) {
+        case VbaUserFormControlKind::Label:
+            setBit(3); setBit(6); setBit(7); setBit(8); setBit(9); setBit(11);
+            align(4); ufPutU32(body, c.foreColor);
+            align(4); ufPutU32(body, c.backColor);
+            align(4); ufPutU32(body, c.variousPropertyBits);
+            align(4); ufPutU32(body, caption.count);
+            align(1); ufPutU8(body, 0);
+            align(4); ufPutU32(body, c.borderColor);
+            align(2); ufPutU16(body, 0);
+            align(2); ufPutU16(body, 0);
+            align(2); ufPutU16(body, 0);
+            break;
+        case VbaUserFormControlKind::CommandButton:
+            setBit(3); setBit(4); setBit(6); setBit(8);
+            align(4); ufPutU32(body, c.foreColor);
+            align(4); ufPutU32(body, c.backColor);
+            align(4); ufPutU32(body, c.variousPropertyBits);
+            align(4); ufPutU32(body, caption.count);
+            align(4); ufPutU32(body, 0);                   // bit4 picturePosition
+            align(1); ufPutU8(body, 0);                    // bit6 mousePointer
+            align(2); ufPutU16(body, 0);                   // bit8 accelerator
+            break;
+        case VbaUserFormControlKind::TextBox:
+            setBit(3); setBit(4); setBit(5); setBit(6); setBit(8); setBit(9); setBit(10);
+            setBit(11); setBit(13); setBit(14); setBit(15); setBit(16); setBit(17);
+            setBit(20); setBit(21); setBit(22); setBit(23); setBit(24); setBit(25); setBit(26);
+            setBit(27); setBit(28); setBit(29);
+            align(4); ufPutU32(body, c.foreColor);
+            align(4); ufPutU32(body, c.backColor);
+            align(4); ufPutU32(body, c.variousPropertyBits);
+            align(4); ufPutU32(body, caption.count);
+            align(4); ufPutU32(body, 0);                   // bit4 picturePosition
+            align(2); ufPutU16(body, 0);                   // bit5 specialEffect
+            align(1); ufPutU8(body, 0);                    // bit6 mousePointer
+            align(4); ufPutU32(body, c.borderColor);       // bit8 borderColor
+            align(2); ufPutU16(body, 0);                   // bit9 borderStyle
+            align(2); ufPutU16(body, 0);                   // bit10 scrollBars
+            align(1); ufPutU8(body, 0);                    // bit11 displayStyle
+            align(1); ufPutU8(body, 0);                    // bit13 enterKeyBehavior
+            align(1); ufPutU8(body, 0);                    // bit14 tabKeyBehavior
+            align(4); ufPutU32(body, c.maxLength);         // bit15 maxLength
+            align(2); ufPutU16(body, c.wordWrap ? 1 : 0);  // bit16 wordWrap
+            align(4); ufPutU32(body, text.count);          // bit17 Text
+            align(1); ufPutU8(body, 0);                    // bit20 autoWordSelect
+            align(1); ufPutU8(body, 0);                    // bit21 integralHeight
+            align(2); ufPutU16(body, c.passwordChar ? 42 : 0); // bit22 passwordChar
+            align(4); ufPutU32(body, value.count);         // bit23 Value
+            align(4); ufPutU32(body, 0);                   // bit24 lineCount
+            align(2); ufPutU16(body, c.multiLine ? 1 : 0); // bit25 multiLine
+            align(2); ufPutU16(body, 0);                   // bit26 multiSelect
+            align(2); ufPutU16(body, 1);                   // bit27 hideSelection
+            align(1); ufPutU8(body, 0);                    // bit28 dataEntry
+            align(1); ufPutU8(body, 0);                    // bit29 dragBehavior
+            break;
+        case VbaUserFormControlKind::CheckBox:
+        case VbaUserFormControlKind::OptionButton:
+        case VbaUserFormControlKind::ToggleButton:
+            setBit(3); setBit(4); setBit(5); setBit(6); setBit(8); setBit(9); setBit(10);
+            setBit(11); setBit(13); setBit(14); setBit(15);
+            align(4); ufPutU32(body, c.foreColor);
+            align(4); ufPutU32(body, c.backColor);
+            align(4); ufPutU32(body, c.variousPropertyBits);
+            align(4); ufPutU32(body, caption.count);
+            align(4); ufPutU32(body, 0);                   // bit4 picturePosition
+            align(2); ufPutU16(body, 0);                   // bit5 specialEffect
+            align(1); ufPutU8(body, 0);                    // bit6 mousePointer
+            align(4); ufPutU32(body, c.borderColor);       // bit8 borderColor
+            align(2); ufPutU16(body, 0);                   // bit9 borderStyle
+            align(4); ufPutU32(body, groupName.count);     // bit10 GroupName
+            align(2); ufPutU16(body, 0);                   // bit11 accelerator
+            align(4); ufPutU32(body, value.count);         // bit13 Value
+            align(2); ufPutU16(body, c.groupName ? 1 : 0); // bit14 groupNumber
+            align(2); ufPutU16(body, 0);                   // bit15 tripleState
+            break;
+        case VbaUserFormControlKind::ComboBox:
+        case VbaUserFormControlKind::ListBox:
+            setBit(3); setBit(4); setBit(5); setBit(6); setBit(8); setBit(9); setBit(10);
+            setBit(11); setBit(15); setBit(16); setBit(17); setBit(18); setBit(19);
+            setBit(20); setBit(21); setBit(22); setBit(23); setBit(24); setBit(25);
+            setBit(26); setBit(27); setBit(28); setBit(29); setBit(30);
+            align(4); ufPutU32(body, c.foreColor);
+            align(4); ufPutU32(body, c.backColor);
+            align(4); ufPutU32(body, c.variousPropertyBits);
+            align(4); ufPutU32(body, caption.count);
+            align(4); ufPutU32(body, 0);                   // bit4 picturePosition
+            align(2); ufPutU16(body, 0);                   // bit5 specialEffect
+            align(1); ufPutU8(body, 0);                    // bit6 mousePointer
+            align(4); ufPutU32(body, c.borderColor);       // bit8 borderColor
+            align(2); ufPutU16(body, 0);                   // bit9 borderStyle
+            align(2); ufPutU16(body, 0);                   // bit10 scrollBars
+            align(1); ufPutU8(body, 0);                    // bit11 displayStyle
+            align(4); ufPutU32(body, 0);                   // bit15 listRows
+            align(4); ufPutU32(body, 0);                   // bit16 listWidth
+            align(4); ufPutU32(body, 0);                   // bit17 boundColumn
+            align(4); ufPutU32(body, 0);                   // bit18 textColumn
+            align(4); ufPutU32(body, 0);                   // bit19 columnCount
+            align(4); ufPutU32(body, columnWidths.count);  // bit20 columnWidths
+            align(1); ufPutU8(body, 0);                    // bit21 style
+            align(1); ufPutU8(body, 0);                    // bit22 listStyle
+            align(1); ufPutU8(body, 0);                    // bit23 matchEntry
+            align(1); ufPutU8(body, 0);                    // bit24 showDropButtonWhen
+            align(1); ufPutU8(body, 0);                    // bit25 dropButtonStyle
+            align(2); ufPutU16(body, 0);                   // bit26 multiSelect
+            align(4); ufPutU32(body, value.count);         // bit27 Value
+            align(1); ufPutU8(body, 0);                    // bit28 matchFound
+            align(1); ufPutU8(body, 0);                    // bit29 iMEMode
+            align(1); ufPutU8(body, 0);                    // bit30 iMEStatus
+            break;
+        default:
+            break;
+    }
+
+    // ExtraDataBlock: string payloads in ascending flag-bit order, aligned.
+    userFormPutU32(body, 0, mask);
+    if (mask64) userFormPutU32(body, 4, maskHigh);
+    auto extraStart = rel();
+    const auto pad = extraStart % 4;
+    extraStart += pad == 0 ? 0 : (4 - pad);
+    body.resize(extraStart);
+    auto emitPayload = [&](const UfString& field) {
+        if (!field.present) return;
+        while (body.size() % 4 != 0) body.push_back(0);
+        body.insert(body.end(), field.bytes.begin(), field.bytes.end());
+    };
+    switch (kind) {
+        case VbaUserFormControlKind::TextBox:
+            emitPayload(caption); emitPayload(text); emitPayload(value);
+            break;
+        case VbaUserFormControlKind::CheckBox:
+        case VbaUserFormControlKind::OptionButton:
+        case VbaUserFormControlKind::ToggleButton:
+            emitPayload(caption); emitPayload(groupName); emitPayload(value);
+            break;
+        case VbaUserFormControlKind::ComboBox:
+        case VbaUserFormControlKind::ListBox:
+            emitPayload(caption); emitPayload(columnWidths); emitPayload(value);
+            break;
+        default:
+            emitPayload(caption);
+            break;
+    }
+
+    std::vector<unsigned char> out;
+    out.push_back(0); out.push_back(2);                    // minor/major
+    ufPutU16(out, static_cast<std::uint16_t>(body.size())); // cbControl
+    out.insert(out.end(), body.begin(), body.end());
+    return out;
+}
+
+// Serialize the FormControl + FormSiteData payload of stream "f".
+std::vector<unsigned char> ufBuildFormStream(const VbaUserFormDesign& design,
+                                             const std::vector<std::vector<unsigned char>>& objects) {
+    const auto caption = ufEncodeString(design.caption);
+    const std::uint32_t nextId = static_cast<std::uint32_t>(design.controls.size() + 1);
+
+    std::vector<unsigned char> body;
+    std::uint32_t mask = 0;
+    auto setBit = [&](unsigned bit) { mask |= (1u << bit); };
+    setBit(1); setBit(2); setBit(3); setBit(6); setBit(7); setBit(8); setBit(9);
+    setBit(10); setBit(11); setBit(16); setBit(17); setBit(18); setBit(19);
+    ufPutU32(body, mask);
+
+    auto align = [&](std::size_t size) {
+        const std::size_t pad = std::min<std::size_t>(size, 4);
+        while (body.size() % pad != 0) body.push_back(0);
+    };
+    align(4); ufPutU32(body, design.backColor);      // bit1
+    align(4); ufPutU32(body, design.foreColor);      // bit2
+    align(4); ufPutU32(body, nextId);                // bit3
+    align(4); ufPutU32(body, design.booleanProperties); // bit6
+    align(1); ufPutU8(body, design.borderStyle);     // bit7
+    align(1); ufPutU8(body, 0);                      // bit8 mousePointer
+    align(1); ufPutU8(body, design.scrollBars);      // bit9
+    align(1); ufPutU8(body, design.cycle);           // bit16
+    align(1); ufPutU8(body, design.specialEffect);   // bit17
+    align(4); ufPutU32(body, design.borderColor);    // bit18
+    align(4); ufPutU32(body, caption.count);         // bit19
+    // ExtraDataBlock (fixed-size fields, no alignment between them).
+    const auto extraStart = body.size();
+    while (body.size() % 4 != 0) body.push_back(0);
+    ufPutI32(body, design.width);                    // bit10 displayedSize
+    ufPutI32(body, design.height);
+    ufPutI32(body, design.width);                    // bit11 logicalSize
+    ufPutI32(body, design.height);
+    body.insert(body.end(), caption.bytes.begin(), caption.bytes.end());
+
+    std::vector<unsigned char> stream;
+    stream.push_back(0); stream.push_back(2);
+    const auto cbForm = static_cast<std::size_t>(body.size());
+    ufPutU16(stream, static_cast<std::uint16_t>(cbForm));
+    stream.insert(stream.end(), body.begin(), body.end());
+
+    // FormSiteData. The reader computes bodyStart as countSites + 8 and
+    // requires bodyStart + countBytes == stream size, so countBytes covers the
+    // depth bytes (aligned) plus every site record.
+    const auto formSiteDataStart = stream.size();
+    ufPutU16(stream, 0);                             // classInfoCount (none)
+    ufPutU32(stream, static_cast<std::uint32_t>(objects.size()));
+    const auto countBytesPos = stream.size();
+    ufPutU32(stream, 0);                             // patched below
+    const auto depthStart = stream.size();
+    for (std::size_t i = 0; i < objects.size(); ++i) {
+        stream.push_back(1);                         // depth
+        stream.push_back(1);                         // type 1 (single site)
+    }
+    const auto bodyStart = countBytesPos + 4;
+    while ((stream.size() - bodyStart) % 4 != 0) stream.push_back(0);
+    for (std::size_t i = 0; i < objects.size(); ++i) {
+        const auto& control = design.controls[i];
+        const auto& object = objects[i];
+        const auto name = ufEncodeString(control.name);
+        const auto tip = ufEncodeString(control.controlTipText);
+        const auto clsid = ufClsidCacheIndex(control.kind);
+
+        std::vector<unsigned char> site;
+        std::uint32_t siteMask = 0;
+        auto setBit = [&](unsigned bit) { siteMask |= (1u << bit); };
+        setBit(0); setBit(2); setBit(3); setBit(4); setBit(5); setBit(6); setBit(7);
+        setBit(8); setBit(9); setBit(11);
+        ufPutU32(site, siteMask);
+        auto align = [&](std::size_t size) {
+            const std::size_t pad = std::min<std::size_t>(size, 4);
+            while (site.size() % pad != 0) site.push_back(0);
+        };
+        align(4); ufPutU32(site, name.count);        // bit0 Name
+        align(4); ufPutI32(site, static_cast<std::int32_t>(i + 1)); // bit2 Id
+        align(4); ufPutU32(site, 0);                 // bit3 HelpContextId
+        align(4); ufPutU32(site, 0);                 // bit4 BitFlags
+        align(4); ufPutU32(site, static_cast<std::uint32_t>(object.size())); // bit5 ObjectStreamSize
+        align(2); ufPutU16(site, static_cast<std::uint16_t>(control.tabIndex)); // bit6
+        align(2); ufPutU16(site, clsid);             // bit7 ClsidCacheIndex
+        align(2); ufPutU16(site, 0);                 // bit9 GroupId
+        align(4); ufPutU32(site, tip.count);         // bit11 ControlTipText
+        while (site.size() % 4 != 0) site.push_back(0);
+        site.insert(site.end(), name.bytes.begin(), name.bytes.end());
+        ufPutI32(site, control.top);                 // bit8 Position
+        ufPutI32(site, control.left);
+        site.insert(site.end(), tip.bytes.begin(), tip.bytes.end());
+
+        std::vector<unsigned char> siteRecord;
+        ufPutU16(siteRecord, 0);                     // version
+        ufPutU16(siteRecord, static_cast<std::uint16_t>(site.size())); // cbSite
+        siteRecord.insert(siteRecord.end(), site.begin(), site.end());
+        stream.insert(stream.end(), siteRecord.begin(), siteRecord.end());
+    }
+    userFormPutU32(stream, countBytesPos, static_cast<std::uint32_t>(stream.size() - (countBytesPos + 4)));
+    return stream;
+}
+
+} // namespace
+
+VbaDesignerStorage buildUserFormDesign(const VbaUserFormDesign& design) {
+    if (design.name.empty()) throw std::invalid_argument("UserForm design requires a module name");
+    std::vector<std::vector<unsigned char>> objects;
+    objects.reserve(design.controls.size());
+    for (const auto& control : design.controls) objects.push_back(ufBuildControlObject(control));
+    const auto formStream = ufBuildFormStream(design, objects);
+
+    std::vector<unsigned char> objectStream;
+    for (const auto& object : objects) objectStream.insert(objectStream.end(), object.begin(), object.end());
+
+    // "f3" FormControlEx: header + empty FormControlEx body.
+    std::vector<unsigned char> f3;
+    f3.push_back(0); f3.push_back(2);
+    ufPutU16(f3, 0x1C); // cbHeader
+    ufPutU16(f3, 4);    // cbData
+    ufPutU32(f3, 0);    // FormControlEx PropMask (no optional properties)
+
+    // "Designer" Designer_CompData: FormStreamId + CompressedName + flags.
+    const auto formName = ufEncodeString(design.name);
+    std::vector<unsigned char> designer;
+    ufPutU32(designer, 0x000F0301u);                 // Designer_FormStreamId
+    ufPutU32(designer, formName.count);
+    designer.insert(designer.end(), formName.bytes.begin(), formName.bytes.end());
+    ufPutU32(designer, 0);                           // Designer_Flags
+    ufPutU32(designer, 0);                           // UserFormProperties: none
+
+    VbaDesignerStorage storage;
+    storage.name = design.name;
+    storage.streams.push_back({"f", std::move(formStream)});
+    storage.streams.push_back({"o", std::move(objectStream)});
+    storage.streams.push_back({"f3", std::move(f3)});
+    storage.streams.push_back({"Designer", std::move(designer)});
+    return storage;
+}
+
 } // namespace internal
 } // namespace xlpp
 
