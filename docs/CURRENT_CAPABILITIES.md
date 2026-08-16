@@ -1,6 +1,6 @@
 # XL++ Current Capabilities
 
-**Release:** v1.12.0 / P0Z-I  
+**Release:** v1.1.2  
 **Status vocabulary:** `Supported`, `Supported with limitations`, `Preservation-first`, `Experimental`, `Unsupported`.
 
 This document is the active capability summary. Historical gap lists and milestone notes are useful for provenance but must not be used as the current source of truth.

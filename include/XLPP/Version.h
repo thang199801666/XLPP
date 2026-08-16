@@ -2,9 +2,9 @@
 #include <string_view>
 
 #define XLPP_VERSION_MAJOR 1
-#define XLPP_VERSION_MINOR 12
-#define XLPP_VERSION_PATCH 0
-#define XLPP_VERSION_STRING "1.12.0"
+#define XLPP_VERSION_MINOR 1
+#define XLPP_VERSION_PATCH 2
+#define XLPP_VERSION_STRING "1.1.2"
 #define XLPP_C_ABI_VERSION 2
 
 namespace xlpp {

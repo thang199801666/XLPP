@@ -1,12 +1,11 @@
 {
   "schema": 1,
-  "release": "1.12.0",
-  "milestone": "P0Z-I",
+  "release": "1.1.2",
   "areas": {
     "workbook_core": {"status": "supported"},
     "styles": {"status": "supported_with_limitations"},
     "tables": {"status": "supported"},
-    "advanced_autofilter": {"status": "supported", "since": "1.12.0"},
+    "advanced_autofilter": {"status": "supported", "since": "1.1.2"},
     "data_validation": {"status": "supported"},
     "conditional_formatting": {"status": "supported_with_limitations"},
     "formula_calculation": {"status": "supported_with_limitations", "dirty_recalculation": true, "catalog_expansion": true, "week_numbering": true, "working_days": true, "percentile_quartile": true, "correlation_regression": true},

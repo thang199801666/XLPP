@@ -1,4 +1,4 @@
-# Binding parity policy — v1.12.0
+# Binding parity policy — v1.1.2
 
 XLPP maintains four public access layers: native C++, C ABI, Python, and C#. High-level Workbook/Worksheet capabilities are release-blocking parity items; low-level package/preservation internals may remain native-only when exposing them would create unsafe or unstable abstractions.
 
