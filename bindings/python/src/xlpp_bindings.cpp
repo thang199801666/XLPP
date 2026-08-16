@@ -329,6 +329,12 @@ PYBIND11_MODULE(xlpp, m) {
         .def(py::init<std::string>(), py::arg("argb"))
         .def("set_argb", &Color::setArgb, py::return_value_policy::reference_internal)
         .def_property("argb", &Color::argb, &Color::setArgb)
+        .def("set_theme", &Color::setTheme)
+        .def_property("theme", &Color::theme, &Color::setTheme)
+        .def_property_readonly("has_theme", &Color::hasTheme)
+        .def("set_tint", [](Color& c, double v) -> Color& { c.setTint(static_cast<float>(v)); return c; })
+        .def_property("tint", [](const Color& c) { return c.tint(); },
+                      [](Color& c, double v) { c.setTint(static_cast<float>(v)); })
         .def("empty", &Color::empty);
 
     // === Font ===
@@ -339,6 +345,9 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("bold", &Font::bold, [](Font& f, bool v) -> Font& { f.setBold(v); return f; })
         .def_property("italic", &Font::italic, [](Font& f, bool v) -> Font& { f.setItalic(v); return f; })
         .def_property("underline", &Font::underline, [](Font& f, bool v) -> Font& { f.setUnderline(v); return f; })
+        .def_property("underline_style", &Font::underlineStyle,
+                      [](Font& f, std::string v) -> Font& { f.setUnderlineStyle(std::move(v)); return f; })
+        .def("set_underline_style", [](Font& f, std::string v) -> Font& { f.setUnderlineStyle(std::move(v)); return f; })
         .def_property("strike", &Font::strike, [](Font& f, bool v) -> Font& { f.setStrike(v); return f; })
         .def("color", static_cast<Color& (Font::*)()>(&Font::color), py::return_value_policy::reference_internal);
 
@@ -1193,7 +1202,9 @@ PYBIND11_MODULE(xlpp, m) {
         .def(py::init<>())
         .def_readwrite("warnings", &LoadDiagnostics::warnings)
         .def_readwrite("errors", &LoadDiagnostics::errors)
-        .def("had_errors", &LoadDiagnostics::hadErrors);
+        .def("had_errors", &LoadDiagnostics::hadErrors)
+        .def_property_readonly("warning_count", [](const LoadDiagnostics& d) { return d.warnings.size(); })
+        .def_property_readonly("error_count", [](const LoadDiagnostics& d) { return d.errors.size(); });
 
     // === CellRange ===
     py::class_<CellRange>(m, "CellRange")
@@ -1336,6 +1347,20 @@ PYBIND11_MODULE(xlpp, m) {
             auto* c = ws.tryCell(row, col);
             return c ? py::cast(*c, py::return_value_policy::reference) : py::none{};
         })
+        .def("try_cell_rc", [](const Worksheet& ws, std::size_t row, std::size_t col) -> py::object {
+            auto* c = ws.tryCell(row, col);
+            return c ? py::cast(*c, py::return_value_policy::reference) : py::none{};
+        })
+        .def("get_cell", [](Worksheet& ws, const py::tuple& t) -> Cell& {
+            return ws.cell(t[0].cast<std::size_t>(), t[1].cast<std::size_t>());
+        }, py::return_value_policy::reference_internal)
+        .def("rows_list", [](Worksheet& ws) -> py::list {
+            py::list out;
+            for (auto& row : ws.rows()) out.append(py::cast(row));
+            return out;
+        })
+        .def("range_rc", py::overload_cast<std::size_t, std::size_t, std::size_t, std::size_t>(&Worksheet::range),
+             py::arg("min_row"), py::arg("min_col"), py::arg("max_row"), py::arg("max_col"))
         .def("range", py::overload_cast<const std::string&>(&Worksheet::range))
         .def("range", py::overload_cast<std::size_t, std::size_t, std::size_t, std::size_t>(&Worksheet::range),
              py::arg("min_row"), py::arg("min_col"), py::arg("max_row"), py::arg("max_col"))
@@ -1797,6 +1822,10 @@ PYBIND11_MODULE(xlpp, m) {
             return out;
         })
         .def("apply_named_style", &Workbook::applyNamedStyle)
+        .def("add_defined_name",
+             [](Workbook& wb, const std::string& name, const std::string& value) -> DefinedName& {
+                 return wb.addDefinedName(xlpp::DefinedName(name, value));
+             }, py::arg("name"), py::arg("value"), py::return_value_policy::reference_internal)
         .def("add_defined_name", &Workbook::addDefinedName, py::return_value_policy::reference_internal)
         .def("defined_name", py::overload_cast<const std::string&>(&Workbook::definedName),
              py::return_value_policy::reference_internal)

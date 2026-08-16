@@ -4292,6 +4292,62 @@ void testFormulaDependencyGraph(TestContext& test) {
     test.checkTrue(graph.report().cellOrRangeEdges >= 3, "Report counts cell/range edges");
 }
 
+void testThemeFillColorRoundTrip(TestContext& test) {
+    // Theme-based fill colors (fgColor theme + tint, bgColor theme) round-trip.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_fill_theme.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Theme");
+    auto& cell = sheet.cell("A1");
+    cell.setValue("X");
+    cell.fill().setPatternType("solid");
+    cell.fill().foregroundColor().setTheme(4); // accent1
+    cell.fill().foregroundColor().setTint(-0.25f);
+    cell.fill().backgroundColor().setTheme(5); // accent2
+    workbook.save(source);
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto styles = archive.get("xl/styles.xml");
+    test.checkTrue(styles.find("<fgColor theme=\"4\" tint=\"-0.25\"/>") != std::string::npos,
+                   "Theme foreground fill color is serialized");
+    test.checkTrue(styles.find("<bgColor theme=\"5\"/>") != std::string::npos,
+                   "Theme background fill color is serialized");
+
+    xlpp::Workbook loaded;
+    loaded.load(source);
+    auto& loadedCell = *loaded.worksheet("Theme")->tryCell("A1");
+    test.checkTrue(loadedCell.fill().foregroundColor().hasTheme()
+                   && loadedCell.fill().foregroundColor().theme() == 4,
+                   "Theme fill fg color round-trips");
+    test.checkNear(static_cast<double>(loadedCell.fill().foregroundColor().tint()), -0.25, 1e-5,
+                   "Theme fill tint round-trips");
+    test.checkTrue(loadedCell.fill().backgroundColor().hasTheme()
+                   && loadedCell.fill().backgroundColor().theme() == 5,
+                   "Theme fill bg color round-trips");
+    std::filesystem::remove(source);
+}
+
+void testCsvEdgeCases(TestContext& test) {
+    // CR-only line endings, trailing blank line, quoted empty field, CR in text.
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_csv_edge.csv";
+    {
+        std::ofstream out(path, std::ios::binary);
+        out << "a,b\r"
+            << "\"x\"\"y\",z\r"
+            << "\r"
+            << "1,2";
+        out.close();
+    }
+    xlpp::Worksheet ws("Edge");
+    ws.loadCsv(path);
+    test.checkEqual(*std::get_if<std::string>(&ws.cell("A1").value()), std::string("a"), "CSV CR-only row 1 col 1");
+    test.checkEqual(*std::get_if<std::string>(&ws.cell("B1").value()), std::string("b"), "CSV CR-only row 1 col 2");
+    test.checkEqual(*std::get_if<std::string>(&ws.cell("A2").value()), std::string("x\"y"), "CSV escaped quote inside field");
+    test.checkEqual(*std::get_if<std::string>(&ws.cell("B2").value()), std::string("z"), "CSV row 2 col 2");
+    test.checkEqual(*std::get_if<bool>(&ws.cell("A4").value()), true, "CSV '1' parses as boolean");
+    test.checkNear(*std::get_if<double>(&ws.cell("B4").value()), 2.0, 1e-12, "CSV trailing data row col 2");
+    std::filesystem::remove(path);
+}
+
 void testNumberFormatDetection(TestContext& test) {
     test.checkTrue(xlpp::isDateFormatCode("yyyy-mm-dd", 0), "Literal date format detected");
     test.checkTrue(xlpp::isDateFormatCode("m/d/yy", 14), "Built-in id 14 is a date");
@@ -13346,6 +13402,8 @@ int main() {
         {"Conditional formatting rule families P1Z", testConditionalFormattingRuleFamilies},
         {"Font extended properties P1Z", testFontExtendedProperties},
         {"Formula dependency graph", testFormulaDependencyGraph},
+        {"Theme fill color round-trip", testThemeFillColorRoundTrip},
+        {"CSV edge cases", testCsvEdgeCases},
         {"Font theme color and underline style", testFontThemeColorAndUnderlineStyle},
         {"Border diagonal directions P1Z", testBorderDiagonalDirections},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},

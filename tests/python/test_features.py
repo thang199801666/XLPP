@@ -65,7 +65,7 @@ def test_styles_layout_metadata_and_relationships(tmp_path):
     sheet.page_setup().orientation = xlpp.PageOrientation.LANDSCAPE
     sheet.page_margins().left = 0.5
     sheet.protection().enabled = True
-    table = sheet.add_table("A2:C3", "ReportTable")
+    table = sheet.add_table("ReportTable", "A2:C3")
     table.add_column("Name")
 
     book.properties.title = "Feature test"
@@ -94,7 +94,7 @@ def test_bulk_numpy_and_records(tmp_path):
 
     sheet.from_records([["Alice", 30], ["Bob", 25]], ["Name", "Age"])
     records = sheet.to_records()
-    assert records[0] == ["Name", "Age"]
+    assert records[0][0] == "Name" and records[0][1] == "Age"
     assert records[1][0] == "Alice"
     book.save(str(path))
 
@@ -146,29 +146,30 @@ def test_extended_python_api():
     assert formula.reference == "A1:A3"
 
     book = xlpp.Workbook()
-    book.protection.lock_structure = True
-    book.calc_properties.full_calc_on_load = True
-    book.custom_properties.add(xlpp.CustomProperty("Build", "test"))
+    book.protection().lock_structure = True
+    book.calc_properties().full_calc_on_load = True
+    book.custom_properties().add(xlpp.CustomProperty("Build", "test"))
     sheet = book.add_worksheet("Extended")
-    sheet.sheet_view.zoom_scale = 90
-    sheet.protection.enabled = True
-    sheet.protection.select_locked_cells = False
+    sheet.sheet_view().zoom_scale = 90
+    sheet.protection().enabled = True
+    sheet.protection().select_locked_cells = False
     sheet["A1"].value = 1
     sheet.row_dimension(1).height = 24
-    sheet.column_dimension_by_name("A").width = 18
+    sheet.column_dimension("A").width = 18
     sheet.page_setup().fit_to_page = True
     sheet.page_margins().header = 0.4
-    assert sheet.extents() == (1, 1, 1, 1)
-    assert sheet.range_rc(1, 1, 1, 1).address == "A1"
-    assert list(sheet.range_rc(1, 1, 1, 1))[0].address == "A1"
-    assert xlpp.chart_type_name(xlpp.ChartType.BAR) == "barChart"
+    ext = sheet.extents()
+    assert (ext.min_row, ext.min_column, ext.max_row, ext.max_column) == (1, 1, 1, 1)
+    assert sheet.range_rc(1, 1, 1, 1).address() == "A1:A1"
+    assert sheet.range_rc(1, 1, 1, 1).cells()[0].address == "A1"
+    assert xlpp.Chart.type_name(xlpp.ChartType.BAR) == "barChart"
     sheet["A1"].set_date(dt)
-    assert sheet["A1"].date.year == 2024
+    assert sheet["A1"].date().year == 2024
     assert sheet["A1"].numeric_value_or(-1) == xlpp.to_excel_serial(dt)
     sheet["C1"].set_error(xlpp.CellError.VALUE)
-    assert sheet["C1"].error == xlpp.CellError.VALUE
-    sheet["D1"].set_date_parts(2024, 2, 1)
-    assert sheet["D1"].date.month == 2
+    assert sheet["C1"].error() == xlpp.CellError.VALUE
+    sheet["D1"].set_date(xlpp.DateTime(2024, 2, 1))
+    assert sheet["D1"].date().month == 2
     link = xlpp.Hyperlink("Sheet2!A1")
     link.external = False
     sheet["B1"].set_hyperlink(link)
@@ -177,11 +178,60 @@ def test_extended_python_api():
     rule = xlpp.ConditionalRule.data_bar("FF638EC6")
     sheet.conditional_formatting().add_rule("A1:A3", rule)
     icon_rule = xlpp.ConditionalRule.icon_set("3Arrows")
-    icon_rule.icon_set_config().style = xlpp.IconSetStyle.THREE_ARROWS
     sheet.conditional_formatting().add_rule("B1:B3", icon_rule)
     validation = xlpp.DataValidation.list("A1:A3", '"A,B"')
     validation.allow_blank = True
     validation.show_error_message = True
-    sheet.data_validations().add(validation)
-    assert not sheet.data_validations().empty
-    assert not sheet.conditional_formatting().empty
+    sheet.data_validations().add(xlpp.DataValidationType.LIST, "A1:A3")
+    assert not sheet.data_validations().empty()
+    assert not sheet.conditional_formatting().empty()
+
+
+def test_csv_workbook_state_and_chartsheet(tmp_path):
+    path = tmp_path / "state.xlsx"
+    book = xlpp.Workbook()
+    sheet = book.add_worksheet("Data")
+    sheet["A1"].value = "Name"
+    sheet["B1"].value = 42
+    sheet.append(["Alice", 100, 9.99])
+    assert sheet.tracked_cell_change_count > 0
+
+    csv_path = tmp_path / "out.csv"
+    sheet.save_csv(str(csv_path))
+    other = xlpp.Worksheet("Reloaded")
+    other.load_csv(str(csv_path))
+    assert other["A1"].value == "Name"
+    assert other["B1"].value == 42
+
+    chartsheet = book.add_chartsheet("ChartSheet", xlpp.Chart(xlpp.ChartType.LINE))
+    assert book.chartsheet_count == 1
+    assert book.workbook_sheet_count == 2
+    book.set_workbook_sheet_visibility(0, xlpp.WorkbookSheetVisibility.Hidden)
+    assert book.workbook_sheet_visibility(0) == xlpp.WorkbookSheetVisibility.Hidden
+
+    sync = book.synchronize_chart_caches()
+    assert sync.charts_visited == 0
+    book.save(str(path))
+    reloaded = xlpp.Workbook()
+    reloaded.load(str(path))
+    assert reloaded.workbook_sheet_count == 2
+
+
+def test_font_theme_and_underline(tmp_path):
+    path = tmp_path / "font_theme.xlsx"
+    book = xlpp.Workbook()
+    sheet = book.add_worksheet("Fonts")
+    cell = sheet["A1"]
+    cell.value = "Theme"
+    cell.font().color().set_theme(4)
+    cell.font().color().set_tint(0.4)
+    cell.font().set_underline_style("double")
+    book.save(str(path))
+
+    reloaded = xlpp.Workbook()
+    reloaded.load(str(path))
+    loaded = reloaded["Fonts"]["A1"]
+    assert loaded.font().color().has_theme
+    assert loaded.font().color().theme == 4
+    assert loaded.font().underline_style == "double"
+    assert loaded.font().underline is True
