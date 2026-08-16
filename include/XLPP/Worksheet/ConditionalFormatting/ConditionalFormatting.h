@@ -61,11 +61,18 @@ class DataBar {
 public:
     std::string color{"FF638EC6"};
     Cfvo min;
+    // Optional midpoint cfvo (Excel 2010+ allows 2-3 cfvo thresholds).
+    std::optional<Cfvo> mid;
     Cfvo max;
     bool showValue{true};
     // direction: "leftToRight", "rightToLeft", "context"
     std::string direction{"leftToRight"};
     std::optional<double> axisPosition;
+    bool gradient{true};
+    std::optional<std::string> negativeBarColor;
+    std::optional<std::string> negativeBarBorderColor;
+    std::optional<std::string> borderColor;
+    std::optional<std::string> axisColor;
 };
 
 // Color scale conditional formatting (2-3 stops).

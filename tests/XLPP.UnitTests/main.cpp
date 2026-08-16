@@ -4348,6 +4348,48 @@ void testCsvEdgeCases(TestContext& test) {
     std::filesystem::remove(path);
 }
 
+void testConditionalFormattingDataBarExtensions(TestContext& test) {
+    // Data-bar extensions: midpoint cfvo, gradient off, negative/border/axis
+    // colors round-trip through the worksheet part.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_cf_databar_ext.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    for (int i = 1; i <= 10; ++i) sheet.cell(i, 1).setValue(static_cast<double>(i));
+    auto rule = xlpp::ConditionalRule::dataBar();
+    auto& db = rule.getDataBar();
+    db.color = "FF1E90FF";
+    db.min = xlpp::Cfvo("min", 0);
+    db.mid = xlpp::Cfvo("num", 5);
+    db.max = xlpp::Cfvo("max", 0);
+    db.gradient = false;
+    db.negativeBarColor = "FFFF0000";
+    db.negativeBarBorderColor = "FF800000";
+    db.borderColor = "FF1E90FF";
+    db.axisColor = "FF000000";
+    sheet.conditionalFormatting().addRule("A1:A10", std::move(rule));
+    workbook.save(source);
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto xml = archive.get("xl/worksheets/sheet1.xml");
+    test.checkTrue(xml.find("gradient=\"0\"") != std::string::npos, "Data bar gradient off serialized");
+    test.checkTrue(xml.find("type=\"num\" val=\"5\"") != std::string::npos, "Data bar midpoint cfvo serialized");
+    test.checkTrue(xml.find("<negativeFillColor rgb=\"FFFF0000\"/>") != std::string::npos, "Negative fill color serialized");
+    test.checkTrue(xml.find("<axisColor rgb=\"FF000000\"/>") != std::string::npos, "Axis color serialized");
+
+    xlpp::Workbook loaded;
+    loaded.load(source);
+    const auto& entries = loaded.worksheet("Data")->conditionalFormatting().entries();
+    test.checkTrue(!entries.empty() && !entries[0].rules().empty(), "Data bar rule reloads");
+    if (!entries.empty() && !entries[0].rules().empty()) {
+        const auto& loadedDb = entries[0].rules()[0].getDataBar();
+        test.checkTrue(loadedDb.mid.has_value() && loadedDb.mid->value == 5.0, "Data bar midpoint round-trips");
+        test.checkTrue(!loadedDb.gradient, "Data bar gradient flag round-trips");
+        test.checkTrue(loadedDb.negativeBarColor == std::string("FFFF0000"), "Negative fill color round-trips");
+        test.checkTrue(loadedDb.axisColor == std::string("FF000000"), "Axis color round-trips");
+    }
+    std::filesystem::remove(source);
+}
+
 void testNumberFormatDetection(TestContext& test) {
     test.checkTrue(xlpp::isDateFormatCode("yyyy-mm-dd", 0), "Literal date format detected");
     test.checkTrue(xlpp::isDateFormatCode("m/d/yy", 14), "Built-in id 14 is a date");
@@ -13404,6 +13446,7 @@ int main() {
         {"Formula dependency graph", testFormulaDependencyGraph},
         {"Theme fill color round-trip", testThemeFillColorRoundTrip},
         {"CSV edge cases", testCsvEdgeCases},
+        {"Conditional formatting data bar extensions", testConditionalFormattingDataBarExtensions},
         {"Font theme color and underline style", testFontThemeColorAndUnderlineStyle},
         {"Border diagonal directions P1Z", testBorderDiagonalDirections},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},

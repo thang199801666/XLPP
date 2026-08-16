@@ -583,10 +583,16 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
                     xml << "<cfRule type=\"dataBar\" priority=\"" << emittedPriority << "\"><dataBar";
                     if (!db.direction.empty() && db.direction != "leftToRight") xml << " direction=\"" << db.direction << "\"";
                     if (!db.showValue) xml << " showValue=\"0\"";
+                    if (!db.gradient) xml << " gradient=\"0\"";
                     xml << ">";
                     writeCfvo(xml, db.min);
+                    if (db.mid) writeCfvo(xml, *db.mid);
                     writeCfvo(xml, db.max);
                     xml << "<color rgb=\"" << xmlEscape(db.color) << "\"/>";
+                    if (db.axisColor) xml << "<axisColor rgb=\"" << xmlEscape(*db.axisColor) << "\"/>";
+                    if (db.negativeBarColor) xml << "<negativeFillColor rgb=\"" << xmlEscape(*db.negativeBarColor) << "\"/>";
+                    if (db.negativeBarBorderColor) xml << "<negativeBorderColor rgb=\"" << xmlEscape(*db.negativeBarBorderColor) << "\"/>";
+                    if (db.borderColor) xml << "<borderColor rgb=\"" << xmlEscape(*db.borderColor) << "\"/>";
                     if (db.axisPosition) {
                         xml << "<cfvo type=\"autoMin\"";
                         if (*db.axisPosition != 0.0) xml << " val=\"" << *db.axisPosition << "\"";

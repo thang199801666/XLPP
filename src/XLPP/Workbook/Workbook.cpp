@@ -951,22 +951,39 @@ for (auto& formattingTag : internal::tags(xml, "conditionalFormatting")) {
                 const auto dir = internal::attribute(dbTag, "direction");
                 if (!dir.empty()) rule.getDataBar().direction = dir;
                 rule.getDataBar().showValue = internal::attribute(dbTag, "showValue") != "0";
-                const auto cfvoTags = internal::tags(dbTag, "cfvo");
-                if (cfvoTags.size() >= 1) rule.getDataBar().min = parseCfvo(cfvoTags[0]);
-                if (cfvoTags.size() >= 2) rule.getDataBar().max = parseCfvo(cfvoTags[1]);
-                // Optional third cfvo carries the axis position (autoMin when
-                // val is absent or 0).
-                if (cfvoTags.size() >= 3) {
-                    const auto valText = internal::attribute(cfvoTags[2], "val");
-                    double position = 0.0;
-                    if (!valText.empty() && internal::tryParseDoubleExact(valText, position)) {
-                        rule.getDataBar().axisPosition = position;
-                    } else {
-                        rule.getDataBar().axisPosition = 0.0;
+                rule.getDataBar().gradient = internal::attribute(dbTag, "gradient") != "0";
+                std::vector<Cfvo> cfvos;
+                for (const auto& cfvoTag : internal::tags(dbTag, "cfvo"))
+                    cfvos.push_back(parseCfvo(cfvoTag));
+                // Excel 2010+ writes min/mid/max (3 cfvo). XL++'s own writer
+                // appends a trailing autoMin cfvo for the axis position, so
+                // treat a third "autoMin" cfvo as the axis position.
+                if (cfvos.size() >= 3 && cfvos[2].type != "autoMin") {
+                    rule.getDataBar().min = cfvos[0];
+                    rule.getDataBar().mid = cfvos[1];
+                    rule.getDataBar().max = cfvos[2];
+                } else {
+                    if (cfvos.size() >= 1) rule.getDataBar().min = cfvos[0];
+                    if (cfvos.size() >= 2) rule.getDataBar().max = cfvos[1];
+                    if (cfvos.size() >= 3) {
+                        const auto valText = internal::attribute(internal::tags(dbTag, "cfvo")[2], "val");
+                        double position = 0.0;
+                        if (!valText.empty() && internal::tryParseDoubleExact(valText, position))
+                            rule.getDataBar().axisPosition = position;
+                        else
+                            rule.getDataBar().axisPosition = 0.0;
                     }
                 }
                 const auto colorTags = internal::tags(dbTag, "color");
                 if (!colorTags.empty()) rule.getDataBar().color = internal::attribute(colorTags.front(), "rgb");
+                const auto axisColor = internal::tags(dbTag, "axisColor");
+                if (!axisColor.empty()) rule.getDataBar().axisColor = internal::attribute(axisColor.front(), "rgb");
+                const auto negFill = internal::tags(dbTag, "negativeFillColor");
+                if (!negFill.empty()) rule.getDataBar().negativeBarColor = internal::attribute(negFill.front(), "rgb");
+                const auto negBorder = internal::tags(dbTag, "negativeBorderColor");
+                if (!negBorder.empty()) rule.getDataBar().negativeBarBorderColor = internal::attribute(negBorder.front(), "rgb");
+                const auto borderColor = internal::tags(dbTag, "borderColor");
+                if (!borderColor.empty()) rule.getDataBar().borderColor = internal::attribute(borderColor.front(), "rgb");
             }
         } else if (type == "colorScale") {
             rule = ConditionalRule::colorScale();
