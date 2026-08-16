@@ -74,14 +74,23 @@ wb.save("output.xlsx");          // .xls / .xlsb / .csv also supported
 
 ## Performance
 
-Cross-library benchmark sources live in [`benchmarks/`](benchmarks/README.md). Representative timings (100K cells, mixed types, Windows):
+Cross-library benchmark sources live in [`benchmarks/`](benchmarks/README.md). Timings below are **averages of 5 runs** per configuration (mixed int/float/string/bool cells, Windows), measured with [`benchmarks/benchmark_multi.py`](benchmarks/benchmark_multi.py):
 
-| Operation | XL++ (C++) | XL++ (Python) | xlsxwriter | openpyxl |
+### Write
+
+| Cells | XL++ (C++) | XL++ (Python) | xlsxwriter | openpyxl |
 |---|--:|--:|--:|--:|
-| Write | ~175 ms | ~200 ms | ~360 ms | ~520 ms |
-| Read | — | ~180 ms | — | ~475 ms |
+| 100K (500×200) | **175 ms** | 192 ms | 479 ms | 593 ms |
+| 210K (700×300) | **366 ms** | 539 ms | 969 ms | 1,491 ms |
 
-XL++ is roughly **1.8× faster than xlsxwriter** and **2.5× faster than openpyxl** — even through the Python binding. See the benchmark workflow for full matrix (including C# / ClosedXML and large-file streaming).
+### Read
+
+| Cells | XL++ (Python) | openpyxl |
+|---|--:|--:|
+| 100K (500×200) | **220 ms** | 696 ms |
+| 210K (700×300) | **467 ms** | 1,484 ms |
+
+XL++ is roughly **2.5× faster than xlsxwriter** and **2.8–3× faster than openpyxl** on write, and **~3× faster** on read — even through the Python binding. See the benchmark workflow for the full matrix (including C# / ClosedXML and large-file streaming).
 
 ### Streaming read (large files)
 
