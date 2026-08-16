@@ -72,6 +72,11 @@ typedef struct xlpp_dvcollection_t* xlpp_dvcollection;
 typedef struct xlpp_datavalidation_t* xlpp_datavalidation;
 typedef struct xlpp_stream_writer_t* xlpp_stream_writer;
 typedef struct xlpp_stream_reader_t* xlpp_stream_reader;
+typedef struct xlpp_chart_line_format_t* xlpp_chart_line_format;
+typedef struct xlpp_chart_fill_format_t* xlpp_chart_fill_format;
+typedef struct xlpp_chart_rich_text_t*  xlpp_chart_rich_text;
+typedef struct xlpp_chart_series_cache_t* xlpp_chart_series_cache;
+typedef struct xlpp_dependency_graph_t* xlpp_dependency_graph;
 
 // Cell value types
 #define XLPP_VALUE_EMPTY  0

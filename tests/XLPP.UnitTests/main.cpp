@@ -1,4 +1,5 @@
 #include <XLPP/XLPP.h>
+#include <XLPP/Formula/DependencyGraph.h>
 #include "Packaging/ZipArchive.h"
 #include "Packaging/ZipArchiveReader.h"
 #include "Packaging/RelationshipGraph.h"
@@ -4263,6 +4264,32 @@ void testFormulaMetadataDefaults(TestContext& test) {
     test.checkTrue(cell.formulaMetadata().alwaysCalculateArray(), "Dynamic array sets aca");
     test.checkEqual(cell.formulaMetadata().reference(), std::string("C1"), "Dynamic array reference");
     test.checkEqual(cell.formula(), std::string("_xlfn.SORT(A1:A5)"), "Dynamic array formula text");
+}
+
+void testFormulaDependencyGraph(TestContext& test) {
+    xlpp::Workbook wb;
+    auto& input = wb.addWorksheet("Input");
+    auto& report = wb.addWorksheet("Report");
+    input.cell("A1").setValue(10.0);
+    input.cell("B1").setValue(20.0);
+    report.cell("C1").setFormula("=Input!A1+Input!B1");
+    report.cell("C2").setFormula("=SUM(Input!A1:B1)");
+    report.cell("D1").setFormula("=\"Total: \"&C1");
+
+    const auto graph = xlpp::buildFormulaDependencyGraph(wb);
+    test.checkTrue(graph.edges().size() >= 3, "Dependency graph discovers formula references");
+    test.checkTrue(graph.dependsOn("Report", "C1", "Input", "A1"), "dependsOn resolves A1 precedent");
+    test.checkTrue(graph.dependsOn("Report", "C1", "Input", "B1"), "dependsOn resolves B1 precedent");
+
+    const auto precedents = graph.precedentsOf("Report", "C1");
+    test.checkTrue(precedents.size() == 2, "precedentsOf returns both precedents");
+
+    const auto dependents = graph.dependentsOf("Input", "A1");
+    bool found = false;
+    for (const auto& dep : dependents)
+        if (dep.dependentSheet == "Report" && dep.dependentCell == "C1") found = true;
+    test.checkTrue(found, "dependentsOf returns dependent formula cells");
+    test.checkTrue(graph.report().cellOrRangeEdges >= 3, "Report counts cell/range edges");
 }
 
 void testNumberFormatDetection(TestContext& test) {
@@ -13318,6 +13345,7 @@ int main() {
         {"Worksheet page breaks P1Z", testPageBreaks},
         {"Conditional formatting rule families P1Z", testConditionalFormattingRuleFamilies},
         {"Font extended properties P1Z", testFontExtendedProperties},
+        {"Formula dependency graph", testFormulaDependencyGraph},
         {"Font theme color and underline style", testFontThemeColorAndUnderlineStyle},
         {"Border diagonal directions P1Z", testBorderDiagonalDirections},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},

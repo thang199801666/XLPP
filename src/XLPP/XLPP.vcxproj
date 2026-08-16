@@ -47,6 +47,7 @@
     <ClCompile Include="Workbook\WorkbookModelValidation.cpp" />
     <ClCompile Include="Workbook\WorkbookSheetOperations.cpp" />
     <ClCompile Include="Formula\ReferenceTransformer.cpp" />
+    <ClCompile Include="Formula\DependencyGraph.cpp" />
     <ClCompile Include="Pivot\PivotStructuralEdit.cpp" />
     <ClCompile Include="Encryption\OfficeCrypto.cpp" />
     <ClCompile Include="Vba\VbaProjectBinary.cpp" />

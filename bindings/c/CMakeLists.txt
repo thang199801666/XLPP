@@ -2,6 +2,7 @@
 
 add_library(xlpp_capi SHARED
     xlpp_capi.cpp
+    xlpp_capi_chart.cpp
     xlpp_capi.h
 )
 
