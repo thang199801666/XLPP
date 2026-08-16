@@ -18,15 +18,18 @@ bool isOle2CompoundFile(std::string_view bytes) noexcept {
 namespace {
 
 std::uint16_t le16(const std::vector<unsigned char>& d, std::size_t off) {
+    if (off + 2 > d.size()) throw std::runtime_error("XLS: truncated 16-bit field");
     return static_cast<std::uint16_t>(d[off]) | (static_cast<std::uint16_t>(d[off + 1]) << 8);
 }
 
 std::uint32_t le32(const std::vector<unsigned char>& d, std::size_t off) {
+    if (off + 4 > d.size()) throw std::runtime_error("XLS: truncated 32-bit field");
     return static_cast<std::uint32_t>(d[off]) | (static_cast<std::uint32_t>(d[off + 1]) << 8) |
            (static_cast<std::uint32_t>(d[off + 2]) << 16) | (static_cast<std::uint32_t>(d[off + 3]) << 24);
 }
 
 std::uint64_t le64(const std::vector<unsigned char>& d, std::size_t off) {
+    if (off + 8 > d.size()) throw std::runtime_error("XLS: truncated 64-bit field");
     std::uint64_t value = 0;
     for (int i = 7; i >= 0; --i) value = (value << 8) | d[off + static_cast<std::size_t>(i)];
     return value;
@@ -145,8 +148,9 @@ CfbFile parseCfb(const std::vector<unsigned char>& data) {
             if (guard > cfb.fat.size() || sector >= cfb.fat.size())
                 throw std::runtime_error("XLS: corrupt directory chain");
             const auto base = sectorOffset(cfb, sector);
+            const auto end = std::min(base + cfb.sectorSize, data.size());
             dir.insert(dir.end(), data.begin() + static_cast<std::ptrdiff_t>(base),
-                       data.begin() + static_cast<std::ptrdiff_t>(base + cfb.sectorSize));
+                       data.begin() + static_cast<std::ptrdiff_t>(end));
             sector = cfb.fat[sector];
         }
         if (dir.size() < 128) throw std::runtime_error("XLS: directory stream is empty");
@@ -188,7 +192,7 @@ std::vector<unsigned char> readStreamBytes(const CfbFile& cfb, std::uint32_t sta
             const auto withinSector = miniOffset % cfb.sectorSize;
             if (mainSectorIdx >= rootChain.size()) throw std::runtime_error("XLS: mini stream truncated");
             const auto base = sectorOffset(cfb, rootChain[mainSectorIdx]) + withinSector;
-            for (std::size_t i = 0; i < cfb.miniSectorSize; ++i) {
+            for (std::size_t i = 0; i < cfb.miniSectorSize && base + i < cfb.data.size(); ++i) {
                 if (out.size() >= size) break;
                 out.push_back(cfb.data[base + i]);
             }
@@ -201,7 +205,7 @@ std::vector<unsigned char> readStreamBytes(const CfbFile& cfb, std::uint32_t sta
     out.reserve(static_cast<std::size_t>(size));
     for (const auto sector : chain) {
         const auto base = sectorOffset(cfb, sector);
-        for (std::size_t i = 0; i < cfb.sectorSize; ++i) {
+        for (std::size_t i = 0; i < cfb.sectorSize && base + i < cfb.data.size(); ++i) {
             if (out.size() >= size) break;
             out.push_back(cfb.data[base + i]);
         }
