@@ -12,6 +12,7 @@
 #include <XLPP/Workbook/CustomProperties.h>
 #include <XLPP/Vba/VbaModule.h>
 #include <XLPP/Compression.h>
+#include <XLPP/Formula/Calculation.h>
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -303,6 +304,10 @@ public:
     void load(const std::filesystem::path& path, const LoadOptions& options);
     void load(std::istream& stream);
     void load(std::istream& stream, const LoadOptions& options);
+    // In-process formula calculation. Evaluates formula cells (recursively
+    // resolving dependencies, including cross-sheet references) and stores the
+    // results as cached values so the next save() writes them alongside <f>.
+    CalculationReport calculate(const CalculationOptions& options = {});
     void save(const std::filesystem::path& path) const;
     void save(const std::filesystem::path& path, const SaveOptions& options) const;
     void save(std::ostream& stream) const;

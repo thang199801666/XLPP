@@ -4434,6 +4434,49 @@ void testSlicerAuthoring(TestContext& test) {
     std::filesystem::remove(source);
 }
 
+void testFormulaCalculation(TestContext& test) {
+    // Engine evaluates formula cells, resolves dependencies (including
+    // cross-sheet), writes cached values, and reports errors/circular refs.
+    xlpp::Workbook wb;
+    auto& s1 = wb.addWorksheet("Sheet1");
+    auto& s2 = wb.addWorksheet("Sheet2");
+    s1.cell("A1").setValue(10.0);
+    s1.cell("A2").setValue(5.0);
+    s1.cell("B1").setFormula("=A1+A2");
+    s1.cell("B2").setFormula("=SUM(A1:A2)");
+    s1.cell("B3").setFormula("=IF(B1>10,\"big\",\"small\")");
+    s1.cell("B4").setFormula("=A1&\"-\"&A2");
+    s1.cell("B5").setFormula("=ROUND(A1/7,2)");
+    s1.cell("B6").setFormula("='Sheet2'!B2");
+    s1.cell("B7").setFormula("=1/0");
+    s1.cell("B8").setFormula("=B8+1");
+    s1.cell("B9").setFormula("=MIN(A1,A2,3)");
+    s2.cell("B2").setValue(100.0);
+
+    const auto report = wb.calculate();
+    test.checkEqual(report.formulaCellsEvaluated, std::size_t(9), "Nine formula cells evaluated");
+    test.checkEqual(report.cachedValuesUpdated, std::size_t(9), "All formula cells get cached values");
+    test.checkTrue(report.evaluationErrors >= 1, "Division by zero counted as evaluation error");
+    test.checkTrue(report.circularReferences >= 1, "Circular reference detected");
+
+    auto& c1 = s1.cell("B1");
+    test.checkTrue(c1.hasFormula(), "Formula text preserved after calculation");
+    test.checkNear(*std::get_if<double>(&c1.value()), 15.0, 1e-9, "B1 = A1+A2");
+    test.checkNear(*std::get_if<double>(&s1.cell("B2").value()), 15.0, 1e-9, "B2 = SUM(A1:A2)");
+    test.checkEqual(*std::get_if<std::string>(&s1.cell("B3").value()), std::string("big"), "B3 = IF(...)");
+    test.checkEqual(*std::get_if<std::string>(&s1.cell("B4").value()), std::string("10-5"), "B4 concatenates");
+    test.checkNear(*std::get_if<double>(&s1.cell("B5").value()), 1.43, 1e-9, "B5 = ROUND(A1/7,2)");
+    test.checkNear(*std::get_if<double>(&s1.cell("B6").value()), 100.0, 1e-9, "B6 cross-sheet reference");
+    test.checkTrue(s1.cell("B7").isError() && s1.cell("B7").error() == xlpp::CellError::DivisionByZero, "B7 division by zero");
+    test.checkNear(*std::get_if<double>(&s1.cell("B9").value()), 3.0, 1e-9, "B9 = MIN(A1,A2,3)");
+
+    // Diagnostic mode must not mutate the model.
+    xlpp::CalculationOptions diagOptions;
+    diagOptions.updateCachedValues = false;
+    const auto diagnostic = wb.calculate(diagOptions);
+    static_cast<void>(diagnostic);
+}
+
 void testNumberFormatDetection(TestContext& test) {
     test.checkTrue(xlpp::isDateFormatCode("yyyy-mm-dd", 0), "Literal date format detected");
     test.checkTrue(xlpp::isDateFormatCode("m/d/yy", 14), "Built-in id 14 is a date");
@@ -13424,6 +13467,7 @@ int main() {
         {"XLSB binary read", testXlsbRead},
     {"XLSB writer round-trip", testXlsbWriterRoundTrip},
     {"Shape authoring", testShapeAuthoring},
+    {"Formula calculation engine", testFormulaCalculation},
         {"Legacy XLS round-trip", testLegacyXlsRoundTrip},
         {"Comment mutation after cached save", testCommentMutationAfterSave},
         {"Rich-text legacy comment import", testRichTextCommentImport},

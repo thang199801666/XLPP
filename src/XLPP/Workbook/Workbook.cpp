@@ -20,6 +20,7 @@
 #include "../Legacy/XlsBinaryWriter.h"
 #include "../Legacy/XlsbBinaryReader.h"
 #include "../Legacy/XlsbBinaryWriter.h"
+#include <XLPP/Formula/CalculationEngine.h>
 #include <XLPP/Workbook/Workbook.h>
 #include "../XML/XmlUtilities.h"
 #include "../XML/NumericParsing.h"
@@ -2183,6 +2184,37 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
         internal::writeBinaryFile(p, encrypted);
     }
 }
+CalculationReport Workbook::calculate(const CalculationOptions& options) {
+    CalculationReport report;
+    std::vector<std::string> stack;
+    std::unordered_map<std::string, xlpp::CellValue> memo;
+    std::size_t unsupported = 0, externalResolved = 0, unresolvedExternal = 0, circular = 0;
+    for (auto& sheet : sheets_) {
+        std::vector<std::string> addresses;
+        for (const auto& [key, cell] : sheet.cells())
+            if (cell.hasFormula()) addresses.push_back(cell.address());
+        for (const auto& address : addresses) {
+            auto& cell = sheet.cell(address);
+            if (!cell.hasFormula()) continue;
+            ++report.formulaCellsVisited;
+            ++report.formulaCellsEvaluated;
+            internal::CalculationEvaluator ctx{*this, sheet.name(), options, stack, memo,
+                                               0, &unsupported, &externalResolved, &unresolvedExternal, &circular};
+            const auto value = internal::evaluateFormula(ctx, cell.formula());
+            if (std::holds_alternative<xlpp::CellError>(value)) ++report.evaluationErrors;
+            if (options.updateCachedValues) {
+                cell.setValue(value);
+                ++report.cachedValuesUpdated;
+            }
+        }
+    }
+    report.unsupportedFormulas = unsupported;
+    report.externalReferencesResolved = externalResolved;
+    report.unresolvedExternalReferences = unresolvedExternal;
+    report.circularReferences = circular;
+    return report;
+}
+
 void Workbook::load(const std::filesystem::path& p) { load(p, LoadOptions{}); }
 void Workbook::load(const std::filesystem::path& p, const LoadOptions& options) {
     Workbook candidate;

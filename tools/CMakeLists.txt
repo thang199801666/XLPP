@@ -17,3 +17,13 @@ target_include_directories(xlpp-bench-writer PRIVATE
 )
 
 target_link_libraries(xlpp-bench-writer PRIVATE xlpp_static)
+
+add_executable(calc-debug
+    calc-debug/main.cpp
+)
+
+target_include_directories(calc-debug PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/XLPP
+)
+
+target_link_libraries(calc-debug PRIVATE xlpp_static)

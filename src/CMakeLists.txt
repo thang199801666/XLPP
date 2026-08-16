@@ -31,6 +31,7 @@ set(XLPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookSheetOperations.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Formula/ReferenceTransformer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Formula/DependencyGraph.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Formula/CalculationEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Pivot/PivotStructuralEdit.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Encryption/OfficeCrypto.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Vba/VbaProjectBinary.cpp
