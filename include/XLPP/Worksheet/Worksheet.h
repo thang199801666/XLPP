@@ -61,6 +61,12 @@ public:
 
     Cell& cell(const std::string& address);
     Cell& cell(std::size_t row, std::size_t column);
+    // Bulk-load fast path: inserts the cell without recording a change-tracking
+    // key. Equivalent to cell() for a fresh worksheet, but avoids the per-cell
+    // std::set insert that cell() performs. Intended for importers/readers that
+    // clear tracking after bulk population.
+    Cell& cellNoTrack(const std::string& address);
+    Cell& cellNoTrack(std::size_t row, std::size_t column);
     const Cell* tryCell(const std::string& address) const noexcept;
     const Cell* tryCell(std::size_t row, std::size_t column) const noexcept;
 

@@ -20,6 +20,8 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'"><ClCompile><WarningLevel>Level4</WarningLevel><LanguageStandard>stdcpp20</LanguageStandard><AdditionalIncludeDirectories>$(SolutionDir)src;$(SolutionDir)include;$(SolutionDir)third_party\zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><PreprocessorDefinitions>XLPP_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions><MultiProcessorCompilation>true</MultiProcessorCompilation></ClCompile></ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Workbook\Workbook.cpp" />
+    <ClCompile Include="Legacy\XlsBinaryReader.cpp" />
+    <ClCompile Include="Legacy\XlsBinaryWriter.cpp" />
     <ClCompile Include="Workbook\WorkbookIO.cpp" />
     <ClCompile Include="Workbook\WorkbookChartsheetIO.cpp" />
     <ClCompile Include="Workbook\WorkbookChartsheetPackage.cpp" />
@@ -94,6 +96,8 @@
     <ClInclude Include="Pivot\PivotStructuralEdit.h" />
     <ClInclude Include="Internal\WorksheetName.h" />
     <ClInclude Include="Packaging\RelationshipGraph.h" />
+    <ClInclude Include="Legacy\XlsBinaryReader.h" />
+    <ClInclude Include="Legacy\XlsBinaryWriter.h" />
     <ClInclude Include="Workbook\WorkbookPackageReader.h" />
     <ClInclude Include="Workbook\WorkbookChartsheetIO.h" />
     <ClInclude Include="Workbook\WorkbookChartsheetPackage.h" />

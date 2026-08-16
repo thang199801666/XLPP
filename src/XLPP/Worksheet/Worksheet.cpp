@@ -86,6 +86,29 @@ Cell& Worksheet::cell(const std::string& address) {
     return cell(ref.row, ref.column);
 }
 
+Cell& Worksheet::cellNoTrack(const std::string& address) {
+    const auto ref = CellReference::parse(address);
+    return cellNoTrack(ref.row, ref.column);
+}
+
+Cell& Worksheet::cellNoTrack(std::size_t row, std::size_t column) {
+    if (!CellReference::validGridPosition(row, column))
+        throw std::out_of_range("Cell coordinate is outside the Excel grid");
+    const auto key = makeCellKey(row, column);
+    auto [it, inserted] = cells_.try_emplace(key, row, column);
+    if (inserted && extentsCacheValid_) {
+        if (cells_.size() == 1) extentsCache_ = {row, column, row, column};
+        else {
+            extentsCache_.minRow = std::min(extentsCache_.minRow, row);
+            extentsCache_.minColumn = std::min(extentsCache_.minColumn, column);
+            extentsCache_.maxRow = std::max(extentsCache_.maxRow, row);
+            extentsCache_.maxColumn = std::max(extentsCache_.maxColumn, column);
+        }
+    }
+    dirty_ = true;
+    return it->second;
+}
+
 Cell& Worksheet::cell(std::size_t row, std::size_t column) {
     if (!CellReference::validGridPosition(row, column))
         throw std::out_of_range("Cell coordinate is outside the Excel grid");

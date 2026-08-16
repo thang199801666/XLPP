@@ -2,6 +2,8 @@
 
 set(XLPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/Workbook.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Legacy/XlsBinaryReader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Legacy/XlsBinaryWriter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartSerializer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookIO.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartsheetIO.cpp

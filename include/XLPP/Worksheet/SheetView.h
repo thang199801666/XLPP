@@ -20,6 +20,10 @@ public:
 
     bool showGridLines() const noexcept { return showGridLines_; }
     void setShowGridLines(bool v) noexcept { showGridLines_ = v; }
+    // Whether row/column headers (the gray frame with 1,2,3.../A,B,C...) are
+    // shown. Defaults to true; set false to hide them.
+    bool showRowColHeaders() const noexcept { return showRowColHeaders_; }
+    void setShowRowColHeaders(bool v) noexcept { showRowColHeaders_ = v; }
     bool tabSelected() const noexcept { return tabSelected_; }
     void setTabSelected(bool v) noexcept { tabSelected_ = v; }
     bool rightToLeft() const noexcept { return rightToLeft_; }
@@ -38,7 +42,7 @@ private:
     int workbookViewId_{0};
     std::optional<std::string> tabColor_;
     int zoomScale_{100}, zoomScaleNormal_{100};
-    bool showGridLines_{true}, tabSelected_{false}, rightToLeft_{false}, showOutlineSymbols_{true};
+    bool showGridLines_{true}, tabSelected_{false}, rightToLeft_{false}, showOutlineSymbols_{true}, showRowColHeaders_{true};
     std::string pane_, topLeftCell_;
     int xSplit_{0}, ySplit_{0};
 };

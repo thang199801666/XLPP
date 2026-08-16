@@ -1,8 +1,12 @@
 ﻿#include <unordered_set>
+#include <cstring>
+#include <fstream>
 #include "WorkbookPackageReader.h"
 #include "WorkbookChartsheetIO.h"
 #include "WorkbookChartsheetPackage.h"
 #include "WorkbookChartSerializer.h"
+#include "../Legacy/XlsBinaryReader.h"
+#include "../Legacy/XlsBinaryWriter.h"
 #include <XLPP/Workbook/Workbook.h>
 #include "../XML/XmlUtilities.h"
 #include "../XML/NumericParsing.h"
@@ -470,6 +474,40 @@ void writeBorderSide(std::ostringstream& xml, const char* name, const xlpp::Bord
     else { xml << '>'; writeColor(xml, side.color()); xml << "</" << name << '>'; }
 }
 
+void writeFontElement(std::ostringstream& xml, const xlpp::Font& font, bool emitSizeName) {
+    xml << "<font>";
+    if (font.bold()) xml << "<b/>";
+    if (font.italic()) xml << "<i/>";
+    if (font.strike()) xml << "<strike/>";
+    if (font.condense()) xml << "<condense/>";
+    if (font.outline()) xml << "<outline/>";
+    if (font.underline()) xml << "<u/>";
+    if (!font.vertAlign().empty()) xml << "<vertAlign val=\"" << xmlEscape(font.vertAlign()) << "\"/>";
+    if (emitSizeName) {
+        xml << "<sz val=\"" << font.size() << "\"/>";
+        writeColor(xml, font.color());
+        xml << "<name val=\"" << xmlEscape(font.name()) << "\"/>";
+        if (font.family() != 0) xml << "<family val=\"" << static_cast<unsigned>(font.family()) << "\"/>";
+        if (font.charset() != 0) xml << "<charset val=\"" << static_cast<unsigned>(font.charset()) << "\"/>";
+        if (!font.scheme().empty()) xml << "<scheme val=\"" << xmlEscape(font.scheme()) << "\"/>";
+    } else {
+        if (!font.color().empty()) writeColor(xml, font.color());
+    }
+    xml << "</font>";
+}
+
+void writeBorderElement(std::ostringstream& xml, const xlpp::Border& border) {
+    xml << "<border>";
+    writeBorderSide(xml, "left", border.left());
+    writeBorderSide(xml, "right", border.right());
+    writeBorderSide(xml, "top", border.top());
+    writeBorderSide(xml, "bottom", border.bottom());
+    writeBorderSide(xml, "diagonal", border.diagonal());
+    if (border.diagonalUp()) xml << "<diagonalUp/>";
+    if (border.diagonalDown()) xml << "<diagonalDown/>";
+    xml << "</border>";
+}
+
 std::string stylesXml(const StyleCatalog& catalog, const std::vector<xlpp::NamedStyle>& namedStyles, const DxfCatalog& dxfs, bool strict) {
     std::ostringstream xml;
     xml << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><styleSheet xmlns=\"" << nsMain(strict) << "\">";
@@ -488,17 +526,7 @@ std::string stylesXml(const StyleCatalog& catalog, const std::vector<xlpp::Named
     }
 
     xml << "<fonts count=\"" << catalog.items.size() << "\">";
-    for (const auto& style : catalog.items) {
-        const auto& font = style.font();
-        xml << "<font>";
-        if (font.bold()) xml << "<b/>";
-        if (font.italic()) xml << "<i/>";
-        if (font.underline()) xml << "<u/>";
-        if (font.strike()) xml << "<strike/>";
-        xml << "<sz val=\"" << font.size() << "\"/><name val=\"" << xmlEscape(font.name()) << "\"/>";
-        writeColor(xml, font.color());
-        xml << "</font>";
-    }
+    for (const auto& style : catalog.items) writeFontElement(xml, style.font(), true);
     xml << "</fonts>";
 
     xml << "<fills count=\"" << catalog.items.size() + 1 << "\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill>";
@@ -513,15 +541,7 @@ std::string stylesXml(const StyleCatalog& catalog, const std::vector<xlpp::Named
     xml << "</fills>";
 
     xml << "<borders count=\"" << catalog.items.size() << "\">";
-    for (const auto& style : catalog.items) {
-        xml << "<border>";
-        writeBorderSide(xml, "left", style.border().left());
-        writeBorderSide(xml, "right", style.border().right());
-        writeBorderSide(xml, "top", style.border().top());
-        writeBorderSide(xml, "bottom", style.border().bottom());
-        writeBorderSide(xml, "diagonal", style.border().diagonal());
-        xml << "</border>";
-    }
+    for (const auto& style : catalog.items) writeBorderElement(xml, style.border());
     xml << "</borders>";
     xml << "<cellStyleXfs count=\"" << catalog.items.size() << "\">";
     for (std::size_t i = 0; i < catalog.items.size(); ++i)
@@ -560,15 +580,7 @@ std::string stylesXml(const StyleCatalog& catalog, const std::vector<xlpp::Named
     for (const auto& style : dxfs.items) {
         xml << "<dxf>";
         const auto& font = style.font();
-        if (!(font == xlpp::Font{})) {
-            xml << "<font>";
-            if (font.bold()) xml << "<b/>";
-            if (font.italic()) xml << "<i/>";
-            if (font.underline()) xml << "<u/>";
-            if (font.strike()) xml << "<strike/>";
-            if (!font.color().empty()) writeColor(xml, font.color());
-            xml << "</font>";
-        }
+        if (!(font == xlpp::Font{})) writeFontElement(xml, font, false);
         const auto& fill = style.fill();
         if (!(fill == xlpp::Fill{})) {
             const std::string fillPattern = fill.patternType().empty() ? "none" : fill.patternType();
@@ -577,15 +589,7 @@ std::string stylesXml(const StyleCatalog& catalog, const std::vector<xlpp::Named
             if (!fill.backgroundColor().empty()) xml << "<bgColor rgb=\"" << xmlEscape(fill.backgroundColor().argb()) << "\"/>";
             xml << "</patternFill></fill>";
         }
-        if (!(style.border() == xlpp::Border{})) {
-            xml << "<border>";
-            writeBorderSide(xml, "left", style.border().left());
-            writeBorderSide(xml, "right", style.border().right());
-            writeBorderSide(xml, "top", style.border().top());
-            writeBorderSide(xml, "bottom", style.border().bottom());
-            writeBorderSide(xml, "diagonal", style.border().diagonal());
-            xml << "</border>";
-        }
+        if (!(style.border() == xlpp::Border{})) writeBorderElement(xml, style.border());
         if (style.numberFormat() != "General")
             xml << "<numFmt numFmtId=\"0\" formatCode=\"" << xmlEscape(style.numberFormat()) << "\"/>";
         xml << "</dxf>";
@@ -599,6 +603,36 @@ xlpp::Color parseColor(const std::string& container) {
     auto colors = xlpp::internal::tags(container, "color");
     if (colors.empty()) colors = xlpp::internal::tags(container, "fgColor");
     return colors.empty() ? xlpp::Color{} : xlpp::Color(xlpp::internal::attribute(colors.front(), "rgb"));
+}
+
+xlpp::Font parseFontElement(const std::string& node) {
+    xlpp::Font font;
+    const auto names = xlpp::internal::tags(node, "name");
+    if (!names.empty()) font.setName(xlpp::internal::attribute(names.front(), "val"));
+    const auto sizes = xlpp::internal::tags(node, "sz");
+    if (!sizes.empty()) { const auto value = xlpp::internal::attribute(sizes.front(), "val"); if (!value.empty()) font.setSize(xlpp::internal::parseDoubleExact(value, "font size")); }
+    font.setBold(!xlpp::internal::tags(node, "b").empty());
+    font.setItalic(!xlpp::internal::tags(node, "i").empty());
+    font.setUnderline(!xlpp::internal::tags(node, "u").empty());
+    font.setStrike(!xlpp::internal::tags(node, "strike").empty());
+    font.setOutline(!xlpp::internal::tags(node, "outline").empty());
+    font.setCondense(!xlpp::internal::tags(node, "condense").empty());
+    const auto vertAligns = xlpp::internal::tags(node, "vertAlign");
+    if (!vertAligns.empty()) font.setVertAlign(xlpp::internal::attribute(vertAligns.front(), "val"));
+    const auto families = xlpp::internal::tags(node, "family");
+    if (!families.empty()) {
+        const auto value = xlpp::internal::attribute(families.front(), "val");
+        if (!value.empty()) font.setFamily(static_cast<unsigned char>(xlpp::internal::parseIntegerExact<int>(value, "font family")));
+    }
+    const auto charsets = xlpp::internal::tags(node, "charset");
+    if (!charsets.empty()) {
+        const auto value = xlpp::internal::attribute(charsets.front(), "val");
+        if (!value.empty()) font.setCharset(static_cast<unsigned char>(xlpp::internal::parseIntegerExact<int>(value, "font charset")));
+    }
+    const auto schemes = xlpp::internal::tags(node, "scheme");
+    if (!schemes.empty()) font.setScheme(xlpp::internal::attribute(schemes.front(), "val"));
+    font.color() = parseColor(node);
+    return font;
 }
 
 xlpp::BorderSide parseBorderSide(const std::string& borderXml, const char* name) {
@@ -660,19 +694,8 @@ StyleCatalog parseStyleCatalog(const std::string& xml) {
 
     std::vector<xlpp::Font> fonts;
     const auto fontContainers = xlpp::internal::tags(xml, "fonts");
-    if (!fontContainers.empty()) for (const auto& node : xlpp::internal::tags(fontContainers.front(), "font")) {
-        xlpp::Font font;
-        const auto names = xlpp::internal::tags(node, "name");
-        if (!names.empty()) font.setName(xlpp::internal::attribute(names.front(), "val"));
-        const auto sizes = xlpp::internal::tags(node, "sz");
-        if (!sizes.empty()) { const auto value = xlpp::internal::attribute(sizes.front(), "val"); if (!value.empty()) font.setSize(xlpp::internal::parseDoubleExact(value, "font size")); }
-        font.setBold(!xlpp::internal::tags(node, "b").empty());
-        font.setItalic(!xlpp::internal::tags(node, "i").empty());
-        font.setUnderline(!xlpp::internal::tags(node, "u").empty());
-        font.setStrike(!xlpp::internal::tags(node, "strike").empty());
-        font.color() = parseColor(node);
-        fonts.push_back(font);
-    }
+    if (!fontContainers.empty()) for (const auto& node : xlpp::internal::tags(fontContainers.front(), "font"))
+        fonts.push_back(parseFontElement(node));
 
     std::vector<xlpp::Fill> fills;
     const auto fillContainers = xlpp::internal::tags(xml, "fills");
@@ -698,6 +721,8 @@ StyleCatalog parseStyleCatalog(const std::string& xml) {
         border.top() = parseBorderSide(node, "top");
         border.bottom() = parseBorderSide(node, "bottom");
         border.diagonal() = parseBorderSide(node, "diagonal");
+        border.setDiagonalUp(!xlpp::internal::tags(node, "diagonalUp").empty());
+        border.setDiagonalDown(!xlpp::internal::tags(node, "diagonalDown").empty());
         borders.push_back(border);
     }
 
@@ -741,14 +766,7 @@ std::vector<xlpp::Style> parseDifferentialStyles(const std::string& xml) {
     for (const auto& node : xlpp::internal::tags(containers.front(), "dxf")) {
         xlpp::Style style;
         const auto fonts = xlpp::internal::tags(node, "font");
-        if (!fonts.empty()) {
-            const auto& fontNode = fonts.front();
-            style.font().setBold(!xlpp::internal::tags(fontNode, "b").empty());
-            style.font().setItalic(!xlpp::internal::tags(fontNode, "i").empty());
-            style.font().setUnderline(!xlpp::internal::tags(fontNode, "u").empty());
-            style.font().setStrike(!xlpp::internal::tags(fontNode, "strike").empty());
-            style.font().color() = parseColor(fontNode);
-        }
+        if (!fonts.empty()) style.font() = parseFontElement(fonts.front());
         const auto fills = xlpp::internal::tags(node, "fill");
         if (!fills.empty()) {
             const auto patterns = xlpp::internal::tags(fills.front(), "patternFill");
@@ -767,6 +785,8 @@ std::vector<xlpp::Style> parseDifferentialStyles(const std::string& xml) {
             style.border().top() = parseBorderSide(borders.front(), "top");
             style.border().bottom() = parseBorderSide(borders.front(), "bottom");
             style.border().diagonal() = parseBorderSide(borders.front(), "diagonal");
+            style.border().setDiagonalUp(!xlpp::internal::tags(borders.front(), "diagonalUp").empty());
+            style.border().setDiagonalDown(!xlpp::internal::tags(borders.front(), "diagonalDown").empty());
         }
         const auto numFmts = xlpp::internal::tags(node, "numFmt");
         if (!numFmts.empty()) style.setNumberFormat(xlpp::internal::attribute(numFmts.front(), "formatCode"));
@@ -976,6 +996,7 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
     xml << "<dimension ref=\"" << sheet.dimensions() << "\"/><sheetViews><sheetView workbookViewId=\"" << sheet.sheetView().workbookViewId() << "\"";
     if (sheet.sheetView().tabSelected()) xml << " tabSelected=\"1\"";
     if (!sheet.sheetView().showGridLines()) xml << " showGridLines=\"0\"";
+    if (!sheet.sheetView().showRowColHeaders()) xml << " showRowColHeaders=\"0\"";
     if (sheet.sheetView().rightToLeft()) xml << " rightToLeft=\"1\"";
     xml << " zoomScale=\"" << sheet.sheetView().zoomScale() << "\" zoomScaleNormal=\"" << sheet.sheetView().zoomScaleNormal() << "\"";
     if (!sheet.sheetView().showOutlineSymbols()) xml << " showOutlineSymbols=\"0\"";
@@ -2463,7 +2484,8 @@ std::string commentsXml(const xlpp::Worksheet& sheet, bool strict) {
         const auto& comment = *pair.second.commentValue();
         const auto it = std::find(authors.begin(), authors.end(), comment.author());
         const auto authorId = static_cast<std::size_t>(std::distance(authors.begin(), it));
-        xml << "<comment ref=\"" << pair.second.address() << "\" authorId=\"" << authorId << "\" shapeId=\"0\"><text><t xml:space=\"preserve\">"
+        xml << "<comment ref=\"" << pair.second.address() << "\" authorId=\"" << authorId << "\" shapeId=\"0\""
+            << (comment.visible() ? " visible=\"1\"" : "") << "><text><t xml:space=\"preserve\">"
             << xmlEscape(comment.text()) << "</t></text></comment>";
     }
     xml << "</commentList></comments>";
@@ -2476,7 +2498,11 @@ std::string commentsVml(const xlpp::Worksheet& sheet) {
     std::size_t shapeId = 1026;
     for (const auto& pair : sheet.cells()) {
         if (!pair.second.hasComment()) continue;
-        xml << "<v:shape id=\"_x0000_s" << shapeId++ << "\" type=\"#_x0000_t202\" style=\"position:absolute; margin-left:59.25pt;margin-top:1.5pt;width:144px;height:79px;z-index:1;visibility:hidden\" fillcolor=\"#ffffe1\" o:insetmode=\"auto\"><v:fill color2=\"#ffffe1\"/><v:shadow color=\"black\" obscured=\"t\"/><v:path o:connecttype=\"none\"/><v:textbox style=\"mso-direction-alt:auto\"><div style=\"text-align:left\"/></v:textbox><x:ClientData ObjectType=\"Note\"><x:MoveWithCells/><x:SizeWithCells/><x:AutoFill>False</x:AutoFill><x:Row>"
+        const auto& comment = *pair.second.commentValue();
+        const auto widthPx = comment.width() > 0.0 ? comment.width() * (4.0 / 3.0) : 144.0;
+        const auto heightPx = comment.height() > 0.0 ? comment.height() * (4.0 / 3.0) : 79.0;
+        xml << "<v:shape id=\"_x0000_s" << shapeId++ << "\" type=\"#_x0000_t202\" style=\"position:absolute; margin-left:59.25pt;margin-top:1.5pt;width:" << widthPx << "px;height:" << heightPx << "px;z-index:1;visibility:"
+            << (comment.visible() ? "visible" : "hidden") << "\" fillcolor=\"#ffffe1\" o:insetmode=\"auto\"><v:fill color2=\"#ffffe1\"/><v:shadow color=\"black\" obscured=\"t\"/><v:path o:connecttype=\"none\"/><v:textbox style=\"mso-direction-alt:auto\"><div style=\"text-align:left\"/></v:textbox><x:ClientData ObjectType=\"Note\"><x:MoveWithCells/><x:SizeWithCells/><x:AutoFill>False</x:AutoFill><x:Row>"
             << (pair.second.row() - 1) << "</x:Row><x:Column>" << (pair.second.column() - 1) << "</x:Column></x:ClientData></v:shape>";
     }
     xml << "</xml>";
@@ -8314,6 +8340,7 @@ for (const auto& sv : internal::tags(xml, "sheetView")) {
     const auto normalZoom = internal::attribute(sv, "zoomScaleNormal");
     if (!normalZoom.empty()) view.setZoomScaleNormal(internal::parseIntegerExact<int>(normalZoom, "zoomScaleNormal"));
     view.setShowGridLines(internal::attribute(sv, "showGridLines") != "0");
+    view.setShowRowColHeaders(internal::attribute(sv, "showRowColHeaders") != "0");
     view.setTabSelected(internal::attribute(sv, "tabSelected") == "1");
     view.setRightToLeft(internal::attribute(sv, "rightToLeft") == "1");
     view.setShowOutlineSymbols(internal::attribute(sv, "showOutlineSymbols") != "0");
@@ -8354,9 +8381,9 @@ for (auto& col : internal::tags(xml, "col")) {
         dimension.collapsed = internal::attribute(col, "collapsed") == "1";
     }
 }
-for (auto& row : internal::tags(xml, "row")) {
+internal::tagsForEach(xml, "row", [&](std::string_view row) {
     const auto indexText = internal::attribute(row, "r");
-    if (indexText.empty()) continue;
+    if (indexText.empty()) return;
     auto& dimension = ws.rowDimension(internal::parseIntegerExact<std::size_t>(indexText, "row index"));
     const auto height = internal::attribute(row, "ht");
     if (!height.empty()) dimension.height = internal::parseDoubleExact(height, "row height");
@@ -8364,7 +8391,7 @@ for (auto& row : internal::tags(xml, "row")) {
     const auto outline = internal::attribute(row, "outlineLevel");
     if (!outline.empty()) dimension.outlineLevel = internal::parseIntegerExact<int>(outline, "outlineLevel");
     dimension.collapsed = internal::attribute(row, "collapsed") == "1";
-}
+});
 
 for (auto& autoFilterTag : internal::tags(xml, "autoFilter")) {
     auto& autoFilter = ws.autoFilter();
@@ -8574,8 +8601,54 @@ for (auto& validationTag : internal::tags(xml, "dataValidation")) {
             std::string text;
             for (const auto& textNode : internal::tags(commentNode, "t"))
                 text += internal::tagText(textNode, "t");
-            ws.cell(ref).setComment(Comment(std::move(text), author));
+            Comment comment(std::move(text), author);
+            comment.setVisible(internal::attribute(commentNode, "visible") == "1");
+            ws.cell(ref).setComment(std::move(comment));
         }
+    }
+
+    // Legacy VML comment shapes carry the box size (and visibility hint).
+    // Recover width/height so Comment.width()/height() round-trip. The VML
+    // part is optional: some packages reference it without shipping the part.
+    for (const auto& [id, relationship] : sheetRelationships) {
+        if (!internal::relationshipTypeEndsWith(relationship.type, "/vmlDrawing")) continue;
+        std::string vmlTarget;
+        try {
+            vmlTarget = internal::requireInternalPackageTarget(z, target, relationship, "worksheet vmlDrawing");
+        } catch (const std::exception&) {
+            continue;
+        }
+        if (!z.contains(vmlTarget)) continue;
+        const auto& vmlText = z.get(vmlTarget);
+        for (const auto& shapeNode : internal::tags(vmlText, "v:shape")) {
+            const auto style = internal::attribute(shapeNode, "style");
+            double widthPx = 0.0, heightPx = 0.0;
+            auto findMeasure = [](const std::string& text, const char* key) -> double {
+                const auto keyPos = text.find(key);
+                if (keyPos == std::string::npos) return 0.0;
+                const auto start = keyPos + std::strlen(key);
+                const auto end = text.find_first_of("pxpt;", start);
+                if (end == std::string::npos) return 0.0;
+                double value = 0.0;
+                if (!internal::tryParseDoubleExact(text.substr(start, end - start), value)) return 0.0;
+                return value;
+            };
+            widthPx = findMeasure(style, "width:");
+            heightPx = findMeasure(style, "height:");
+            if (widthPx <= 0.0 || heightPx <= 0.0) continue;
+            const auto rows = internal::tags(shapeNode, "x:Row");
+            const auto cols = internal::tags(shapeNode, "x:Column");
+            if (rows.empty() || cols.empty()) continue;
+            const auto row = internal::parseIntegerExact<std::size_t>(internal::tagText(rows.front(), "x:Row"), "vml comment Row") + 1;
+            const auto col = internal::parseIntegerExact<std::size_t>(internal::tagText(cols.front(), "x:Column"), "vml comment Column") + 1;
+            auto& commentCell = ws.cell(row, col);
+            if (commentCell.hasComment()) {
+                commentCell.comment().setWidth(widthPx * 0.75);
+                commentCell.comment().setHeight(heightPx * 0.75);
+            }
+        }
+        (void)id;
+        break;
     }
 
     for (const auto& part : internal::tags(xml, "tablePart")) {
@@ -8650,10 +8723,10 @@ loadImages(ws, xml, z, target);
 loadCharts(ws, xml, z, target);
 loadPivotTables(ws, xml, z, target);
 
-for (auto& merge : internal::tags(xml, "mergeCell")) {
+internal::tagsForEach(xml, "mergeCell", [&](std::string_view merge) {
     const auto ref = internal::attribute(merge, "ref");
     if (!ref.empty()) ws.mergeCells(ref);
-}
+});
 // P1R: account for cells materialized by comments/hyperlinks before sheetData.
 if (!ws.cells().empty()) {
     const auto preexisting = ws.cells().size();
@@ -8666,7 +8739,7 @@ internal::tagsForEach(xml, "c", [&](std::string_view c) {
     if (a.empty()) throw std::runtime_error("worksheet cell is missing its r reference");
     const auto t = internal::attribute(c, "t");
     const auto beforeCellCount = ws.cells().size();
-    auto& cell = ws.cell(a);
+    auto& cell = ws.cellNoTrack(a);
     if (ws.cells().size() != beforeCellCount) {
         if (maxCells != 0 && totalCells >= maxCells)
             throw std::runtime_error("Workbook exceeds configured maxCells limit");
@@ -8680,7 +8753,10 @@ internal::tagsForEach(xml, "c", [&](std::string_view c) {
         cell.setRawStyleIndex(styleId);
         cell.style() = styleCatalog.items[styleId];
     }
-    const auto formulaTags = internal::tags(c, "f");
+    // Most cells carry no formula; skip the element scan entirely when the
+    // <f> marker is absent so hot-path cells stay allocation-free.
+    std::vector<std::string> formulaTags;
+    if (c.find("<f") != std::string_view::npos) formulaTags = internal::tags(c, "f");
     if (!formulaTags.empty()) {
         const auto& formulaTag = formulaTags.front();
         auto formulaText = internal::tagText(c, "f");
@@ -8950,6 +9026,13 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
             }
             throw std::runtime_error(message.str());
         }
+    }
+    const auto saveExtension = p.extension().string();
+    if (saveExtension.size() == 4 && (saveExtension == ".xls" || saveExtension == ".XLS")) {
+        std::vector<unsigned char> binary;
+        internal::writeLegacyXls(*this, binary);
+        internal::writeBinaryFile(p, binary);
+        return;
     }
     const bool strict = options.strictNamespace;
     StyleCatalog styleCatalog;
@@ -9529,6 +9612,15 @@ void Workbook::load(const std::filesystem::path& p, const LoadOptions& options) 
     *this = std::move(candidate);
 }
 
+namespace {
+std::string readFilePrefix(const std::filesystem::path& path, std::size_t bytes) {
+    std::string prefix(bytes, '\0');
+    std::ifstream in(path, std::ios::binary);
+    if (in) in.read(prefix.data(), static_cast<std::streamsize>(bytes));
+    return prefix;
+}
+} // namespace
+
 void Workbook::loadInPlace(const std::filesystem::path& p, const LoadOptions& options) { clear(); diagnostics_ = LoadDiagnostics{};
     if (options.maxFileBytes != 0) {
         std::error_code ec;
@@ -9565,6 +9657,17 @@ void Workbook::loadInPlace(const std::filesystem::path& p, const LoadOptions& op
             throw;
         }
         std::fill(package.begin(), package.end(), 0);
+    } else if (internal::isOle2CompoundFile(readFilePrefix(p, 512))) {
+        // Classic binary .xls (BIFF8) workbook: parse the OLE2 compound file.
+        if (options.maxFileBytes != 0) {
+            std::error_code ec;
+            const auto size = std::filesystem::file_size(p, ec);
+            if (!ec && size > options.maxFileBytes)
+                throw std::runtime_error("Workbook exceeds configured maxFileBytes limit");
+        }
+        const auto bytes = internal::readBinaryFile(p);
+        internal::readLegacyXls(bytes, *this);
+        return;
     } else {
         z = internal::ZipArchive::open(p, limits);
     }

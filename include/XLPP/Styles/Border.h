@@ -41,8 +41,15 @@ public:
     const BorderSide& bottom() const noexcept { return bottom_; }
     BorderSide& diagonal() noexcept { return diagonal_; }
     const BorderSide& diagonal() const noexcept { return diagonal_; }
+    // Diagonal stroke orientation. diagonalUp runs bottom-left to top-right,
+    // diagonalDown top-left to bottom-right. Both may be set simultaneously.
+    bool diagonalUp() const noexcept { return diagonalUp_; }
+    void setDiagonalUp(bool value) noexcept { diagonalUp_ = value; }
+    bool diagonalDown() const noexcept { return diagonalDown_; }
+    void setDiagonalDown(bool value) noexcept { diagonalDown_ = value; }
     bool isDefault() const noexcept {
-        return left_.isDefault() && right_.isDefault() && top_.isDefault() && bottom_.isDefault() && diagonal_.isDefault();
+        return left_.isDefault() && right_.isDefault() && top_.isDefault() && bottom_.isDefault()
+            && diagonal_.isDefault() && !diagonalUp_ && !diagonalDown_;
     }
     std::size_t hash() const noexcept {
         std::size_t h = 0;
@@ -52,10 +59,14 @@ public:
         combine(top_.hash());
         combine(bottom_.hash());
         combine(diagonal_.hash());
+        combine(diagonalUp_);
+        combine(diagonalDown_);
         return h;
     }
     friend bool operator==(const Border&, const Border&) = default;
 private:
     BorderSide left_, right_, top_, bottom_, diagonal_;
+    bool diagonalUp_{false};
+    bool diagonalDown_{false};
 };
 }

@@ -14,6 +14,8 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -744,6 +746,82 @@ void testCompactCellModelP1N(TestContext& test) {
                     "Tracked-cell union count avoids duplicates after bulk append plus direct mutation");
 }
 
+void testFontExtendedProperties(TestContext& test) {
+    // Font outline/condense/vertAlign/charset/family/scheme round-trip through
+    // the shared styles part.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_font_ext.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Fonts");
+    auto& cell = sheet.cell("A1");
+    cell.setValue("C2H5OH");
+    cell.font().setName("Arial");
+    cell.font().setSize(12.0);
+    cell.font().setUnderline(true);
+    cell.font().setStrike(true);
+    cell.font().setOutline(true);
+    cell.font().setCondense(true);
+    cell.font().setVertAlign("superscript");
+    cell.font().setCharset(0x80);
+    cell.font().setFamily(2);
+    cell.font().setScheme("minor");
+    workbook.save(source);
+
+    xlpp::Workbook loaded;
+    loaded.load(source);
+    auto* loadedSheet = loaded.worksheet("Fonts");
+    test.checkTrue(loadedSheet != nullptr, "Font-extended worksheet loaded");
+    auto* loadedCell = loadedSheet->tryCell("A1");
+    test.checkTrue(loadedCell != nullptr, "Font-extended cell loaded");
+    test.checkTrue(loadedCell->font().outline(), "Font outline round-trips");
+    test.checkTrue(loadedCell->font().condense(), "Font condense round-trips");
+    test.checkEqual(loadedCell->font().vertAlign(), std::string("superscript"), "Font vertAlign round-trips");
+    test.checkTrue(loadedCell->font().charset() == 0x80, "Font charset round-trips");
+    test.checkTrue(loadedCell->font().family() == 2, "Font family round-trips");
+    test.checkEqual(loadedCell->font().scheme(), std::string("minor"), "Font scheme round-trips");
+    test.checkTrue(loadedCell->font().strike(), "Font strike preserved");
+    test.checkTrue(loadedCell->font().underline(), "Font underline preserved");
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto styles = archive.get("xl/styles.xml");
+    test.checkTrue(styles.find("<vertAlign val=\"superscript\"/>") != std::string::npos, "Font vertAlign is serialized");
+    test.checkTrue(styles.find("<charset val=\"128\"/>") != std::string::npos, "Font charset is serialized");
+    test.checkTrue(styles.find("<family val=\"2\"/>") != std::string::npos, "Font family is serialized");
+    test.checkTrue(styles.find("<scheme val=\"minor\"/>") != std::string::npos, "Font scheme is serialized");
+
+    std::filesystem::remove(source);
+}
+
+void testBorderDiagonalDirections(TestContext& test) {
+    // Border diagonalUp/diagonalDown flags round-trip through the styles part.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_border_diag.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Borders");
+    auto& cell = sheet.cell("A1");
+    cell.setValue("X");
+    cell.border().diagonal().setStyle("thin");
+    cell.border().diagonal().color().setArgb("FF000000");
+    cell.border().setDiagonalUp(true);
+    cell.border().setDiagonalDown(true);
+    workbook.save(source);
+
+    xlpp::Workbook loaded;
+    loaded.load(source);
+    auto* loadedSheet = loaded.worksheet("Borders");
+    test.checkTrue(loadedSheet != nullptr, "Border-diagonal worksheet loaded");
+    auto* loadedCell = loadedSheet->tryCell("A1");
+    test.checkTrue(loadedCell != nullptr, "Border-diagonal cell loaded");
+    test.checkEqual(loadedCell->border().diagonal().style(), std::string("thin"), "Diagonal border style round-trips");
+    test.checkTrue(loadedCell->border().diagonalUp(), "Diagonal-up flag round-trips");
+    test.checkTrue(loadedCell->border().diagonalDown(), "Diagonal-down flag round-trips");
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto styles = archive.get("xl/styles.xml");
+    test.checkTrue(styles.find("<diagonalUp/>") != std::string::npos, "Diagonal-up flag is serialized");
+    test.checkTrue(styles.find("<diagonalDown/>") != std::string::npos, "Diagonal-down flag is serialized");
+
+    std::filesystem::remove(source);
+}
+
 void testCompactOptionalCellPayloadP1O(TestContext& test) {
     test.checkTrue(sizeof(xlpp::Cell) <= 400, "P1O lazy optional payloads keep Cell at or below 400 bytes");
 
@@ -1231,6 +1309,15 @@ void testCommentsRoundTrip(TestContext& test) {
     auto& sheet = workbook.addWorksheet("Comments");
     sheet.cell("A1").setValue("First");
     sheet.cell("A1").setComment(xlpp::Comment("Review this value", "Alice"));
+    auto visibleComment = xlpp::Comment("Visible note", "Carol");
+    visibleComment.setVisible(true);
+    sheet.cell("B2").setValue("Second");
+    sheet.cell("B2").setComment(std::move(visibleComment));
+    auto sizedComment = xlpp::Comment("Resized box", "Dave");
+    sizedComment.setWidth(300.0);
+    sizedComment.setHeight(120.0);
+    sheet.cell("D1").setValue("Sized");
+    sheet.cell("D1").setComment(std::move(sizedComment));
     sheet.cell("C4").setValue(42.0);
     sheet.cell("C4").setComment(xlpp::Comment("Second note with <XML> & spaces", "Bob"));
     workbook.save(path);
@@ -1244,10 +1331,18 @@ void testCommentsRoundTrip(TestContext& test) {
     test.checkTrue(loadedSheet->tryCell("A1")->hasComment(), "First comment exists after round-trip");
     test.checkEqual(loadedSheet->tryCell("A1")->commentValue()->text(), std::string("Review this value"), "First comment text round-trip");
     test.checkEqual(loadedSheet->tryCell("A1")->commentValue()->author(), std::string("Alice"), "First comment author round-trip");
+    test.checkTrue(loadedSheet->tryCell("B2")->hasComment(), "Visible comment cell loaded");
+    test.checkTrue(loadedSheet->tryCell("B2")->commentValue()->visible(), "Comment visible flag round-trips");
     test.checkTrue(loadedSheet->tryCell("C4")->hasComment(), "Second comment exists after round-trip");
     test.checkEqual(loadedSheet->tryCell("C4")->commentValue()->text(), std::string("Second note with <XML> & spaces"), "Escaped comment text round-trip");
     test.checkEqual(loadedSheet->tryCell("C4")->commentValue()->author(), std::string("Bob"), "Second comment author round-trip");
+    test.checkTrue(loadedSheet->tryCell("D1")->hasComment(), "Sized comment cell loaded");
+    test.checkNear(loadedSheet->tryCell("D1")->commentValue()->width(), 300.0, 0.01, "Comment width round-trips (points)");
+    test.checkNear(loadedSheet->tryCell("D1")->commentValue()->height(), 120.0, 0.01, "Comment height round-trips (points)");
     const auto archive = xlpp::internal::ZipArchive::open(path);
+    const auto vml = archive.get("xl/drawings/commentsDrawing1.vml");
+    test.checkTrue(vml.find("width:400px") != std::string::npos, "Comment box width serializes as VML pixels");
+    test.checkTrue(vml.find("height:160px") != std::string::npos, "Comment box height serializes as VML pixels");
     const auto sheetXml = archive.get("xl/worksheets/sheet1.xml");
     const auto marginsPosition = sheetXml.find("<pageMargins");
     const auto legacyDrawingPosition = sheetXml.find("<legacyDrawing");
@@ -8089,6 +8184,7 @@ void testAdvancedSheetViewRoundTrip(TestContext& test) {
     view.setZoomScale(135);
     view.setZoomScaleNormal(90);
     view.setShowGridLines(false);
+    view.setShowRowColHeaders(false);
     view.setTabSelected(true);
     view.setRightToLeft(true);
     view.setShowOutlineSymbols(false);
@@ -8103,6 +8199,7 @@ void testAdvancedSheetViewRoundTrip(TestContext& test) {
     const auto xml = zip.get("xl/worksheets/sheet1.xml");
     test.checkTrue(xml.find("zoomScaleNormal=\"90\"") != std::string::npos, "Normal zoom is serialized");
     test.checkTrue(xml.find("showOutlineSymbols=\"0\"") != std::string::npos, "Outline symbols flag is serialized");
+    test.checkTrue(xml.find("showRowColHeaders=\"0\"") != std::string::npos, "Row/column header visibility is serialized");
     test.checkTrue(xml.find("state=\"split\"") != std::string::npos, "Split pane state is serialized");
     test.checkTrue(xml.find("activePane=\"bottomRight\"") != std::string::npos, "Active pane is serialized");
     test.checkTrue(xml.find("topLeftCell=\"D5\"") != std::string::npos, "Split top-left cell is serialized");
@@ -8117,6 +8214,7 @@ void testAdvancedSheetViewRoundTrip(TestContext& test) {
     test.checkEqual(loadedView.zoomScale(), 135, "Zoom scale round-trips");
     test.checkEqual(loadedView.zoomScaleNormal(), 90, "Normal zoom round-trips");
     test.checkTrue(!loadedView.showGridLines(), "Grid-line visibility round-trips");
+    test.checkTrue(!loadedView.showRowColHeaders(), "Row/column header visibility round-trips");
     test.checkTrue(loadedView.tabSelected(), "Selected tab round-trips");
     test.checkTrue(loadedView.rightToLeft(), "Right-to-left round-trips");
     test.checkTrue(!loadedView.showOutlineSymbols(), "Outline symbol visibility round-trips");
@@ -11204,6 +11302,291 @@ void testConditionalFormattingRuleFamilies(TestContext& test) {
 }
 
 
+namespace {
+void xlsAppendU16(std::vector<unsigned char>& out, std::size_t offset, std::uint16_t value) {
+    out[offset] = static_cast<unsigned char>(value & 0xFF);
+    out[offset + 1] = static_cast<unsigned char>((value >> 8) & 0xFF);
+}
+void xlsAppendU16(std::vector<unsigned char>& out, std::uint16_t value) {
+    out.push_back(static_cast<unsigned char>(value & 0xFF));
+    out.push_back(static_cast<unsigned char>((value >> 8) & 0xFF));
+}
+void xlsAppendU32(std::vector<unsigned char>& out, std::size_t offset, std::uint32_t value) {
+    xlsAppendU16(out, offset, static_cast<std::uint16_t>(value & 0xFFFF));
+    xlsAppendU16(out, offset + 2, static_cast<std::uint16_t>((value >> 16) & 0xFFFF));
+}
+void xlsAppendU32(std::vector<unsigned char>& out, std::uint32_t value) {
+    xlsAppendU16(out, static_cast<std::uint16_t>(value & 0xFFFF));
+    xlsAppendU16(out, static_cast<std::uint16_t>((value >> 16) & 0xFFFF));
+}
+void xlsAppendRecord(std::vector<unsigned char>& out, std::uint16_t type, const std::vector<unsigned char>& payload) {
+    xlsAppendU16(out, type);
+    xlsAppendU16(out, static_cast<std::uint16_t>(payload.size()));
+    out.insert(out.end(), payload.begin(), payload.end());
+}
+std::vector<unsigned char> xlsBuildCfb(const std::vector<unsigned char>& workbookStream) {
+    std::vector<unsigned char> file(512, 0);
+    const unsigned char magic[8] = {0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1};
+    std::memcpy(file.data(), magic, 8);
+    xlsAppendU16(file, 0x18, 0x003E);      // minor version
+    xlsAppendU16(file, 0x1A, 0x0003);      // major version
+    xlsAppendU16(file, 0x1C, 0xFFFE);      // byte order
+    file[0x1E] = 9;                        // sector shift
+    file[0x1F] = 6;                        // mini sector shift
+    xlsAppendU32(file, 0x2C, 1);           // num FAT sectors
+    xlsAppendU32(file, 0x30, 1);           // first directory sector
+    xlsAppendU32(file, 0x34, 0);           // transaction signature
+    xlsAppendU32(file, 0x38, 0);           // mini stream cutoff (0: all streams via FAT)
+    xlsAppendU32(file, 0x3C, 0xFFFFFFFE);  // first mini FAT
+    xlsAppendU32(file, 0x40, 0);           // num mini FAT
+    xlsAppendU32(file, 0x44, 0xFFFFFFFE);  // first DIFAT sector
+    xlsAppendU32(file, 0x48, 0);           // num DIFAT sectors
+    for (std::size_t i = 0; i < 109; ++i) xlsAppendU32(file, 0x4C + i * 4, i == 0 ? 0 : 0xFFFFFFFF);
+    file.resize(512 + 512, 0);
+    xlsAppendU32(file, 512, 0xFFFFFFFE); // FAT[0] = FAT sector, chain end
+    xlsAppendU32(file, 512, 0xFFFFFFFE); // FAT[1] = directory end
+    xlsAppendU32(file, 512, 0xFFFFFFFE); // FAT[2] = workbook stream end
+    file.resize(512 + 512 + 512, 0);
+    const auto writeDirEntry = [&](std::size_t index, const char16_t* name, std::size_t cch,
+                                   std::uint8_t type, std::uint32_t start, std::uint64_t size,
+                                   std::uint32_t child) {
+        const auto base = 1024 + index * 128;
+        for (std::size_t i = 0; i < cch; ++i) {
+            file[base + i * 2] = static_cast<unsigned char>(name[i] & 0xFF);
+            file[base + i * 2 + 1] = static_cast<unsigned char>((name[i] >> 8) & 0xFF);
+        }
+        file[base + 2 * cch] = 0;
+        file[base + 2 * cch + 1] = 0;
+        xlsAppendU16(file, base + 0x40, static_cast<std::uint16_t>((cch + 1) * 2));
+        file[base + 0x42] = type;
+        file[base + 0x43] = 1;
+        xlsAppendU32(file, base + 0x44, 0xFFFFFFFF);
+        xlsAppendU32(file, base + 0x48, 0xFFFFFFFF);
+        xlsAppendU32(file, base + 0x4C, child);
+        xlsAppendU32(file, base + 0x60, 0);
+        xlsAppendU32(file, base + 0x74, start);
+        for (int i = 0; i < 8; ++i)
+            file[base + 0x78 + static_cast<std::size_t>(i)] = static_cast<unsigned char>((size >> (8 * i)) & 0xFF);
+    };
+    writeDirEntry(0, u"Root Entry", 11, 5, 0xFFFFFFFE, 0, 1);
+    writeDirEntry(1, u"Workbook", 8, 2, 2, workbookStream.size(), 0xFFFFFFFF);
+    file.resize(1024 + 512 + workbookStream.size());
+    std::memcpy(file.data() + 1536, workbookStream.data(), workbookStream.size());
+    return file;
+}
+std::vector<unsigned char> xlsDoubleBytes(double value) {
+    std::vector<unsigned char> out(8, 0);
+    std::memcpy(out.data(), &value, sizeof(value));
+    return out;
+}
+} // namespace
+
+void testLegacyXlsRead(TestContext& test) {
+    // Build a minimal BIFF8 workbook inside an OLE2 compound file and verify
+    // the basic binary reader materializes sheet names and cell values.
+    std::vector<unsigned char> stream;
+
+    auto bofGlobals = std::vector<unsigned char>();
+    xlsAppendU16(bofGlobals, 0x0600); xlsAppendU16(bofGlobals, 0x0005);
+    xlsAppendU16(bofGlobals, 0x0DBB); xlsAppendU16(bofGlobals, 0x07CC);
+    xlsAppendU32(bofGlobals, 0); xlsAppendU32(bofGlobals, 0);
+    xlsAppendRecord(stream, 0x0809, bofGlobals);
+
+    const auto boundsheetOffset = stream.size();
+    std::vector<unsigned char> boundsheet(13, 0); // patched below with the BOF position
+    xlsAppendRecord(stream, 0x0085, boundsheet);
+
+    std::vector<unsigned char> sst;
+    xlsAppendU32(sst, 1); // cstTotal
+    xlsAppendU32(sst, 1); // cstUnique
+    xlsAppendU16(sst, 9); // "Hello XLS"
+    sst.push_back(0);     // compressed chars
+    const std::string hello = "Hello XLS";
+    sst.insert(sst.end(), hello.begin(), hello.end());
+    xlsAppendRecord(stream, 0x00FC, sst);
+
+    xlsAppendRecord(stream, 0x000A, {}); // EOF (globals)
+    const auto worksheetBofPos = stream.size();
+    stream[boundsheetOffset + 4] = static_cast<unsigned char>(worksheetBofPos & 0xFF);
+    stream[boundsheetOffset + 5] = static_cast<unsigned char>((worksheetBofPos >> 8) & 0xFF);
+    stream[boundsheetOffset + 6] = static_cast<unsigned char>((worksheetBofPos >> 16) & 0xFF);
+    stream[boundsheetOffset + 7] = static_cast<unsigned char>((worksheetBofPos >> 24) & 0xFF);
+    stream[boundsheetOffset + 8] = 0; // hidden state
+    stream[boundsheetOffset + 9] = 0; // sheet type: worksheet
+    stream[boundsheetOffset + 10] = 6; // name length "Sheet1"
+    const std::string sheet1 = "Sheet1";
+    for (std::size_t i = 0; i < sheet1.size(); ++i) stream[boundsheetOffset + 11 + i] = static_cast<unsigned char>(sheet1[i]);
+
+    auto bofWorksheet = std::vector<unsigned char>();
+    xlsAppendU16(bofWorksheet, 0x0600); xlsAppendU16(bofWorksheet, 0x0010);
+    xlsAppendU16(bofWorksheet, 0x0DBB); xlsAppendU16(bofWorksheet, 0x07CC);
+    xlsAppendU32(bofWorksheet, 0); xlsAppendU32(bofWorksheet, 0);
+    xlsAppendRecord(stream, 0x0809, bofWorksheet);
+
+    std::vector<unsigned char> dim;
+    xlsAppendU32(dim, 0); xlsAppendU32(dim, 7); xlsAppendU16(dim, 0); xlsAppendU16(dim, 7); xlsAppendU16(dim, 0);
+    xlsAppendRecord(stream, 0x0200, dim);
+
+    // Row 2 (index 1): height 300 twips = 15 points.
+    auto rowRec = std::vector<unsigned char>();
+    xlsAppendU16(rowRec, 1); xlsAppendU16(rowRec, 0); xlsAppendU16(rowRec, 1);
+    xlsAppendU16(rowRec, 300); xlsAppendU16(rowRec, 0); xlsAppendU16(rowRec, 0); xlsAppendU16(rowRec, 0);
+    xlsAppendRecord(stream, 0x0208, rowRec);
+
+    // Column A: width 2560 (10 characters).
+    auto colInfo = std::vector<unsigned char>();
+    xlsAppendU16(colInfo, 0); xlsAppendU16(colInfo, 0); xlsAppendU16(colInfo, 2560);
+    xlsAppendU16(colInfo, 0); xlsAppendU16(colInfo, 0); xlsAppendU16(colInfo, 0);
+    xlsAppendRecord(stream, 0x007D, colInfo);
+
+    // Merged range A1:B2.
+    auto merged = std::vector<unsigned char>();
+    xlsAppendU16(merged, 1); xlsAppendU16(merged, 0); xlsAppendU16(merged, 1);
+    xlsAppendU16(merged, 0); xlsAppendU16(merged, 1);
+    xlsAppendRecord(stream, 0x00E5, merged);
+
+    auto number = std::vector<unsigned char>();
+    xlsAppendU16(number, 0); xlsAppendU16(number, 0); xlsAppendU16(number, 0); // A1
+    auto numBytes = xlsDoubleBytes(42.5);
+    number.insert(number.end(), numBytes.begin(), numBytes.end());
+    xlsAppendRecord(stream, 0x0203, number);
+
+    auto rk = std::vector<unsigned char>();
+    xlsAppendU16(rk, 1); xlsAppendU16(rk, 1); xlsAppendU16(rk, 0); // B2
+    xlsAppendU32(rk, static_cast<std::uint32_t>((100 << 2) | 0x02));
+    xlsAppendRecord(stream, 0x027E, rk);
+
+    auto labelsst = std::vector<unsigned char>();
+    xlsAppendU16(labelsst, 2); xlsAppendU16(labelsst, 2); xlsAppendU16(labelsst, 0); // C3
+    xlsAppendU32(labelsst, 0); // shared string index 0
+    xlsAppendRecord(stream, 0x00FD, labelsst);
+
+    auto boolTrue = std::vector<unsigned char>();
+    xlsAppendU16(boolTrue, 3); xlsAppendU16(boolTrue, 3); xlsAppendU16(boolTrue, 0); // D4
+    boolTrue.push_back(1); boolTrue.push_back(0);
+    xlsAppendRecord(stream, 0x0205, boolTrue);
+
+    auto boolError = std::vector<unsigned char>();
+    xlsAppendU16(boolError, 4); xlsAppendU16(boolError, 4); xlsAppendU16(boolError, 0); // E5
+    boolError.push_back(0x07); boolError.push_back(1); // #DIV/0!
+    xlsAppendRecord(stream, 0x0205, boolError);
+
+    auto formula = std::vector<unsigned char>();
+    xlsAppendU16(formula, 5); xlsAppendU16(formula, 5); xlsAppendU16(formula, 0); // F6
+    auto cached = xlsDoubleBytes(10.0);
+    cached[0] = 0x00; // number result
+    formula.insert(formula.end(), cached.begin(), cached.end());
+    xlsAppendU16(formula, 0); xlsAppendU32(formula, 0); xlsAppendU16(formula, 0); // grbit chn cce
+    xlsAppendRecord(stream, 0x0006, formula);
+
+    auto rkDouble = std::vector<unsigned char>();
+    xlsAppendU16(rkDouble, 6); xlsAppendU16(rkDouble, 6); xlsAppendU16(rkDouble, 0); // G7
+    xlsAppendU32(rkDouble, 0x424A0000); // float 50.5
+    xlsAppendRecord(stream, 0x027E, rkDouble);
+
+    xlsAppendRecord(stream, 0x000A, {}); // EOF (worksheet)
+
+    const auto cfb = xlsBuildCfb(stream);
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_fixture.xls";
+    std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(cfb.data()), static_cast<std::streamsize>(cfb.size()));
+
+    xlpp::Workbook workbook;
+    try {
+        workbook.load(path);
+    } catch (const std::exception& e) {
+        test.checkTrue(false, std::string("Legacy XLS load threw: ") + e.what());
+        std::filesystem::remove(path);
+        return;
+    }
+
+    test.checkTrue(workbook.sheetCount() == 1, "Legacy XLS exposes one worksheet");
+    auto* sheet = workbook.worksheet("Sheet1");
+    test.checkTrue(sheet != nullptr, "Legacy XLS sheet name is read");
+    if (sheet != nullptr) {
+        if (const auto* v = std::get_if<double>(&sheet->tryCell("A1")->value()))
+            test.checkNear(*v, 42.5, 1e-9, "Legacy XLS NUMBER value");
+        else test.checkTrue(false, "Legacy XLS NUMBER value");
+        if (const auto* v = std::get_if<double>(&sheet->tryCell("B2")->value()))
+            test.checkNear(*v, 100.0, 1e-9, "Legacy XLS RK integer value");
+        else test.checkTrue(false, "Legacy XLS RK integer value");
+        if (const auto* v = std::get_if<std::string>(&sheet->tryCell("C3")->value()))
+            test.checkEqual(*v, std::string("Hello XLS"), "Legacy XLS shared string value");
+        else test.checkTrue(false, "Legacy XLS shared string value");
+        if (const auto* v = std::get_if<bool>(&sheet->tryCell("D4")->value()))
+            test.checkEqual(*v, true, "Legacy XLS boolean value");
+        else test.checkTrue(false, "Legacy XLS boolean value");
+        const auto* errorCell = sheet->tryCell("E5");
+        test.checkTrue(errorCell->isError() && errorCell->error() == xlpp::CellError::DivisionByZero,
+                       "Legacy XLS error value");
+        if (const auto* v = std::get_if<double>(&sheet->tryCell("F6")->value()))
+            test.checkNear(*v, 10.0, 1e-9, "Legacy XLS formula cached number");
+        else test.checkTrue(false, "Legacy XLS formula cached number");
+        if (const auto* v = std::get_if<double>(&sheet->tryCell("G7")->value()))
+            test.checkNear(*v, 50.5, 1e-9, "Legacy XLS RK double value");
+        else test.checkTrue(false, "Legacy XLS RK double value");
+        if (const auto* rowDim = sheet->tryRowDimension(2))
+            test.checkTrue(rowDim->height.has_value() && std::abs(*rowDim->height - 15.0) < 1e-9,
+                           "Legacy XLS row height (twips)");
+        else test.checkTrue(false, "Legacy XLS row height (twips)");
+        if (const auto* colDim = sheet->tryColumnDimension(1))
+            test.checkTrue(colDim->width.has_value() && std::abs(*colDim->width - 10.0) < 1e-9,
+                           "Legacy XLS column width (1/256 chars)");
+        else test.checkTrue(false, "Legacy XLS column width (1/256 chars)");
+        test.checkTrue(sheet->isMerged("A1"), "Legacy XLS merged range");
+    }
+    std::filesystem::remove(path);
+}
+
+void testLegacyXlsRoundTrip(TestContext& test) {
+    // Save a workbook as .xls (BIFF8) and read it back.
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_roundtrip.xls";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    sheet.cell("A1").setValue(123.5);
+    sheet.cell("B1").setValue(std::string("ABC"));
+    sheet.cell("C1").setValue(true);
+    sheet.cell("D1").setError(xlpp::CellError::DivisionByZero);
+    sheet.cell("E1").setValue(std::string("Hello XLS"));
+    sheet.cell("A2").setValue(42.0);
+    sheet.rowDimension(2).height = 18.0;
+    sheet.columnDimension(1).width = 12.0;
+    sheet.mergeCells("A2:B2");
+    workbook.save(path);
+
+    xlpp::Workbook loaded;
+    loaded.load(path);
+    test.checkTrue(loaded.sheetCount() == 1, "Round-tripped XLS exposes one worksheet");
+    auto* data = loaded.worksheet("Data");
+    test.checkTrue(data != nullptr, "Round-tripped XLS sheet name");
+    if (data != nullptr) {
+        if (const auto* v = std::get_if<double>(&data->tryCell("A1")->value()))
+            test.checkNear(*v, 123.5, 1e-9, "Round-tripped XLS number");
+        else test.checkTrue(false, "Round-tripped XLS number");
+        if (const auto* v = std::get_if<std::string>(&data->tryCell("B1")->value()))
+            test.checkEqual(*v, std::string("ABC"), "Round-tripped XLS string");
+        else test.checkTrue(false, "Round-tripped XLS string");
+        if (const auto* v = std::get_if<bool>(&data->tryCell("C1")->value()))
+            test.checkEqual(*v, true, "Round-tripped XLS boolean");
+        else test.checkTrue(false, "Round-tripped XLS boolean");
+        test.checkTrue(data->tryCell("D1")->isError()
+                       && data->tryCell("D1")->error() == xlpp::CellError::DivisionByZero,
+                       "Round-tripped XLS error");
+        if (const auto* v = std::get_if<std::string>(&data->tryCell("E1")->value()))
+            test.checkEqual(*v, std::string("Hello XLS"), "Round-tripped XLS shared string");
+        else test.checkTrue(false, "Round-tripped XLS shared string");
+        if (const auto* rowDim = data->tryRowDimension(2))
+            test.checkTrue(rowDim->height.has_value() && std::abs(*rowDim->height - 18.0) < 0.5,
+                           "Round-tripped XLS row height");
+        else test.checkTrue(false, "Round-tripped XLS row height");
+        if (const auto* colDim = data->tryColumnDimension(1))
+            test.checkTrue(colDim->width.has_value() && std::abs(*colDim->width - 12.0) < 0.5,
+                           "Round-tripped XLS column width");
+        else test.checkTrue(false, "Round-tripped XLS column width");
+        test.checkTrue(data->isMerged("A2"), "Round-tripped XLS merged range");
+    }
+    std::filesystem::remove(path);
+}
+
 void testPasswordToOpenEncryptionP1G(TestContext& test) {
     const auto encryptedPath = std::filesystem::temp_directory_path() / "xlpp_p1g_agile_encrypted.xlsx";
     const auto tamperedPath = std::filesystem::temp_directory_path() / "xlpp_p1g_agile_tampered.xlsx";
@@ -12571,6 +12954,8 @@ int main() {
         {"Hyperlinks, comments and properties model", testHyperlinksCommentsAndProperties},
         {"Hyperlinks and properties XLSX round-trip", testHyperlinksAndPropertiesRoundTrip},
         {"Legacy comments XLSX round-trip", testCommentsRoundTrip},
+        {"Legacy XLS binary read", testLegacyXlsRead},
+        {"Legacy XLS round-trip", testLegacyXlsRoundTrip},
         {"Comment mutation after cached save", testCommentMutationAfterSave},
         {"Rich-text legacy comment import", testRichTextCommentImport},
         {"Page setup, protection and images model", testPageSetupProtectionAndImages},
@@ -12721,6 +13106,8 @@ int main() {
         {"Table totals row P1Z", testTableTotalsRow},
         {"Worksheet page breaks P1Z", testPageBreaks},
         {"Conditional formatting rule families P1Z", testConditionalFormattingRuleFamilies},
+        {"Font extended properties P1Z", testFontExtendedProperties},
+        {"Border diagonal directions P1Z", testBorderDiagonalDirections},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},
         {"Workbook reference-safe structural edits P1J", testWorkbookReferenceSafeStructuralEditsP1J},
         {"Structural edit edge cases P1J", testStructuralEditEdgeCasesP1J},
