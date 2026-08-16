@@ -15,6 +15,7 @@
 #include "WorkbookChartEditing.h"
 #include "WorkbookSheetWriter.h"
 #include "WorkbookPivotRead.h"
+#include "WorkbookSlicerIO.h"
 #include "../Legacy/XlsBinaryReader.h"
 #include "../Legacy/XlsBinaryWriter.h"
 #include "../Legacy/XlsbBinaryReader.h"
@@ -171,6 +172,12 @@ using xlpp::internal::nextAvailablePivotCacheId;
 using xlpp::internal::nextAvailableMediaId;
 using xlpp::internal::sheetXml;
 using xlpp::internal::parseRichTextRuns;
+using xlpp::internal::slicerCacheXml;
+using xlpp::internal::slicerXml;
+using xlpp::internal::slicerCacheRelationshipId;
+using xlpp::internal::slicerRelationshipId;
+using xlpp::internal::insertSlicerListExt;
+using xlpp::internal::insertWorkbookSlicerCachesExt;
 using xlpp::internal::LoadedSharedString;
 using xlpp::internal::loadPivotTables;
 using xlpp::internal::filterOperatorName;
@@ -307,7 +314,9 @@ std::string contentTypes(std::size_t sheetCount,
                          const std::vector<std::size_t>& pivotCacheIds,
                          bool hasCustomProperties,
                          bool macroEnabled,
-                         bool templateWorkbook) {
+                         bool templateWorkbook,
+                         const std::vector<std::size_t>& slicerCacheIds = {},
+                         const std::vector<std::size_t>& slicerIds = {}) {
     std::ostringstream xml;
     std::set<std::string> emittedDefaults;
     std::set<std::string> emittedOverrides;
@@ -383,6 +392,12 @@ std::string contentTypes(std::size_t sheetCount,
         addOverride("xl/pivotCache/pivotCacheRecords" + std::to_string(index) + ".xml",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml");
     }
+    for (const auto index : slicerCacheIds)
+        addOverride("xl/slicerCaches/slicerCache" + std::to_string(index) + ".xml",
+                    "application/vnd.ms-excel.slicerCache+xml");
+    for (const auto index : slicerIds)
+        addOverride("xl/slicers/slicer" + std::to_string(index) + ".xml",
+                    "application/vnd.ms-excel.slicer+xml");
     for (const auto& part : preserved) {
         if (!part.overrideType.empty()) addOverride(part.name, part.overrideType);
         else if (!part.defaultType.empty()) addDefault(part.extension, part.defaultType);
@@ -1360,6 +1375,13 @@ Worksheet& Workbook::addWorksheet(std::string name) {
     if (generatedVbaProject_) ensureWorksheetVbaCodeNames(sheets_);
     return sheets_.back();
 }
+Slicer& Workbook::addSlicer(const std::string& worksheetName, Slicer slicer) {
+    if (slicer.name.empty()) throw std::invalid_argument("Slicer name cannot be empty");
+    if (worksheet(worksheetName) == nullptr) throw std::invalid_argument("Slicer worksheet does not exist: " + worksheetName);
+    slicer.worksheetName = worksheetName;
+    slicers_.push_back(std::move(slicer));
+    return slicers_.back();
+}
 Worksheet* Workbook::worksheet(const std::string& n)noexcept{auto i=std::find_if(sheets_.begin(),sheets_.end(),[&](auto&s){return internal::worksheetNamesEquivalent(s.name(),n);});return i==sheets_.end()?nullptr:&*i;}const Worksheet* Workbook::worksheet(const std::string& n)const noexcept{auto i=std::find_if(sheets_.begin(),sheets_.end(),[&](auto&s){return internal::worksheetNamesEquivalent(s.name(),n);});return i==sheets_.end()?nullptr:&*i;}
 Worksheet& Workbook::operator[](std::size_t index){return sheets_.at(index);}
 const Worksheet& Workbook::operator[](std::size_t index) const{return sheets_.at(index);}
@@ -1707,6 +1729,12 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
                                            options.parallelRows, &sstIndex, &cachedSheetXml_,
                                            cachedSheetXmlStrict_, cachedSheetXmlDate1904_);
     for (auto& sheet : sheets_) sheet.clearDirty();
+    // Slicer parts are named slicerCacheK.xml / slicerK.xml with 1-based ids.
+    std::vector<std::size_t> slicerCacheIds, slicerIds;
+    for (std::size_t si = 0; si < slicers_.size(); ++si) {
+        slicerCacheIds.push_back(si + 1);
+        slicerIds.push_back(si + 1);
+    }
     internal::ZipArchive z;
     std::set<std::string> suppressedPreservedParts;
     z.setCompressionLevel(zlibLevel(options.compressionLevel));
@@ -1714,7 +1742,8 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
     z.setParallelWorkers(options.parallelWorkers);
     z.add("[Content_Types].xml", contentTypes(sheets_.size(), generatedChartsheetIds, generatedPrinterSettingsIds, tableCount, commentCount,
         generatedDrawingIds, preservedParts_, strict, !sstStrings.empty(), generatedChartIds,
-        generatedPivotIds, generatedPivotCachePartIds, !customProps_.empty(), macroEnabled, template_));
+        generatedPivotIds, generatedPivotCachePartIds, !customProps_.empty(), macroEnabled, template_,
+        slicerCacheIds, slicerIds));
     const auto rootOriginalRelationships = relationshipsForSource(preservedRelationships_, {});
     const auto mergedRootRelationships = mergeRelationshipsXml(rootrels(strict, !customProps_.empty()), rootOriginalRelationships,
         [](const PreservedRelationship& relationship) {
@@ -1917,7 +1946,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
             }
             sheetRels << "</Relationships>";
             auto generatedSheetXml = sheetXmls[i];
-            const auto mergedSheetRelationships = mergeRelationshipsXml(sheetRels.str(), originalSheetRelationships,
+            auto mergedSheetRelationships = mergeRelationshipsXml(sheetRels.str(), originalSheetRelationships,
                 [&](const PreservedRelationship& relationship) {
                     const auto kind = relationshipKind(relationship);
                     if (kind == "drawing") return static_cast<bool>(preserveDrawing[i]);
@@ -1929,11 +1958,30 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
                 }, strict, &generatedSheetXml);
             generatedSheetXml = rebuildWorksheetTail(std::move(generatedSheetXml), originalSheetXml,
                                                       preserveDrawing[i], preservePivot[i], preserveTables, preserveComments);
+            for (std::size_t si = 0; si < slicers_.size(); ++si) {
+                if (slicers_[si].worksheetName != sheet.name()) continue;
+                const std::string slicerRel = "<Relationship Id=\"" + slicerRelationshipId(si) + "\" Type=\""
+                    + nsRelsDoc(strict) + "/slicer\" Target=\"../slicers/slicer" + std::to_string(si + 1) + ".xml\"/>";
+                const auto endTag = std::string("</Relationships>");
+                const auto relEnd = mergedSheetRelationships.find(endTag);
+                if (relEnd != std::string::npos) mergedSheetRelationships.insert(relEnd, slicerRel);
+                z.add("xl/slicerCaches/slicerCache" + std::to_string(si + 1) + ".xml", slicerCacheXml(slicers_[si]));
+                z.add("xl/slicers/slicer" + std::to_string(si + 1) + ".xml", slicerXml(slicers_[si]));
+                generatedSheetXml = insertSlicerListExt(std::move(generatedSheetXml),
+                                                        {slicerRelationshipId(si)}, strict);
+            }
             z.add("xl/worksheets/sheet"+std::to_string(i+1)+".xml", generatedSheetXml);
             z.add("xl/worksheets/_rels/sheet"+std::to_string(i+1)+".xml.rels", mergedSheetRelationships);
         } else {
             auto generatedSheetXml = rebuildWorksheetTail(sheetXmls[i], originalSheetXml,
                                                           preserveDrawing[i], preservePivot[i], preserveTables, preserveComments);
+            for (std::size_t si = 0; si < slicers_.size(); ++si) {
+                if (slicers_[si].worksheetName != sheet.name()) continue;
+                z.add("xl/slicerCaches/slicerCache" + std::to_string(si + 1) + ".xml", slicerCacheXml(slicers_[si]));
+                z.add("xl/slicers/slicer" + std::to_string(si + 1) + ".xml", slicerXml(slicers_[si]));
+                generatedSheetXml = insertSlicerListExt(std::move(generatedSheetXml),
+                                                        {slicerRelationshipId(si)}, strict);
+            }
             z.add("xl/worksheets/sheet"+std::to_string(i+1)+".xml", generatedSheetXml);
         }
     }
@@ -1942,6 +1990,13 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
         chartsheetPrinterSettingsIds, preservedRelationships_, suppressedPreservedParts, strict,
         [](const Chart& chart, bool strictMode) { return chartXml(chart, strictMode); });
     wb << "</sheets>";
+    // Workbook-level slicer cache relationships.
+    if (!slicers_.empty()) {
+        for (std::size_t si = 0; si < slicers_.size(); ++si) {
+            rels << "<Relationship Id=\"" << slicerCacheRelationshipId(si) << "\" Type=\"" << nsRelsDoc(strict)
+                 << "/slicerCache\" Target=\"slicerCaches/slicerCache" << (si + 1) << ".xml\"/>";
+        }
+    }
     std::size_t nextWorkbookRelId = sheetOrder_.size() + 1;
     std::ostringstream generatedPivotCaches;
     if (!generatedPivotIds.empty()) {
@@ -2028,6 +2083,12 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
     eraseTagBlocks(workbookXml, "pivotCaches");
     workbookXml = preserveWorkbookNodes(std::move(workbookXml), sourceWorkbookXml_, false);
     insertBefore(workbookXml, "</workbook>", mergeWorkbookPivotCaches(sourceWorkbookXml_, rewrittenGeneratedPivotCaches));
+    if (!slicers_.empty()) {
+        std::vector<std::string> slicerCacheRels;
+        for (std::size_t si = 0; si < slicers_.size(); ++si)
+            slicerCacheRels.push_back(slicerCacheRelationshipId(si));
+        workbookXml = insertWorkbookSlicerCachesExt(std::move(workbookXml), slicerCacheRels, strict);
+    }
     z.add("xl/workbook.xml", workbookXml);
     z.add("xl/_rels/workbook.xml.rels", mergedWorkbookRelationships);
 

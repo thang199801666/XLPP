@@ -4390,6 +4390,50 @@ void testConditionalFormattingDataBarExtensions(TestContext& test) {
     std::filesystem::remove(source);
 }
 
+void testSlicerAuthoring(TestContext& test) {
+    // Create a slicer bound to a pivot field and verify all package parts are
+    // emitted (cache definition, slicer part, content types, extLst hooks).
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_slicer.xlsx";
+    xlpp::Workbook wb;
+    auto& sheet = wb.addWorksheet("Data");
+    sheet.append({"Item", "Category", "Amount"});
+    sheet.append({"A", "Food", 10.0});
+    sheet.append({"B", "Drink", 20.0});
+    sheet.append({"C", "Food", 30.0});
+
+    xlpp::PivotCache cache;
+    cache.setSourceData("Data!$A$1:$C$4");
+    cache.setSourceName("Data");
+    cache.fields() = {"Item", "Category", "Amount"};
+    cache.records() = {{"A", "Food", "10"}, {"B", "Drink", "20"}, {"C", "Food", "30"}};
+    xlpp::PivotTable pt("Pivot1");
+    pt.cache() = std::move(cache);
+    sheet.addPivotTable(std::move(pt));
+
+    xlpp::Slicer slicer;
+    slicer.name = "Slicer_Category";
+    slicer.sourceName = "Category";
+    slicer.caption = "Category";
+    slicer.pivotTableName = "Pivot1";
+    slicer.items = {{"Food", true}, {"Drink", false}};
+    wb.addSlicer("Data", std::move(slicer));
+    wb.save(source);
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    test.checkTrue(archive.contains("xl/slicerCaches/slicerCache1.xml"), "Slicer cache part is written");
+    test.checkTrue(archive.contains("xl/slicers/slicer1.xml"), "Slicer part is written");
+    const auto ct = archive.get("[Content_Types].xml");
+    test.checkTrue(ct.find("slicerCache") != std::string::npos, "Slicer cache content type registered");
+    const auto wbx = archive.get("xl/workbook.xml");
+    test.checkTrue(wbx.find("slicerCaches") != std::string::npos, "Workbook slicer caches extension written");
+    const auto sheetXml = archive.get("xl/worksheets/sheet1.xml");
+    test.checkTrue(sheetXml.find("slicerList") != std::string::npos, "Worksheet slicer list extension written");
+    const auto cacheXml = archive.get("xl/slicerCaches/slicerCache1.xml");
+    test.checkTrue(cacheXml.find("name=\"Slicer_Category\"") != std::string::npos, "Slicer cache name written");
+    test.checkTrue(cacheXml.find("pivotTable name=\"Pivot1\"") != std::string::npos, "Slicer cache pivot linkage written");
+    std::filesystem::remove(source);
+}
+
 void testNumberFormatDetection(TestContext& test) {
     test.checkTrue(xlpp::isDateFormatCode("yyyy-mm-dd", 0), "Literal date format detected");
     test.checkTrue(xlpp::isDateFormatCode("m/d/yy", 14), "Built-in id 14 is a date");
@@ -13447,6 +13491,7 @@ int main() {
         {"Theme fill color round-trip", testThemeFillColorRoundTrip},
         {"CSV edge cases", testCsvEdgeCases},
         {"Conditional formatting data bar extensions", testConditionalFormattingDataBarExtensions},
+        {"Slicer authoring", testSlicerAuthoring},
         {"Font theme color and underline style", testFontThemeColorAndUnderlineStyle},
         {"Border diagonal directions P1Z", testBorderDiagonalDirections},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},

@@ -38,7 +38,9 @@
     <ClCompile Include="Workbook\WorkbookPackageReader.cpp" />
     <ClCompile Include="Workbook\WorkbookVba.cpp" />
     <ClCompile Include="Workbook\WorkbookUserForm.cpp" />
+    <ClCompile Include="Workbook\WorkbookSlicerIO.cpp" />
     <ClInclude Include="Workbook\WorkbookUserForm.h" />
+    <ClInclude Include="Workbook\WorkbookSlicerIO.h" />
     <ClCompile Include="Workbook\WorkbookPivot.cpp" />
     <ClCompile Include="Workbook\WorkbookChartCache.cpp" />
     <ClCompile Include="Workbook\WorkbookChartSerializer.cpp" />

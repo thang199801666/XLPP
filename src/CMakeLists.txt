@@ -11,6 +11,7 @@ set(XLPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartEditing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookSheetWriter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookUserForm.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookSlicerIO.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookPivotRead.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Legacy/XlsBinaryReader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Legacy/XlsBinaryWriter.cpp

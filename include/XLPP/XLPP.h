@@ -6,6 +6,7 @@
 #include "Worksheet/Dimensions.h"
 #include "Worksheet/Range.h"
 #include "Worksheet/Filters.h"
+#include "Worksheet/Slicer.h"
 #include "Worksheet/Worksheet.h"
 #include "Chart/Chartsheet.h"
 #include "Workbook/Workbook.h"

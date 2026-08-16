@@ -1,5 +1,6 @@
 #pragma once
 #include <XLPP/Worksheet/Worksheet.h>
+#include <XLPP/Worksheet/Slicer.h>
 #include <XLPP/Chart/Chartsheet.h>
 #include <XLPP/Styles/NamedStyle.h>
 #include <XLPP/Workbook/DefinedNames.h>
@@ -208,6 +209,10 @@ public:
     // that sheet.
     Worksheet& addWorksheet(std::string name);
     Worksheet& copyWorksheet(const Worksheet& source, std::string newName);
+    // Adds a slicer control bound to a pivot-table field on the given
+    // worksheet. Creates the slicer cache and slicer parts on save.
+    Slicer& addSlicer(const std::string& worksheetName, Slicer slicer);
+    const std::vector<Slicer>& slicers() const noexcept { return slicers_; }
     // Workbook-aware worksheet rename/removal. These operations repair
     // explicit worksheet-qualified references across formulas, defined names,
     // charts, Pivot sources and internal hyperlinks. Worksheet::rename() remains
@@ -293,7 +298,7 @@ public:
     void setDate1904(bool enabled) noexcept { date1904_ = enabled; }
     bool date1904() const noexcept { return date1904_; }
 
-    void clear() { sheets_.clear(); chartsheets_.clear(); sheetOrder_.clear(); namedStyles_.clear(); definedNames_.clear(); properties_ = {}; protection_ = {}; date1904_ = false; template_ = false; activeWorkbookSheetIndex_ = 0; firstVisibleWorkbookSheetIndex_ = 0; preservedParts_.clear(); preservedRelationships_.clear(); sourceWorkbookXml_.clear(); sourceSheetParts_.clear(); sourceSheetXml_.clear(); sourceSheetNames_.clear(); cachedSheetXml_.clear(); cachedSheetXmlStrict_ = false; cachedSheetXmlDate1904_ = false; generatedVbaProject_ = false; strictNamespaces_ = false; diagnostics_ = {}; calcProps_ = {}; customProps_ = {}; }
+    void clear() { sheets_.clear(); chartsheets_.clear(); sheetOrder_.clear(); namedStyles_.clear(); definedNames_.clear(); slicers_.clear(); properties_ = {}; protection_ = {}; date1904_ = false; template_ = false; activeWorkbookSheetIndex_ = 0; firstVisibleWorkbookSheetIndex_ = 0; preservedParts_.clear(); preservedRelationships_.clear(); sourceWorkbookXml_.clear(); sourceSheetParts_.clear(); sourceSheetXml_.clear(); sourceSheetNames_.clear(); cachedSheetXml_.clear(); cachedSheetXmlStrict_ = false; cachedSheetXmlDate1904_ = false; generatedVbaProject_ = false; strictNamespaces_ = false; diagnostics_ = {}; calcProps_ = {}; customProps_ = {}; }
     void load(const std::filesystem::path& path);
     void load(const std::filesystem::path& path, const LoadOptions& options);
     void load(std::istream& stream);
@@ -483,6 +488,7 @@ private:
     std::vector<SheetOrderEntry> sheetOrder_;
     std::vector<NamedStyle> namedStyles_;
     std::vector<DefinedName> definedNames_;
+    std::vector<Slicer> slicers_;
     DocumentProperties properties_;
     WorkbookProtection protection_;
     CalcProperties calcProps_;
