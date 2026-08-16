@@ -193,6 +193,7 @@ using xlpp::internal::dataValidationOperatorName;
 using xlpp::internal::parseDataValidationOperator;
 using xlpp::internal::dataValidationErrorStyleName;
 using xlpp::internal::parseDataValidationErrorStyle;
+using xlpp::internal::SstIndex;
 
 
 #include "WorkbookDrawingAccess.h"
@@ -475,7 +476,7 @@ std::vector<std::string> serializeSheets(const std::deque<xlpp::Worksheet>& shee
                                          const StyleCatalog& styles, const DxfCatalog& dxfs,
                                          bool date1904, bool strict, const std::vector<std::string>* vbaCodeNames, std::size_t workers,
                                          bool parallelRows,
-                                         const std::unordered_map<std::string, std::size_t>* sstIndex,
+                                         const SstIndex* sstIndex,
                                          std::vector<std::string>* cache,
                                          bool& cacheStrict, bool& cacheDate1904) {
     std::vector<std::string> result(sheets.size());
@@ -1575,7 +1576,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
     DxfCatalog dxfCatalog;
     std::size_t tableCount = 0;
     std::size_t commentCount = 0;
-    std::unordered_map<std::string, std::size_t> sstIndex;
+    internal::SstIndex sstIndex;
     // Node-based unordered_map storage keeps key addresses stable across
     // rehash, so the order vector can point at keys instead of owning a second
     // copy of every unique shared string.
@@ -1644,6 +1645,10 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
     std::size_t nextPivotId = firstPivotId;
     std::size_t nextPivotCachePartId = firstPivotCachePartId;
     std::size_t nextPivotCacheId = nextAvailablePivotCacheId(sourceWorkbookXml_);
+
+    std::size_t totalModelCells = 0;
+    for (const auto& s : sheets_) totalModelCells += s.cells().size();
+    sstIndex.reserve(totalModelCells);
 
     for (std::size_t sheetIndex = 0; sheetIndex < sheets_.size(); ++sheetIndex) {
         const auto& sheet = sheets_[sheetIndex];

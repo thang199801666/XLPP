@@ -9,6 +9,7 @@
 #include "../XML/XmlUtilities.h"
 #include "../XML/NumericParsing.h"
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -243,16 +244,30 @@ void writeRichTextRuns(std::ostringstream& xml, const xlpp::RichText& richText) 
     xml << "</is>";
 }
 
+// Numbers are the hottest tokens in the sheet stream. ostringstream number
+// formatting goes through locale facets; std::to_chars produces the shortest
+// round-trippable representation with none of that machinery.
+void writeNumber(std::ostringstream& out, double value) {
+    char buffer[32];
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    out.write(buffer, static_cast<std::streamsize>(result.ptr - buffer));
+}
+void writeUnsigned(std::ostringstream& out, std::size_t value) {
+    char buffer[24];
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    out.write(buffer, static_cast<std::streamsize>(result.ptr - buffer));
+}
+
 void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatalog& styles, bool date1904,
-                const std::unordered_map<std::string, std::size_t>* sstIndex) {
+                const SstIndex* sstIndex) {
     // Preserve cells that carry a style even when they hold no value or
     // formula (e.g. a highlighted empty range).
     if (cell.empty() && !cell.hasNonDefaultStyle() && !cell.styleIndex()) return;
     xml << "<c r=\"" << cell.address() << "\"";
-    if (cell.styleIndex()) xml << " s=\"" << *cell.styleIndex() << "\"";
+    if (cell.styleIndex()) { xml << " s=\""; writeUnsigned(xml, *cell.styleIndex()); xml << "\""; }
     else if (cell.hasNonDefaultStyle()) {
         const auto styleId = styles.find(cell.style());
-        if (styleId != 0) xml << " s=\"" << styleId << "\"";
+        if (styleId != 0) { xml << " s=\""; writeUnsigned(xml, styleId); xml << "\""; }
     }
     if (cell.empty()) { xml << "/>"; return; }
     if (cell.hasRichText()) {
@@ -284,7 +299,7 @@ void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatal
                     if (metadata.calculateOnLoad()) xml << " ca=\"1\"";
                     xml << ">"; writeXmlEscaped(xml, serializedFormula(cell)); xml << "</f>";
                 }
-                xml << "<v>" << it->second << "</v></c>";
+                xml << "<v>"; writeUnsigned(xml, it->second); xml << "</v></c>";
                 return;
             }
         }
@@ -309,15 +324,17 @@ void writeCell(std::ostringstream& xml, const xlpp::Cell& cell, const StyleCatal
     if (const auto* stringValue = std::get_if<std::string>(&cell.value())) {
         xml << "<is><t xml:space=\"preserve\">"; writeXmlEscaped(xml, *stringValue); xml << "</t></is>";
     }
-    else if (const auto* numberValue = std::get_if<double>(&cell.value()))
-        xml << "<v>" << *numberValue << "</v>";
+    else if (const auto* numberValue = std::get_if<double>(&cell.value())) {
+        xml << "<v>"; writeNumber(xml, *numberValue); xml << "</v>";
+    }
     else if (const auto* booleanValue = std::get_if<bool>(&cell.value()))
         xml << "<v>" << (*booleanValue ? 1 : 0) << "</v>";
     else if (const auto* errorValue = std::get_if<xlpp::CellError>(&cell.value())) {
         xml << "<v>"; writeXmlEscaped(xml, xlpp::toString(*errorValue)); xml << "</v>";
     }
-    else if (const auto* dateValue = std::get_if<xlpp::DateTime>(&cell.value()))
-        xml << "<v>" << xlpp::toExcelSerial(*dateValue, date1904) << "</v>";
+    else if (const auto* dateValue = std::get_if<xlpp::DateTime>(&cell.value())) {
+        xml << "<v>"; writeNumber(xml, xlpp::toExcelSerial(*dateValue, date1904)); xml << "</v>";
+    }
     xml << "</c>";
 }
 
@@ -330,7 +347,7 @@ void writeColAttrs(std::ostringstream& xml, const xlpp::ColumnDimension& dim) {
 }
 
 std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, const DxfCatalog& dxfs, bool date1904, bool strict,
-                     const std::unordered_map<std::string, std::size_t>* sstIndex,
+                     const SstIndex* sstIndex,
                      std::size_t rowWorkers,
                      std::string_view vbaCodeName) {
     std::ostringstream xml;
@@ -410,11 +427,11 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
     xml << "<sheetData>";
 
     auto writeRowStart = [&](std::ostringstream& out, std::size_t row) {
-        out << "<row r=\"" << row << "\"";
+        out << "<row r=\""; writeUnsigned(out, row); out << "\"";
         if (const auto* dim = sheet.tryRowDimension(row)) {
-            if (dim->height) out << " ht=\"" << *dim->height << "\" customHeight=\"1\"";
+            if (dim->height) { out << " ht=\""; writeNumber(out, *dim->height); out << "\" customHeight=\"1\""; }
             if (dim->hidden) out << " hidden=\"1\"";
-            if (dim->outlineLevel) out << " outlineLevel=\"" << dim->outlineLevel << "\"";
+            if (dim->outlineLevel) { out << " outlineLevel=\""; writeUnsigned(out, dim->outlineLevel); out << "\""; }
             if (dim->collapsed) out << " collapsed=\"1\"";
         }
         out << ">";

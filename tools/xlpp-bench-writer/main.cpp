@@ -8,24 +8,43 @@ int main(int argc, char** argv) {
     const std::size_t rows = argc > 1 ? static_cast<std::size_t>(std::stoull(argv[1])) : 500;
     const std::size_t cols = argc > 2 ? static_cast<std::size_t>(std::stoull(argv[2])) : 200;
     const std::string out = argc > 3 ? argv[3] : std::string("bench_xlpp_cpp.xlsx");
+    const int level = argc > 4 ? std::stoi(argv[4]) : -1;
     const auto cellCount = rows * cols;
 
     auto t0 = std::chrono::steady_clock::now();
+    const char* mode = std::getenv("XLPP_MODE");
     xlpp::Workbook workbook;
     auto& sheet = workbook.addWorksheet("Data");
     for (std::size_t r = 0; r < rows; ++r) {
         for (std::size_t c = 0; c < cols; ++c) {
-            switch (c % 4) {
-                case 0: sheet.cell(r + 1, c + 1).setValue(static_cast<double>(r * 1000 + c)); break;
-                case 1: sheet.cell(r + 1, c + 1).setValue(static_cast<double>(r * 1000 + c) / 7.0); break;
-                case 2: sheet.cell(r + 1, c + 1).setValue("text-" + std::to_string(r) + "-" + std::to_string(c)); break;
-                default: sheet.cell(r + 1, c + 1).setValue(true); break;
+            if (mode && std::string(mode) == "num")
+                sheet.cell(r + 1, c + 1).setValue(static_cast<double>(r * 1000 + c) / 7.0);
+            else if (mode && std::string(mode) == "str")
+                sheet.cell(r + 1, c + 1).setValue("text-" + std::to_string(r) + "-" + std::to_string(c));
+            else if (mode && std::string(mode) == "bool")
+                sheet.cell(r + 1, c + 1).setValue(true);
+            else {
+                switch (c % 4) {
+                    case 0: sheet.cell(r + 1, c + 1).setValue(static_cast<double>(r * 1000 + c)); break;
+                    case 1: sheet.cell(r + 1, c + 1).setValue(static_cast<double>(r * 1000 + c) / 7.0); break;
+                    case 2: sheet.cell(r + 1, c + 1).setValue("text-" + std::to_string(r) + "-" + std::to_string(c)); break;
+                    default: sheet.cell(r + 1, c + 1).setValue(true); break;
+                }
             }
         }
     }
     auto tBuild = std::chrono::steady_clock::now();
 
-    workbook.save(out);
+    xlpp::SaveOptions options;
+    if (level == 0) options.compressionLevel = xlpp::CompressionLevel::Store;
+    else if (level == 1) options.compressionLevel = xlpp::CompressionLevel::Fastest;
+    else if (level == 9) options.compressionLevel = xlpp::CompressionLevel::Best;
+    else options.compressionLevel = xlpp::CompressionLevel::Default;
+    if (const char* workers = std::getenv("XLPP_PARALLEL_ROWS")) {
+        options.parallelRows = true;
+        options.parallelWorkers = std::stoul(workers);
+    }
+    workbook.save(out, options);
     auto tSave = std::chrono::steady_clock::now();
 
     const auto buildMs = std::chrono::duration<double, std::milli>(tBuild - t0).count();
