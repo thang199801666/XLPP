@@ -20,6 +20,15 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'"><ClCompile><WarningLevel>Level4</WarningLevel><LanguageStandard>stdcpp20</LanguageStandard><AdditionalIncludeDirectories>$(SolutionDir)src;$(SolutionDir)include;$(SolutionDir)third_party\zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><PreprocessorDefinitions>XLPP_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions><MultiProcessorCompilation>true</MultiProcessorCompilation></ClCompile></ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Workbook\Workbook.cpp" />
+    <ClCompile Include="Workbook\WorkbookStylesIO.cpp" />
+    <ClCompile Include="Workbook\WorkbookDrawingIO.cpp" />
+    <ClCompile Include="Workbook\WorkbookChartReader.cpp" />
+    <ClCompile Include="Workbook\WorkbookPivotWrite.cpp" />
+    <ClCompile Include="Workbook\WorkbookPartXml.cpp" />
+    <ClCompile Include="Workbook\WorkbookDrawingEdit.cpp" />
+    <ClCompile Include="Workbook\WorkbookChartEditing.cpp" />
+    <ClCompile Include="Workbook\WorkbookSheetWriter.cpp" />
+    <ClCompile Include="Workbook\WorkbookPivotRead.cpp" />
     <ClCompile Include="Legacy\XlsBinaryReader.cpp" />
     <ClCompile Include="Legacy\XlsBinaryWriter.cpp" />
     <ClCompile Include="Workbook\WorkbookIO.cpp" />
@@ -99,6 +108,17 @@
     <ClInclude Include="Legacy\XlsBinaryReader.h" />
     <ClInclude Include="Legacy\XlsBinaryWriter.h" />
     <ClInclude Include="Workbook\WorkbookPackageReader.h" />
+    <ClInclude Include="Workbook\WorkbookNamespaces.h" />
+    <ClInclude Include="Workbook\WorkbookStylesIO.h" />
+    <ClInclude Include="Workbook\WorkbookDrawingIO.h" />
+    <ClInclude Include="Workbook\WorkbookChartReader.h" />
+    <ClInclude Include="Workbook\WorkbookPivotWrite.h" />
+    <ClInclude Include="Workbook\WorkbookPartXml.h" />
+    <ClInclude Include="Workbook\WorkbookDrawingEdit.h" />
+    <ClInclude Include="Workbook\WorkbookDrawingAccess.h" />
+    <ClInclude Include="Workbook\WorkbookChartEditing.h" />
+    <ClInclude Include="Workbook\WorkbookSheetWriter.h" />
+    <ClInclude Include="Workbook\WorkbookPivotRead.h" />
     <ClInclude Include="Workbook\WorkbookChartsheetIO.h" />
     <ClInclude Include="Workbook\WorkbookChartsheetPackage.h" />
     <ClInclude Include="Vba\VbaProjectBinary.h" />

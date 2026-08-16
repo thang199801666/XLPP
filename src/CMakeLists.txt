@@ -2,6 +2,15 @@
 
 set(XLPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/Workbook.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookStylesIO.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookDrawingIO.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartReader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookPivotWrite.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookPartXml.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookDrawingEdit.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartEditing.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookSheetWriter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookPivotRead.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Legacy/XlsBinaryReader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Legacy/XlsBinaryWriter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartSerializer.cpp
