@@ -27,3 +27,13 @@ target_include_directories(calc-debug PRIVATE
 )
 
 target_link_libraries(calc-debug PRIVATE xlpp_static)
+
+add_executable(xlpp-fuzz-harness
+    xlpp-fuzz-harness/main.cpp
+)
+
+target_include_directories(xlpp-fuzz-harness PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/XLPP
+)
+
+target_link_libraries(xlpp-fuzz-harness PRIVATE xlpp_static)

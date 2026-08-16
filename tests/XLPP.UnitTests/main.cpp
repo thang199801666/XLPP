@@ -10156,7 +10156,8 @@ void testVbaDesignerUserFormStorageP1C(TestContext& test) {
     afterRemove.load(removed);
     test.checkTrue(afterRemove.hasVbaProject(), "Removing UserForm keeps VBA project when another user module remains");
     test.checkTrue(!afterRemove.vbaModuleText("UserForm1").has_value(), "Removed UserForm module source disappears");
-    test.checkTrue(std::none_of(afterRemove.vbaDesignerStorages().begin(), afterRemove.vbaDesignerStorages().end(), [](const auto& item) {
+    const auto afterRemoveStorages = afterRemove.vbaDesignerStorages();
+    test.checkTrue(std::none_of(afterRemoveStorages.begin(), afterRemoveStorages.end(), [](const auto& item) {
         return item.name == "UserForm1";
     }), "Removing UserForm also removes its root Designer Storage without leaving an orphan");
 
