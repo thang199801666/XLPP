@@ -19,6 +19,7 @@
 #include "../Legacy/XlsBinaryReader.h"
 #include "../Legacy/XlsBinaryWriter.h"
 #include "../Legacy/XlsbBinaryReader.h"
+#include "../Legacy/XlsbBinaryWriter.h"
 #include <XLPP/Workbook/Workbook.h>
 #include "../XML/XmlUtilities.h"
 #include "../XML/NumericParsing.h"
@@ -1563,6 +1564,10 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
         std::vector<unsigned char> binary;
         internal::writeLegacyXls(*this, binary);
         internal::writeBinaryFile(p, binary);
+        return;
+    }
+    if (saveExtension.size() == 5 && (saveExtension == ".xlsb" || saveExtension == ".XLSB")) {
+        internal::writeXlsbPackage(*this, p, zlibLevel(options.compressionLevel));
         return;
     }
     const bool strict = options.strictNamespace;

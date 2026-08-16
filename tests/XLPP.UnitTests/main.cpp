@@ -11915,6 +11915,51 @@ void testXlsbRead(TestContext& test) {
     std::filesystem::remove(path);
 }
 
+void testXlsbWriterRoundTrip(TestContext& test) {
+    // Write a workbook through the BIFF12 writer and reload it with the
+    // reader; every supported value class must round-trip.
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_xlsb_rt.xlsb";
+    xlpp::Workbook wb;
+    auto& sheet = wb.addWorksheet("Data");
+    sheet.cell("A1").setValue("Name");
+    sheet.cell("B1").setValue("Qty");
+    sheet.cell("C1").setValue("Flag");
+    sheet.cell("D1").setValue("Rate");
+    sheet.cell("A2").setValue("Alpha");
+    sheet.cell("B2").setValue(42.5);
+    sheet.cell("C2").setValue(true);
+    sheet.cell("D2").setValue(0.25);
+    sheet.cell("A3").setValue("Beta");
+    sheet.cell("B3").setValue(7);
+    sheet.cell("C3").setValue(false);
+    sheet.cell("D3").setValue(1.5);
+    sheet.cell("E1").setError(xlpp::CellError::Value);
+    wb.save(path);
+
+    xlpp::Workbook loaded;
+    try {
+        loaded.load(path);
+    } catch (const std::exception& e) {
+        test.checkTrue(false, std::string("XLSB writer round-trip load threw: ") + e.what());
+        std::filesystem::remove(path);
+        return;
+    }
+    test.checkTrue(loaded.sheetCount() == 1, "XLSB writer exposes one worksheet");
+    auto* s = loaded.worksheet("Data");
+    test.checkTrue(s != nullptr, "XLSB writer sheet name round-trips");
+    if (s != nullptr) {
+        test.checkEqual(*std::get_if<std::string>(&s->tryCell("A1")->value()), std::string("Name"), "XLSB header A1");
+        test.checkNear(*std::get_if<double>(&s->tryCell("B2")->value()), 42.5, 1e-9, "XLSB number B2");
+        test.checkEqual(*std::get_if<std::string>(&s->tryCell("A2")->value()), std::string("Alpha"), "XLSB string A2");
+        test.checkEqual(*std::get_if<bool>(&s->tryCell("C2")->value()), true, "XLSB bool C2");
+        test.checkEqual(*std::get_if<bool>(&s->tryCell("C3")->value()), false, "XLSB bool C3");
+        test.checkNear(*std::get_if<double>(&s->tryCell("D3")->value()), 1.5, 1e-9, "XLSB number D3");
+        test.checkTrue(s->tryCell("E1")->isError() && s->tryCell("E1")->error() == xlpp::CellError::Value, "XLSB error E1");
+        test.checkTrue(s->tryCell("B3")->isNumeric(), "XLSB integer stored as numeric");
+    }
+    std::filesystem::remove(path);
+}
+
 void testLegacyXlsRoundTrip(TestContext& test) {
     // Save a workbook as .xls (BIFF8) and read it back.
     const auto path = std::filesystem::temp_directory_path() / "xlpp_roundtrip.xls";
@@ -13335,6 +13380,7 @@ int main() {
         {"Legacy XLS binary read", testLegacyXlsRead},
         {"CSV round-trip", testCsvRoundTrip},
         {"XLSB binary read", testXlsbRead},
+    {"XLSB writer round-trip", testXlsbWriterRoundTrip},
         {"Legacy XLS round-trip", testLegacyXlsRoundTrip},
         {"Comment mutation after cached save", testCommentMutationAfterSave},
         {"Rich-text legacy comment import", testRichTextCommentImport},
