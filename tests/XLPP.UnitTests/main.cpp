@@ -20,6 +20,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -676,7 +677,7 @@ void testCellStyles(TestContext& test) {
 }
 
 void testCompactCellModelP1N(TestContext& test) {
-    test.checkTrue(sizeof(xlpp::Style) <= 256, "P1N compact Style stays below 256 bytes");
+    test.checkTrue(sizeof(xlpp::Style) <= 304, "P1N compact Style stays below 304 bytes (incl. theme/tint color + underline style)");
     test.checkTrue(sizeof(xlpp::Cell) <= 640, "P1N compact Cell stays below 640 bytes");
 
     xlpp::Style original;
@@ -787,6 +788,39 @@ void testFontExtendedProperties(TestContext& test) {
     test.checkTrue(styles.find("<charset val=\"128\"/>") != std::string::npos, "Font charset is serialized");
     test.checkTrue(styles.find("<family val=\"2\"/>") != std::string::npos, "Font family is serialized");
     test.checkTrue(styles.find("<scheme val=\"minor\"/>") != std::string::npos, "Font scheme is serialized");
+
+    std::filesystem::remove(source);
+}
+
+void testFontThemeColorAndUnderlineStyle(TestContext& test) {
+    // Theme-based font colors (theme index + tint) and double-underline style
+    // round-trip through the shared styles part.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_font_theme.xlsx";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Theme");
+    auto& cell = sheet.cell("A1");
+    cell.setValue("Theme");
+    cell.font().setName("Calibri");
+    cell.font().color().setTheme(4); // accent1
+    cell.font().color().setTint(0.4f);
+    cell.font().setUnderlineStyle("double");
+    workbook.save(source);
+
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    const auto styles = archive.get("xl/styles.xml");
+    test.checkTrue(styles.find("<color theme=\"4\" tint=\"0.4\"/>") != std::string::npos,
+                   "Theme font color is serialized");
+    test.checkTrue(styles.find("<u val=\"double\"/>") != std::string::npos, "Double underline is serialized");
+
+    xlpp::Workbook loaded;
+    loaded.load(source);
+    auto* loadedCell = loaded.worksheet("Theme")->tryCell("A1");
+    test.checkTrue(loadedCell != nullptr && loadedCell->font().color().hasTheme(),
+                   "Theme font color is read");
+    test.checkTrue(loadedCell->font().color().theme() == 4, "Theme index round-trips");
+    test.checkNear(static_cast<double>(loadedCell->font().color().tint()), 0.4, 1e-5, "Theme tint round-trips");
+    test.checkEqual(loadedCell->font().underlineStyle(), std::string("double"), "Double underline round-trips");
+    test.checkTrue(loadedCell->font().underline(), "Underline bool reflects double style");
 
     std::filesystem::remove(source);
 }
@@ -11537,6 +11571,181 @@ void testLegacyXlsRead(TestContext& test) {
     std::filesystem::remove(path);
 }
 
+void testCsvRoundTrip(TestContext& test) {
+    // Worksheet saveCsv/loadCsv round-trip: numbers, booleans, quoted strings,
+    // embedded commas/quotes/newlines.
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_data.csv";
+    xlpp::Workbook workbook;
+    auto& sheet = workbook.addWorksheet("Data");
+    sheet.cell("A1").setValue("Name");
+    sheet.cell("B1").setValue("Value");
+    sheet.cell("A2").setValue(std::string("X,Y"));
+    sheet.cell("B2").setValue(12.5);
+    sheet.cell("A3").setValue(std::string("Say \"hi\""));
+    sheet.cell("B3").setValue(true);
+    sheet.cell("A4").setValue(7.0);
+    sheet.saveCsv(path);
+
+    xlpp::Worksheet loaded("Data");
+    loaded.loadCsv(path);
+    test.checkEqual(*std::get_if<std::string>(&loaded.cell("A1").value()), std::string("Name"), "CSV header string");
+    test.checkEqual(*std::get_if<std::string>(&loaded.cell("B1").value()), std::string("Value"), "CSV header second");
+    test.checkEqual(*std::get_if<std::string>(&loaded.cell("A2").value()), std::string("X,Y"), "CSV quoted comma round-trips");
+    test.checkNear(*std::get_if<double>(&loaded.cell("B2").value()), 12.5, 1e-12, "CSV number round-trips");
+    test.checkEqual(*std::get_if<std::string>(&loaded.cell("A3").value()), std::string("Say \"hi\""), "CSV escaped quote round-trips");
+    test.checkEqual(*std::get_if<bool>(&loaded.cell("B3").value()), true, "CSV boolean round-trips");
+    test.checkNear(*std::get_if<double>(&loaded.cell("A4").value()), 7.0, 1e-12, "CSV bare integer parses as number");
+
+    std::ifstream raw(path, std::ios::binary);
+    std::string content((std::istreambuf_iterator<char>(raw)), std::istreambuf_iterator<char>());
+    raw.close();
+    test.checkTrue(content.rfind("\xEF\xBB\xBF", 0) == 0, "CSV export writes a UTF-8 BOM");
+    test.checkTrue(content.find("\"X,Y\"") != std::string::npos, "CSV quotes comma-containing fields");
+    test.checkTrue(content.find("\"Say \"\"hi\"\"\"") != std::string::npos, "CSV doubles embedded quotes");
+
+    std::filesystem::remove(path);
+}
+
+namespace {
+void xlsbU16(std::vector<unsigned char>& out, std::uint16_t value) {
+    out.push_back(static_cast<unsigned char>(value & 0xFF));
+    out.push_back(static_cast<unsigned char>((value >> 8) & 0xFF));
+}
+void xlsbU32(std::vector<unsigned char>& out, std::uint32_t value) {
+    xlsbU16(out, static_cast<std::uint16_t>(value & 0xFFFF));
+    xlsbU16(out, static_cast<std::uint16_t>((value >> 16) & 0xFFFF));
+}
+void xlsbRecord(std::vector<unsigned char>& out, std::uint8_t type, const std::vector<unsigned char>& payload) {
+    out.push_back(type);
+    xlsbU32(out, static_cast<std::uint32_t>(payload.size()));
+    out.insert(out.end(), payload.begin(), payload.end());
+}
+void xlsbWide(std::vector<unsigned char>& out, const std::string& text) {
+    xlsbU32(out, static_cast<std::uint32_t>(text.size()));
+    for (const char ch : text) { out.push_back(static_cast<unsigned char>(ch)); out.push_back(0); }
+}
+void xlsbNullableWide(std::vector<unsigned char>& out, const std::string& text) {
+    out.push_back(0); // flags: not null
+    xlsbWide(out, text);
+}
+std::vector<unsigned char> xlsbDoubleBytes(double value) {
+    std::vector<unsigned char> out(8, 0);
+    std::memcpy(out.data(), &value, sizeof(value));
+    return out;
+}
+} // namespace
+
+void testXlsbRead(TestContext& test) {
+    // Build a minimal BIFF12 package (zip with .bin parts) and verify the basic
+    // binary reader materializes sheet names and cell values.
+    std::vector<unsigned char> workbookBin;
+    xlsbRecord(workbookBin, 0x83, {}); // BrtBeginBook
+    xlsbRecord(workbookBin, 0x92, {}); // BrtBeginBundleShs
+    std::vector<unsigned char> bundleSh;
+    bundleSh.push_back(0);            // hsState: visible
+    xlsbU32(bundleSh, 0);             // iTabID
+    xlsbNullableWide(bundleSh, "rId1");
+    xlsbWide(bundleSh, "Sheet1");
+    xlsbRecord(workbookBin, 0x93, bundleSh); // BrtBundleSh
+    xlsbRecord(workbookBin, 0x95, {}); // BrtEndBundleShs
+    xlsbRecord(workbookBin, 0x84, {}); // BrtEndBook
+
+    std::vector<unsigned char> sstBin;
+    std::vector<unsigned char> sstBegin;
+    xlsbU32(sstBegin, 1); xlsbU32(sstBegin, 1);
+    xlsbRecord(sstBin, 0x9F, sstBegin); // BrtBeginSst
+    std::vector<unsigned char> sstItem;
+    xlsbWide(sstItem, "Hello XLSB");
+    xlsbRecord(sstBin, 0x13, sstItem);  // BrtSSTItem
+    xlsbRecord(sstBin, 0xA0, {});       // BrtEndSst
+
+    std::vector<unsigned char> sheetBin;
+    xlsbRecord(sheetBin, 0x91, {}); // BrtBeginSheetData
+    std::vector<unsigned char> rowHdr;
+    xlsbU32(rowHdr, 0); xlsbU16(rowHdr, 0); xlsbU16(rowHdr, 0); // rw=0 (row 1) + miyRw + flags
+    xlsbRecord(sheetBin, 0x00, rowHdr); // BrtRowHdr
+
+    std::vector<unsigned char> cellReal;
+    xlsbU16(cellReal, 0); xlsbU16(cellReal, 0xFFFF); // A1, no style
+    auto numBytes = xlsbDoubleBytes(42.5);
+    cellReal.insert(cellReal.end(), numBytes.begin(), numBytes.end());
+    xlsbRecord(sheetBin, 0x05, cellReal); // BrtCellReal
+
+    std::vector<unsigned char> cellIsst;
+    xlsbU16(cellIsst, 1); xlsbU16(cellIsst, 0xFFFF); xlsbU32(cellIsst, 0); // B1 = sst[0]
+    xlsbRecord(sheetBin, 0x07, cellIsst); // BrtCellIsst
+
+    std::vector<unsigned char> cellBool;
+    xlsbU16(cellBool, 2); xlsbU16(cellBool, 0xFFFF); cellBool.push_back(1); // C1 true
+    xlsbRecord(sheetBin, 0x04, cellBool); // BrtCellBool
+
+    std::vector<unsigned char> cellErr;
+    xlsbU16(cellErr, 3); xlsbU16(cellErr, 0xFFFF); cellErr.push_back(0x07); // D1 #DIV/0!
+    xlsbRecord(sheetBin, 0x03, cellErr); // BrtCellError
+
+    std::vector<unsigned char> cellRk;
+    xlsbU16(cellRk, 4); xlsbU16(cellRk, 0xFFFF); xlsbU32(cellRk, static_cast<std::uint32_t>((100 << 2) | 0x02)); // E1 = 100
+    xlsbRecord(sheetBin, 0x02, cellRk); // BrtCellRk
+
+    std::vector<unsigned char> cellSt;
+    xlsbU16(cellSt, 5); xlsbU16(cellSt, 0xFFFF); xlsbWide(cellSt, "inline"); // F1
+    xlsbRecord(sheetBin, 0x06, cellSt); // BrtCellSt
+
+    xlsbRecord(sheetBin, 0x94, {}); // BrtEndSheetData
+
+    const auto path = std::filesystem::temp_directory_path() / "xlpp_fixture.xlsb";
+    xlpp::internal::ZipArchive z;
+    z.add("[Content_Types].xml",
+        R"(<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">)"
+        R"(<Override PartName="/xl/workbook.bin" ContentType="application/vnd.ms-excel.sheet.binary.macroEnabled.main"/>)"
+        R"(<Override PartName="/xl/worksheets/sheet1.bin" ContentType="application/vnd.ms-excel.worksheet"/>)"
+        R"(<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>)"
+        R"(<Default Extension="bin" ContentType="application/vnd.ms-excel.sheet.binary.macroEnabled.main"/></Types>)");
+    z.add("_rels/.rels",
+        R"(<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">)"
+        R"(<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.bin"/></Relationships>)");
+    z.add("xl/_rels/workbook.bin.rels",
+        R"(<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">)"
+        R"(<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.bin"/></Relationships>)");
+    z.add("xl/workbook.bin", std::string(workbookBin.begin(), workbookBin.end()));
+    z.add("xl/sharedStrings.bin", std::string(sstBin.begin(), sstBin.end()));
+    z.add("xl/worksheets/sheet1.bin", std::string(sheetBin.begin(), sheetBin.end()));
+    z.save(path, {});
+
+    xlpp::Workbook workbook;
+    try {
+        workbook.load(path);
+    } catch (const std::exception& e) {
+        test.checkTrue(false, std::string("XLSB load threw: ") + e.what());
+        std::filesystem::remove(path);
+        return;
+    }
+    test.checkTrue(workbook.sheetCount() == 1, "XLSB exposes one worksheet");
+    auto* sheet = workbook.worksheet("Sheet1");
+    test.checkTrue(sheet != nullptr, "XLSB sheet name is read");
+    std::cout << "    [INFO] XLSB sheet cell count=" << (sheet ? sheet->cells().size() : 0) << '\n';
+    if (sheet != nullptr) {
+        if (const auto* v = std::get_if<double>(&sheet->tryCell("A1")->value()))
+            test.checkNear(*v, 42.5, 1e-9, "XLSB BrtCellReal value");
+        else test.checkTrue(false, "XLSB BrtCellReal value");
+        if (const auto* v = std::get_if<std::string>(&sheet->tryCell("B1")->value()))
+            test.checkEqual(*v, std::string("Hello XLSB"), "XLSB shared string value");
+        else test.checkTrue(false, "XLSB shared string value");
+        if (const auto* v = std::get_if<bool>(&sheet->tryCell("C1")->value()))
+            test.checkEqual(*v, true, "XLSB boolean value");
+        else test.checkTrue(false, "XLSB boolean value");
+        const auto* errorCell = sheet->tryCell("D1");
+        test.checkTrue(errorCell->isError() && errorCell->error() == xlpp::CellError::DivisionByZero, "XLSB error value");
+        if (const auto* v = std::get_if<double>(&sheet->tryCell("E1")->value()))
+            test.checkNear(*v, 100.0, 1e-9, "XLSB RK value");
+        else test.checkTrue(false, "XLSB RK value");
+        if (const auto* v = std::get_if<std::string>(&sheet->tryCell("F1")->value()))
+            test.checkEqual(*v, std::string("inline"), "XLSB inline string value");
+        else test.checkTrue(false, "XLSB inline string value");
+    }
+    std::filesystem::remove(path);
+}
+
 void testLegacyXlsRoundTrip(TestContext& test) {
     // Save a workbook as .xls (BIFF8) and read it back.
     const auto path = std::filesystem::temp_directory_path() / "xlpp_roundtrip.xls";
@@ -12955,6 +13164,8 @@ int main() {
         {"Hyperlinks and properties XLSX round-trip", testHyperlinksAndPropertiesRoundTrip},
         {"Legacy comments XLSX round-trip", testCommentsRoundTrip},
         {"Legacy XLS binary read", testLegacyXlsRead},
+        {"CSV round-trip", testCsvRoundTrip},
+        {"XLSB binary read", testXlsbRead},
         {"Legacy XLS round-trip", testLegacyXlsRoundTrip},
         {"Comment mutation after cached save", testCommentMutationAfterSave},
         {"Rich-text legacy comment import", testRichTextCommentImport},
@@ -13107,6 +13318,7 @@ int main() {
         {"Worksheet page breaks P1Z", testPageBreaks},
         {"Conditional formatting rule families P1Z", testConditionalFormattingRuleFamilies},
         {"Font extended properties P1Z", testFontExtendedProperties},
+        {"Font theme color and underline style", testFontThemeColorAndUnderlineStyle},
         {"Border diagonal directions P1Z", testBorderDiagonalDirections},
         {"Structural reference transformer P1J", testStructuralReferenceTransformerP1J},
         {"Workbook reference-safe structural edits P1J", testWorkbookReferenceSafeStructuralEditsP1J},

@@ -17,6 +17,7 @@
 #include "WorkbookPivotRead.h"
 #include "../Legacy/XlsBinaryReader.h"
 #include "../Legacy/XlsBinaryWriter.h"
+#include "../Legacy/XlsbBinaryReader.h"
 #include <XLPP/Workbook/Workbook.h>
 #include "../XML/XmlUtilities.h"
 #include "../XML/NumericParsing.h"
@@ -2148,6 +2149,11 @@ void Workbook::loadInPlace(const std::filesystem::path& p, const LoadOptions& op
         return;
     } else {
         z = internal::ZipArchive::open(p, limits);
+    }
+    if (internal::isXlsbPackage(z)) {
+        // Binary (BIFF12) workbook: read the basic sheet/cell model directly.
+        internal::readXlsb(z, *this);
+        return;
     }
     const auto relationshipGraph = internal::RelationshipGraph::fromArchive(z);
     preservedRelationships_ = relationshipGraph.relationships();

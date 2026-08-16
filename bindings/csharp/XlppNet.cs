@@ -25,7 +25,7 @@ namespace XLPP
     }
 
     // === Native interop ===
-    internal static class Native
+    internal static partial class Native
     {
         private const string Dll = "xlpp_capi";
 
@@ -448,6 +448,18 @@ namespace XLPP
         public static extern IntPtr xlpp_comment_text(IntPtr c);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_comment_author(IntPtr c);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_comment_set_visible(IntPtr c, int v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_comment_visible(IntPtr c);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_comment_set_width(IntPtr c, double v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern double xlpp_comment_width(IntPtr c);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_comment_set_height(IntPtr c, double v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern double xlpp_comment_height(IntPtr c);
 
         // Named style / Defined name
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
@@ -489,10 +501,24 @@ namespace XLPP
         public static extern void xlpp_font_set_italic(IntPtr f, int v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlpp_font_set_underline(IntPtr f, int v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern void xlpp_font_set_underline_style(IntPtr f, string v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_font_get_underline_style(IntPtr f, IntPtr outBuf, int outSize);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlpp_font_set_strike(IntPtr f, int v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern void xlpp_font_set_color(IntPtr f, string argb);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_font_set_color_theme(IntPtr f, int v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_font_color_theme(IntPtr f);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_font_has_color_theme(IntPtr f);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_font_set_color_tint(IntPtr f, double v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern double xlpp_font_color_tint(IntPtr f);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_font_get_name(IntPtr f);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -531,6 +557,14 @@ namespace XLPP
         public static extern IntPtr xlpp_border_bottom(IntPtr b);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlpp_border_diagonal(IntPtr b);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_border_set_diagonal_up(IntPtr b, int v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_border_diagonal_up(IntPtr b);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_border_set_diagonal_down(IntPtr b, int v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_border_diagonal_down(IntPtr b);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern void xlpp_borderside_set_style(IntPtr s, string v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
@@ -791,6 +825,10 @@ namespace XLPP
         public static extern void xlpp_sheetview_set_show_outline_symbols(IntPtr s, int v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlpp_sheetview_show_outline_symbols(IntPtr s);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_sheetview_set_show_row_col_headers(IntPtr s, int v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_sheetview_show_row_col_headers(IntPtr s);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern void xlpp_sheetview_set_pane(IntPtr s, string v);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -899,6 +937,34 @@ namespace XLPP
         public static extern int xlpp_cfrule_stop_if_true(IntPtr r);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlpp_cfrule_set_differential_style(IntPtr r, IntPtr s);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern void xlpp_cfrule_set_text(IntPtr r, string v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_cfrule_text(IntPtr r, IntPtr outPtr, int outSize);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_cfrule_set_equal_average(IntPtr r, int v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_cfrule_equal_average(IntPtr r);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_cfrule_set_std_dev(IntPtr r, int v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_cfrule_std_dev(IntPtr r);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_cfrule_set_std_dev_count(IntPtr r, int v);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_cfrule_std_dev_count(IntPtr r);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlpp_cfrule_set_top10(IntPtr r, int rank, int percent);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_cfrule_top10_rank(IntPtr r);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlpp_cfrule_top10_percent(IntPtr r);
+
+        // CSV
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int xlpp_worksheet_save_csv(IntPtr ws, string path);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int xlpp_worksheet_load_csv(IntPtr ws, string path);
 
         // Data validation
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -1247,8 +1313,83 @@ namespace XLPP
     public enum DataValidationErrorStyle { Stop = 0, Warning = 1, Information = 2 }
     public enum ChartType { Bar = 0, Line = 1, Pie = 2, Scatter = 3, Doughnut = 4, Radar = 5, Area = 6, Bubble = 7 }
     public enum ChartGrouping { Standard = 0, Stacked = 1, PercentStacked = 2, Clustered = 3 }
-    public enum ConditionalRuleType { Formula = 0, CellIs = 1, DataBar = 2, ColorScale = 3, IconSet = 4 }
+    public enum ConditionalRuleType { Formula = 0, CellIs = 1, DataBar = 2, ColorScale = 3, IconSet = 4, ContainsText = 5, NotContainsText = 6, BeginsWith = 7, EndsWith = 8, AboveAverage = 9, BelowAverage = 10, AboveOrEqualAverage = 11, BelowOrEqualAverage = 12, Top10 = 13, Bottom10 = 14, DuplicateValues = 15, UniqueValues = 16 }
     public enum ConditionalOperator { Equal = 0, NotEqual = 1, LessThan = 2, LessThanOrEqual = 3, GreaterThan = 4, GreaterThanOrEqual = 5, Between = 6, NotBetween = 7 }
+    public enum StructuralEditKind { InsertRows = 0, DeleteRows = 1, InsertColumns = 2, DeleteColumns = 3 }
+    public enum OfficeEncryptionMode { None = 0, AgileAes256Sha512 = 1, StandardAesSha1 = 2 }
+    public enum PivotDatePart { Second = 0, Minute = 1, Hour = 2, Day = 3, Month = 4, Quarter = 5, Year = 6 }
+    public enum ChartBarDirection { Column = 0, Bar = 1 }
+    public enum ChartScatterStyle { Marker = 0, SmoothMarker = 1, Smooth = 2, LineMarker = 3, Line = 4 }
+    public enum ChartBubbleSizeRepresents { Area = 0, Width = 1 }
+
+    public sealed class CalculationReport
+    {
+        public ulong FormulaCellsVisited { get; }
+        public ulong FormulaCellsEvaluated { get; }
+        public ulong CachedValuesUpdated { get; }
+        public ulong DependencyEvaluations { get; }
+        public ulong DefinedNamesResolved { get; }
+        public ulong CircularReferences { get; }
+        public ulong UnsupportedFormulas { get; }
+        public ulong EvaluationErrors { get; }
+        public ulong DynamicArraysSpilled { get; }
+        public ulong SpillCellsUpdated { get; }
+        public ulong SpillConflicts { get; }
+        public ulong StructuredReferencesResolved { get; }
+        public ulong IterativeIterations { get; }
+        public ulong IterativeConvergenceFailures { get; }
+        public ulong ExternalReferencesResolved { get; }
+        public ulong UnresolvedExternalReferences { get; }
+        public bool Success { get; }
+        internal CalculationReport(ulong formulaCellsVisited, ulong formulaCellsEvaluated, ulong cachedValuesUpdated,
+            ulong dependencyEvaluations, ulong definedNamesResolved, ulong circularReferences, ulong unsupportedFormulas,
+            ulong evaluationErrors, ulong dynamicArraysSpilled, ulong spillCellsUpdated, ulong spillConflicts,
+            ulong structuredReferencesResolved, ulong iterativeIterations, ulong iterativeConvergenceFailures,
+            ulong externalReferencesResolved, ulong unresolvedExternalReferences, bool success)
+        {
+            FormulaCellsVisited = formulaCellsVisited; FormulaCellsEvaluated = formulaCellsEvaluated;
+            CachedValuesUpdated = cachedValuesUpdated; DependencyEvaluations = dependencyEvaluations;
+            DefinedNamesResolved = definedNamesResolved; CircularReferences = circularReferences;
+            UnsupportedFormulas = unsupportedFormulas; EvaluationErrors = evaluationErrors;
+            DynamicArraysSpilled = dynamicArraysSpilled; SpillCellsUpdated = spillCellsUpdated;
+            SpillConflicts = spillConflicts; StructuredReferencesResolved = structuredReferencesResolved;
+            IterativeIterations = iterativeIterations; IterativeConvergenceFailures = iterativeConvergenceFailures;
+            ExternalReferencesResolved = externalReferencesResolved;
+            UnresolvedExternalReferences = unresolvedExternalReferences; Success = success;
+        }
+    }
+
+    public sealed class StructuralEditReport
+    {
+        public ulong WorksheetsVisited { get; }
+        public ulong CellsMoved { get; }
+        public ulong CellsRemoved { get; }
+        public ulong FormulasUpdated { get; }
+        public ulong FormulaMetadataUpdated { get; }
+        public ulong WorksheetReferencesUpdated { get; }
+        public ulong DefinedNamesUpdated { get; }
+        public ulong ChartReferencesUpdated { get; }
+        public ulong PivotReferencesUpdated { get; }
+        public ulong DrawingAnchorsUpdated { get; }
+        public ulong HyperlinksUpdated { get; }
+        public ulong ReferencesInvalidated { get; }
+        public ulong FormulasCalculated { get; }
+        public ulong ChartCachesUpdated { get; }
+        public bool Success { get; }
+        internal StructuralEditReport(ulong worksheetsVisited, ulong cellsMoved, ulong cellsRemoved, ulong formulasUpdated,
+            ulong formulaMetadataUpdated, ulong worksheetReferencesUpdated, ulong definedNamesUpdated, ulong chartReferencesUpdated,
+            ulong pivotReferencesUpdated, ulong drawingAnchorsUpdated, ulong hyperlinksUpdated, ulong referencesInvalidated,
+            ulong formulasCalculated, ulong chartCachesUpdated, bool success)
+        {
+            WorksheetsVisited = worksheetsVisited; CellsMoved = cellsMoved; CellsRemoved = cellsRemoved;
+            FormulasUpdated = formulasUpdated; FormulaMetadataUpdated = formulaMetadataUpdated;
+            WorksheetReferencesUpdated = worksheetReferencesUpdated; DefinedNamesUpdated = definedNamesUpdated;
+            ChartReferencesUpdated = chartReferencesUpdated; PivotReferencesUpdated = pivotReferencesUpdated;
+            DrawingAnchorsUpdated = drawingAnchorsUpdated; HyperlinksUpdated = hyperlinksUpdated;
+            ReferencesInvalidated = referencesInvalidated; FormulasCalculated = formulasCalculated;
+            ChartCachesUpdated = chartCachesUpdated; Success = success;
+        }
+    }
 
     // === OOP wrappers ===
     internal static class MarshalHelper
@@ -1294,6 +1435,14 @@ namespace XLPP
         public bool Underline => Native.xlpp_font_get_underline(_handle) != 0;
         public bool Strike => Native.xlpp_font_get_strike(_handle) != 0;
         public string Color => MarshalHelper.FromBuffer((b, n) => Native.xlpp_font_get_color(_handle, b, n));
+        public string UnderlineStyle
+        {
+            get => MarshalHelper.FromBuffer((b, n) => Native.xlpp_font_get_underline_style(_handle, b, n));
+            set => Native.xlpp_font_set_underline_style(_handle, value);
+        }
+        public bool HasColorTheme => Native.xlpp_font_has_color_theme(_handle) != 0;
+        public int ColorTheme { get => Native.xlpp_font_color_theme(_handle); set => Native.xlpp_font_set_color_theme(_handle, value); }
+        public double ColorTint { get => Native.xlpp_font_color_tint(_handle); set => Native.xlpp_font_set_color_tint(_handle, value); }
     }
 
     public class Fill
@@ -1327,6 +1476,8 @@ namespace XLPP
         public BorderSide Top => new(Native.xlpp_border_top(_handle));
         public BorderSide Bottom => new(Native.xlpp_border_bottom(_handle));
         public BorderSide Diagonal => new(Native.xlpp_border_diagonal(_handle));
+        public bool DiagonalUp { get => Native.xlpp_border_diagonal_up(_handle) != 0; set => Native.xlpp_border_set_diagonal_up(_handle, value ? 1 : 0); }
+        public bool DiagonalDown { get => Native.xlpp_border_diagonal_down(_handle) != 0; set => Native.xlpp_border_set_diagonal_down(_handle, value ? 1 : 0); }
     }
 
     public class Alignment
@@ -1421,6 +1572,7 @@ namespace XLPP
         public bool TabSelected { get => Native.xlpp_sheetview_tab_selected(_handle) != 0; set => Native.xlpp_sheetview_set_tab_selected(_handle, value ? 1 : 0); }
         public bool RightToLeft { get => Native.xlpp_sheetview_right_to_left(_handle) != 0; set => Native.xlpp_sheetview_set_right_to_left(_handle, value ? 1 : 0); }
         public bool ShowOutlineSymbols { get => Native.xlpp_sheetview_show_outline_symbols(_handle) != 0; set => Native.xlpp_sheetview_set_show_outline_symbols(_handle, value ? 1 : 0); }
+        public bool ShowRowColHeaders { get => Native.xlpp_sheetview_show_row_col_headers(_handle) != 0; set => Native.xlpp_sheetview_set_show_row_col_headers(_handle, value ? 1 : 0); }
         public string Pane { get => MarshalHelper.FromBuffer((b, n) => Native.xlpp_sheetview_pane(_handle, b, n)); set => Native.xlpp_sheetview_set_pane(_handle, value); }
         public string TopLeftCell { get => MarshalHelper.FromBuffer((b, n) => Native.xlpp_sheetview_top_left_cell(_handle, b, n)); set => Native.xlpp_sheetview_set_top_left_cell(_handle, value); }
         public int XSplit { get => Native.xlpp_sheetview_x_split(_handle); set => Native.xlpp_sheetview_set_x_split(_handle, value); }
@@ -1554,6 +1706,9 @@ namespace XLPP
         internal Comment(IntPtr h) => _handle = h;
         public string Text { get => MarshalHelper.PtrToString(Native.xlpp_comment_text(_handle)); set => Native.xlpp_comment_set_text(_handle, value); }
         public string Author { get => MarshalHelper.PtrToString(Native.xlpp_comment_author(_handle)); set => Native.xlpp_comment_set_author(_handle, value); }
+        public bool Visible { get => Native.xlpp_comment_visible(_handle) != 0; set => Native.xlpp_comment_set_visible(_handle, value ? 1 : 0); }
+        public double Width { get => Native.xlpp_comment_width(_handle); set => Native.xlpp_comment_set_width(_handle, value); }
+        public double Height { get => Native.xlpp_comment_height(_handle); set => Native.xlpp_comment_set_height(_handle, value); }
     }
 
     public class NamedStyle
@@ -1735,6 +1890,12 @@ namespace XLPP
         public ulong Priority { get => Native.xlpp_cfrule_priority(_handle); set => Native.xlpp_cfrule_set_priority(_handle, value); }
         public bool StopIfTrue { get => Native.xlpp_cfrule_stop_if_true(_handle) != 0; set => Native.xlpp_cfrule_set_stop_if_true(_handle, value ? 1 : 0); }
         public void SetDifferentialStyle(Style s) => Native.xlpp_cfrule_set_differential_style(_handle, s._handle);
+        public string Text { get => MarshalHelper.FromBuffer((b, n) => Native.xlpp_cfrule_text(_handle, b, n)); set => Native.xlpp_cfrule_set_text(_handle, value); }
+        public bool EqualAverage { get => Native.xlpp_cfrule_equal_average(_handle) != 0; set => Native.xlpp_cfrule_set_equal_average(_handle, value ? 1 : 0); }
+        public bool StdDev { get => Native.xlpp_cfrule_std_dev(_handle) != 0; set => Native.xlpp_cfrule_set_std_dev(_handle, value ? 1 : 0); }
+        public int StdDevCount { get => Native.xlpp_cfrule_std_dev_count(_handle); set => Native.xlpp_cfrule_set_std_dev_count(_handle, value); }
+        public int Top10Rank { get => Native.xlpp_cfrule_top10_rank(_handle); set => Native.xlpp_cfrule_set_top10(_handle, value, Top10Percent ? 1 : 0); }
+        public bool Top10Percent { get => Native.xlpp_cfrule_top10_percent(_handle) != 0; set => Native.xlpp_cfrule_set_top10(_handle, Top10Rank, value ? 1 : 0); }
     }
 
     public class DataValidationCollection
@@ -1913,13 +2074,16 @@ namespace XLPP
         }
     }
 
-    public class Worksheet
+    public partial class Worksheet
     {
         internal IntPtr _handle;
         internal Worksheet(IntPtr h) => _handle = h;
 
         public string Name => MarshalHelper.PtrToString(Native.xlpp_sheet_name(_handle));
         public void Rename(string name) => Native.xlpp_sheet_rename(_handle, name);
+
+        public bool SaveCsv(string path) => Native.xlpp_worksheet_save_csv(_handle, path) != 0;
+        public bool LoadCsv(string path) => Native.xlpp_worksheet_load_csv(_handle, path) != 0;
 
         public Cell this[string address] => new(Native.xlpp_sheet_cell(_handle, address));
         public Cell Cell(ulong row, ulong col) => new(Native.xlpp_sheet_cell_rc(_handle, row, col));
@@ -2008,7 +2172,7 @@ namespace XLPP
         public PivotTable PivotAt(int index) => new(Native.xlpp_sheet_pivot_at(_handle, index));
     }
 
-    public class Workbook : IDisposable
+    public partial class Workbook : IDisposable
     {
         internal IntPtr _handle;
 

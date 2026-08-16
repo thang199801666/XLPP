@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <cstdio>
 #include <algorithm>
@@ -867,6 +868,12 @@ XLPP_API void xlpp_comment_set_text(xlpp_comment c, const char* v) { CM(c)->setT
 XLPP_API void xlpp_comment_set_author(xlpp_comment c, const char* v) { CM(c)->setAuthor(v); }
 XLPP_API const char* xlpp_comment_text(xlpp_comment c) { return CM(c)->text().c_str(); }
 XLPP_API const char* xlpp_comment_author(xlpp_comment c) { return CM(c)->author().c_str(); }
+XLPP_API void xlpp_comment_set_visible(xlpp_comment c, int v) { CM(c)->setVisible(v != 0); }
+XLPP_API int xlpp_comment_visible(xlpp_comment c) { return CM(c)->visible() ? 1 : 0; }
+XLPP_API void xlpp_comment_set_width(xlpp_comment c, double v) { CM(c)->setWidth(v); }
+XLPP_API double xlpp_comment_width(xlpp_comment c) { return CM(c)->width(); }
+XLPP_API void xlpp_comment_set_height(xlpp_comment c, double v) { CM(c)->setHeight(v); }
+XLPP_API double xlpp_comment_height(xlpp_comment c) { return CM(c)->height(); }
 
 // ============================================================
 // RichText
@@ -1063,6 +1070,8 @@ XLPP_API void xlpp_sheetview_set_right_to_left(xlpp_sheetview s, int v) { SV(s)-
 XLPP_API int xlpp_sheetview_right_to_left(xlpp_sheetview s) { return SV(s)->rightToLeft() ? 1 : 0; }
 XLPP_API void xlpp_sheetview_set_show_outline_symbols(xlpp_sheetview s, int v) { SV(s)->setShowOutlineSymbols(v != 0); }
 XLPP_API int xlpp_sheetview_show_outline_symbols(xlpp_sheetview s) { return SV(s)->showOutlineSymbols() ? 1 : 0; }
+XLPP_API void xlpp_sheetview_set_show_row_col_headers(xlpp_sheetview s, int v) { SV(s)->setShowRowColHeaders(v != 0); }
+XLPP_API int xlpp_sheetview_show_row_col_headers(xlpp_sheetview s) { return SV(s)->showRowColHeaders() ? 1 : 0; }
 XLPP_API void xlpp_sheetview_set_pane(xlpp_sheetview s, const char* v) { SV(s)->setPane(v); }
 XLPP_API void xlpp_sheetview_pane(xlpp_sheetview s, char* out, int outSize) { copyStr(SV(s)->pane(), out, outSize); }
 XLPP_API void xlpp_sheetview_set_top_left_cell(xlpp_sheetview s, const char* v) { SV(s)->setTopLeftCell(v); }
@@ -1227,6 +1236,18 @@ XLPP_API xlpp_cfrule xlpp_cfentry_add_rule(xlpp_cfentry e, int type) {
     case 2: rule = xlpp::ConditionalRule::dataBar(); break;
     case 3: rule = xlpp::ConditionalRule::colorScale(); break;
     case 4: rule = xlpp::ConditionalRule::iconSet(); break;
+    case 5: rule = xlpp::ConditionalRule::containsText(""); break;
+    case 6: rule = xlpp::ConditionalRule::notContainsText(""); break;
+    case 7: rule = xlpp::ConditionalRule::beginsWith(""); break;
+    case 8: rule = xlpp::ConditionalRule::endsWith(""); break;
+    case 9: rule = xlpp::ConditionalRule::aboveAverage(); break;
+    case 10: rule = xlpp::ConditionalRule::belowAverage(); break;
+    case 11: rule = xlpp::ConditionalRule::aboveAverage(); rule.setEqualAverage(true); break;
+    case 12: rule = xlpp::ConditionalRule::belowAverage(); rule.setEqualAverage(true); break;
+    case 13: rule = xlpp::ConditionalRule::top10(true, 10); break;
+    case 14: rule = xlpp::ConditionalRule::top10(false, 10); break;
+    case 15: rule = xlpp::ConditionalRule::duplicateValues(); break;
+    case 16: rule = xlpp::ConditionalRule::uniqueValues(); break;
     default: rule = xlpp::ConditionalRule::formula(""); break;
     }
     return reinterpret_cast<xlpp_cfrule>(&CFE(e)->addRule(std::move(rule)));
@@ -1248,6 +1269,19 @@ XLPP_API uint64_t xlpp_cfrule_priority(xlpp_cfrule r) { return CFR(r)->priority(
 XLPP_API void xlpp_cfrule_set_stop_if_true(xlpp_cfrule r, int v) { CFR(r)->setStopIfTrue(v != 0); }
 XLPP_API int xlpp_cfrule_stop_if_true(xlpp_cfrule r) { return CFR(r)->stopIfTrue() ? 1 : 0; }
 XLPP_API void xlpp_cfrule_set_differential_style(xlpp_cfrule r, xlpp_style s) { CFR(r)->setDifferentialStyle(*STY(s)); }
+XLPP_API void xlpp_cfrule_set_text(xlpp_cfrule r, const char* v) { CFR(r)->setText(v); }
+XLPP_API void xlpp_cfrule_text(xlpp_cfrule r, char* out, int outSize) { copyStr(CFR(r)->text(), out, outSize); }
+XLPP_API void xlpp_cfrule_set_equal_average(xlpp_cfrule r, int v) { CFR(r)->setEqualAverage(v != 0); }
+XLPP_API int xlpp_cfrule_equal_average(xlpp_cfrule r) { return CFR(r)->equalAverage() ? 1 : 0; }
+XLPP_API void xlpp_cfrule_set_std_dev(xlpp_cfrule r, int v) { CFR(r)->setStdDev(v != 0); }
+XLPP_API int xlpp_cfrule_std_dev(xlpp_cfrule r) { return CFR(r)->stdDev() ? 1 : 0; }
+XLPP_API void xlpp_cfrule_set_std_dev_count(xlpp_cfrule r, int v) { CFR(r)->setStdDevCount(v); }
+XLPP_API int xlpp_cfrule_std_dev_count(xlpp_cfrule r) { return CFR(r)->stdDevCount(); }
+XLPP_API void xlpp_cfrule_set_top10(xlpp_cfrule r, int rank, int percent) {
+    CFR(r)->setTop10(rank, percent != 0);
+}
+XLPP_API int xlpp_cfrule_top10_rank(xlpp_cfrule r) { return CFR(r)->top10Config().rank; }
+XLPP_API int xlpp_cfrule_top10_percent(xlpp_cfrule r) { return CFR(r)->top10Config().percent ? 1 : 0; }
 
 // ============================================================
 // Data validation
@@ -1303,6 +1337,13 @@ XLPP_API int xlpp_font_get_italic(xlpp_font f)                     { return FONT
 XLPP_API int xlpp_font_get_underline(xlpp_font f)                  { return FONT(f)->underline() ? 1 : 0; }
 XLPP_API int xlpp_font_get_strike(xlpp_font f)                     { return FONT(f)->strike() ? 1 : 0; }
 XLPP_API void xlpp_font_get_color(xlpp_font f, char* out, int outSize) { copyStr(FONT(f)->color().argb(), out, outSize); }
+XLPP_API void xlpp_font_set_underline_style(xlpp_font f, const char* v) { FONT(f)->setUnderlineStyle(v); }
+XLPP_API void xlpp_font_get_underline_style(xlpp_font f, char* out, int outSize) { copyStr(FONT(f)->underlineStyle(), out, outSize); }
+XLPP_API void xlpp_font_set_color_theme(xlpp_font f, int v) { FONT(f)->color().setTheme(v); }
+XLPP_API int xlpp_font_color_theme(xlpp_font f) { return FONT(f)->color().theme(); }
+XLPP_API int xlpp_font_has_color_theme(xlpp_font f) { return FONT(f)->color().hasTheme() ? 1 : 0; }
+XLPP_API void xlpp_font_set_color_tint(xlpp_font f, double v) { FONT(f)->color().setTint(static_cast<float>(v)); }
+XLPP_API double xlpp_font_color_tint(xlpp_font f) { return FONT(f)->color().tint(); }
 
 // ============================================================
 // Fill
@@ -1322,6 +1363,10 @@ XLPP_API xlpp_borderside xlpp_border_right(xlpp_border b)   { return reinterpret
 XLPP_API xlpp_borderside xlpp_border_top(xlpp_border b)     { return reinterpret_cast<xlpp_borderside>(&BDR(b)->top()); }
 XLPP_API xlpp_borderside xlpp_border_bottom(xlpp_border b)  { return reinterpret_cast<xlpp_borderside>(&BDR(b)->bottom()); }
 XLPP_API xlpp_borderside xlpp_border_diagonal(xlpp_border b){ return reinterpret_cast<xlpp_borderside>(&BDR(b)->diagonal()); }
+XLPP_API void xlpp_border_set_diagonal_up(xlpp_border b, int v) { BDR(b)->setDiagonalUp(v != 0); }
+XLPP_API int xlpp_border_diagonal_up(xlpp_border b) { return BDR(b)->diagonalUp() ? 1 : 0; }
+XLPP_API void xlpp_border_set_diagonal_down(xlpp_border b, int v) { BDR(b)->setDiagonalDown(v != 0); }
+XLPP_API int xlpp_border_diagonal_down(xlpp_border b) { return BDR(b)->diagonalDown() ? 1 : 0; }
 XLPP_API void xlpp_borderside_set_style(xlpp_borderside s, const char* v) { BS(s)->setStyle(v); }
 XLPP_API void xlpp_borderside_set_color(xlpp_borderside s, const char* argb) { BS(s)->color().setArgb(argb); }
 XLPP_API void xlpp_borderside_get_style(xlpp_borderside s, char* out, int outSize) { copyStr(BS(s)->style(), out, outSize); }
@@ -1523,6 +1568,16 @@ XLPP_API const char* xlpp_last_error(void) {
 
 XLPP_API void xlpp_clear_error(void) {
     clearError();
+}
+
+// ============================================================
+// CSV
+// ============================================================
+XLPP_API int xlpp_worksheet_save_csv(xlpp_worksheet ws, const char* path) {
+    try { WS(ws)->saveCsv(std::filesystem::path(path)); return 1; } catch (...) { return 0; }
+}
+XLPP_API int xlpp_worksheet_load_csv(xlpp_worksheet ws, const char* path) {
+    try { WS(ws)->loadCsv(std::filesystem::path(path)); return 1; } catch (...) { return 0; }
 }
 
 } // extern "C"

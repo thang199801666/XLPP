@@ -17,8 +17,14 @@ namespace internal {
 
 namespace {
 
-void writeColor(std::ostringstream& xml, const xlpp::Color& color) {
-    if (!color.empty()) xml << "<color rgb=\"" << xmlEscape(color.argb()) << "\"/>";
+void writeColor(std::ostringstream& xml, const xlpp::Color& color, const char* element = "color") {
+    if (color.hasTheme()) {
+        xml << '<' << element << " theme=\"" << color.theme() << "\"";
+        if (color.tint() != 0.0f) xml << " tint=\"" << color.tint() << "\"";
+        xml << "/>";
+    } else if (!color.empty()) {
+        xml << '<' << element << " rgb=\"" << xmlEscape(color.argb()) << "\"/>";
+    }
 }
 
 void writeBorderSide(std::ostringstream& xml, const char* name, const xlpp::BorderSide& side) {
@@ -35,7 +41,10 @@ void writeFontElement(std::ostringstream& xml, const xlpp::Font& font, bool emit
     if (font.strike()) xml << "<strike/>";
     if (font.condense()) xml << "<condense/>";
     if (font.outline()) xml << "<outline/>";
-    if (font.underline()) xml << "<u/>";
+    if (font.underline()) {
+        const auto style = font.underlineStyle();
+        xml << "<u" << (style == "double" ? " val=\"double\"" : "") << "/>";
+    }
     if (!font.vertAlign().empty()) xml << "<vertAlign val=\"" << xmlEscape(font.vertAlign()) << "\"/>";
     if (emitSizeName) {
         xml << "<sz val=\"" << font.size() << "\"/>";
@@ -62,10 +71,20 @@ void writeBorderElement(std::ostringstream& xml, const xlpp::Border& border) {
     xml << "</border>";
 }
 
-xlpp::Color parseColor(const std::string& container) {
-    auto colors = xlpp::internal::tags(container, "color");
-    if (colors.empty()) colors = xlpp::internal::tags(container, "fgColor");
-    return colors.empty() ? xlpp::Color{} : xlpp::Color(xlpp::internal::attribute(colors.front(), "rgb"));
+xlpp::Color parseColor(const std::string& container, const char* element = "color") {
+    auto colors = xlpp::internal::tags(container, element);
+    if (colors.empty() && std::string_view(element) == "color") colors = xlpp::internal::tags(container, "fgColor");
+    if (colors.empty()) return xlpp::Color{};
+    xlpp::Color color;
+    const auto rgb = xlpp::internal::attribute(colors.front(), "rgb");
+    if (!rgb.empty()) color.setArgb(rgb);
+    const auto theme = xlpp::internal::attribute(colors.front(), "theme");
+    if (!theme.empty())
+        color.setTheme(xlpp::internal::parseIntegerExact<int>(theme, "color theme"));
+    const auto tint = xlpp::internal::attribute(colors.front(), "tint");
+    if (!tint.empty())
+        color.setTint(static_cast<float>(xlpp::internal::parseDoubleExact(tint, "color tint")));
+    return color;
 }
 
 xlpp::Font parseFontElement(const std::string& node) {
@@ -76,7 +95,12 @@ xlpp::Font parseFontElement(const std::string& node) {
     if (!sizes.empty()) { const auto value = xlpp::internal::attribute(sizes.front(), "val"); if (!value.empty()) font.setSize(xlpp::internal::parseDoubleExact(value, "font size")); }
     font.setBold(!xlpp::internal::tags(node, "b").empty());
     font.setItalic(!xlpp::internal::tags(node, "i").empty());
-    font.setUnderline(!xlpp::internal::tags(node, "u").empty());
+    const auto underlines = xlpp::internal::tags(node, "u");
+    if (!underlines.empty()) {
+        auto underlineStyle = xlpp::internal::attribute(underlines.front(), "val");
+        if (underlineStyle.empty()) underlineStyle = "single";
+        font.setUnderlineStyle(std::move(underlineStyle));
+    }
     font.setStrike(!xlpp::internal::tags(node, "strike").empty());
     font.setOutline(!xlpp::internal::tags(node, "outline").empty());
     font.setCondense(!xlpp::internal::tags(node, "condense").empty());
@@ -173,8 +197,8 @@ std::string stylesXml(const StyleCatalog& catalog, const std::vector<xlpp::Named
         const auto& fill = catalog.items[i].fill();
         const std::string fillPattern = fill.patternType().empty() ? "none" : fill.patternType();
         xml << "<fill><patternFill patternType=\"" << xmlEscape(fillPattern) << "\">";
-        if (!fill.foregroundColor().empty()) xml << "<fgColor rgb=\"" << xmlEscape(fill.foregroundColor().argb()) << "\"/>";
-        if (!fill.backgroundColor().empty()) xml << "<bgColor rgb=\"" << xmlEscape(fill.backgroundColor().argb()) << "\"/>";
+        if (!fill.foregroundColor().empty()) writeColor(xml, fill.foregroundColor(), "fgColor");
+        if (!fill.backgroundColor().empty()) writeColor(xml, fill.backgroundColor(), "bgColor");
         xml << "</patternFill></fill>";
     }
     xml << "</fills>";
@@ -224,8 +248,8 @@ std::string stylesXml(const StyleCatalog& catalog, const std::vector<xlpp::Named
         if (!(fill == xlpp::Fill{})) {
             const std::string fillPattern = fill.patternType().empty() ? "none" : fill.patternType();
             xml << "<fill><patternFill patternType=\"" << xmlEscape(fillPattern) << "\">";
-            if (!fill.foregroundColor().empty()) xml << "<fgColor rgb=\"" << xmlEscape(fill.foregroundColor().argb()) << "\"/>";
-            if (!fill.backgroundColor().empty()) xml << "<bgColor rgb=\"" << xmlEscape(fill.backgroundColor().argb()) << "\"/>";
+            if (!fill.foregroundColor().empty()) writeColor(xml, fill.foregroundColor(), "fgColor");
+            if (!fill.backgroundColor().empty()) writeColor(xml, fill.backgroundColor(), "bgColor");
             xml << "</patternFill></fill>";
         }
         if (!(style.border() == xlpp::Border{})) writeBorderElement(xml, style.border());
@@ -259,10 +283,8 @@ StyleCatalog parseStyleCatalog(const std::string& xml) {
         const auto patterns = xlpp::internal::tags(node, "patternFill");
         if (!patterns.empty()) {
             fill.setPatternType(xlpp::internal::attribute(patterns.front(), "patternType"));
-            const auto fg = xlpp::internal::tags(patterns.front(), "fgColor");
-            if (!fg.empty()) fill.foregroundColor().setArgb(xlpp::internal::attribute(fg.front(), "rgb"));
-            const auto bg = xlpp::internal::tags(patterns.front(), "bgColor");
-            if (!bg.empty()) fill.backgroundColor().setArgb(xlpp::internal::attribute(bg.front(), "rgb"));
+            fill.foregroundColor() = parseColor(patterns.front(), "fgColor");
+            fill.backgroundColor() = parseColor(patterns.front(), "bgColor");
         }
         fills.push_back(fill);
     }
@@ -326,10 +348,8 @@ std::vector<xlpp::Style> parseDifferentialStyles(const std::string& xml) {
             const auto patterns = xlpp::internal::tags(fills.front(), "patternFill");
             if (!patterns.empty()) {
                 style.fill().setPatternType(xlpp::internal::attribute(patterns.front(), "patternType"));
-                const auto fg = xlpp::internal::tags(patterns.front(), "fgColor");
-                if (!fg.empty()) style.fill().foregroundColor().setArgb(xlpp::internal::attribute(fg.front(), "rgb"));
-                const auto bg = xlpp::internal::tags(patterns.front(), "bgColor");
-                if (!bg.empty()) style.fill().backgroundColor().setArgb(xlpp::internal::attribute(bg.front(), "rgb"));
+                style.fill().foregroundColor() = parseColor(patterns.front(), "fgColor");
+                style.fill().backgroundColor() = parseColor(patterns.front(), "bgColor");
             }
         }
         const auto borders = xlpp::internal::tags(node, "border");

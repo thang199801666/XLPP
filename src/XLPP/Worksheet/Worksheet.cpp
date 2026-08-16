@@ -2,7 +2,11 @@
 #include "../Internal/WorksheetName.h"
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
+#include <fstream>
+#include <iterator>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 
@@ -1661,6 +1665,115 @@ bool Worksheet::removeChart(const std::string& stableId) {
     dirty_ = true;
     drawingAppendDirty_ = true;
     return true;
+}
+
+void Worksheet::saveCsv(const std::filesystem::path& path) const {
+    const auto ext = extents();
+    std::ostringstream out;
+    const auto quoteField = [](std::ostringstream& os, const std::string& value) {
+        const bool needsQuote = value.find_first_of(",\"\r\n") != std::string::npos;
+        if (needsQuote) {
+            os << '"';
+            for (const char ch : value) {
+                if (ch == '"') os << "\"\"";
+                else os << ch;
+            }
+            os << '"';
+        } else {
+            os << value;
+        }
+    };
+    for (std::size_t row = ext.minRow; row <= ext.maxRow; ++row) {
+        for (std::size_t column = ext.minColumn; column <= ext.maxColumn; ++column) {
+            if (column > ext.minColumn) out << ',';
+            const auto* cell = tryCell(row, column);
+            if (cell == nullptr || cell->empty()) continue;
+            if (const auto* number = std::get_if<double>(&cell->value())) {
+                char buffer[32];
+                const auto result = std::to_chars(buffer, buffer + sizeof(buffer), *number);
+                out.write(buffer, result.ptr - buffer);
+            } else if (const auto* text = std::get_if<std::string>(&cell->value())) {
+                quoteField(out, *text);
+            } else if (const auto* boolean = std::get_if<bool>(&cell->value())) {
+                out << (*boolean ? "TRUE" : "FALSE");
+            } else if (const auto* date = std::get_if<xlpp::DateTime>(&cell->value())) {
+                quoteField(out, xlpp::toIso8601(*date));
+            }
+        }
+        out << "\r\n";
+    }
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    if (!stream) throw std::runtime_error("Unable to write CSV file: " + path.string());
+    const std::string bom = "\xEF\xBB\xBF";
+    stream.write(bom.data(), static_cast<std::streamsize>(bom.size()));
+    const auto text = out.str();
+    stream.write(text.data(), static_cast<std::streamsize>(text.size()));
+}
+
+void Worksheet::loadCsv(const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) throw std::runtime_error("Unable to open CSV file: " + path.string());
+    std::string data((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    if (data.size() >= 3 && static_cast<unsigned char>(data[0]) == 0xEF
+        && static_cast<unsigned char>(data[1]) == 0xBB && static_cast<unsigned char>(data[2]) == 0xBF)
+        data.erase(0, 3);
+
+    cells_.clear();
+    trackedCellKeys_.clear();
+    extentsCacheValid_ = false;
+    extentsCache_ = {};
+    dirty_ = true;
+
+    std::size_t row = 1;
+    std::size_t position = 0;
+    while (position <= data.size()) {
+        std::vector<std::string> fields;
+        bool inQuotes = false;
+        bool fieldStarted = false;
+        std::string field;
+        const auto flushField = [&]() { fields.push_back(std::move(field)); field.clear(); };
+        for (; position < data.size(); ++position) {
+            const char ch = data[position];
+            if (inQuotes) {
+                if (ch == '"') {
+                    if (position + 1 < data.size() && data[position + 1] == '"') { field.push_back('"'); ++position; }
+                    else inQuotes = false;
+                } else field.push_back(ch);
+                continue;
+            }
+            if (ch == '"') { inQuotes = true; fieldStarted = true; continue; }
+            if (ch == ',') { flushField(); continue; }
+            if (ch == '\r' || ch == '\n') {
+                if (ch == '\r' && position + 1 < data.size() && data[position + 1] == '\n') ++position;
+                flushField();
+                break;
+            }
+            field.push_back(ch);
+            fieldStarted = true;
+        }
+        (void)fieldStarted;
+        if (position == data.size()) {
+            // last record without trailing newline
+            if (!field.empty() || !fields.empty()) flushField();
+        }
+        if (fields.size() > xlpp::CellReference::MaxColumn)
+            throw std::runtime_error("CSV row has more columns than the Excel grid");
+        for (std::size_t column = 0; column < fields.size(); ++column) {
+            auto& value = fields[column];
+            if (value.empty()) continue;
+            if (value == "TRUE" || value == "true" || value == "1") { cell(row, column + 1).setValue(true); continue; }
+            if (value == "FALSE" || value == "false" || value == "0") { cell(row, column + 1).setValue(false); continue; }
+            double number = 0.0;
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+            if (parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size())
+                cell(row, column + 1).setValue(number);
+            else
+                cell(row, column + 1).setValue(std::move(value));
+        }
+        ++row;
+        if (position >= data.size()) break;
+        ++position;
+    }
 }
 
 } // namespace xlpp

@@ -48,13 +48,29 @@ static py::object datetime_to_py(const DateTime& dt) {
 
 // --- CellValue converters ---
 static CellValue py_to_cellvalue(const py::object& obj) {
-    if (PyUnicode_Check(obj.ptr())) return obj.cast<std::string>();
-    if (py::isinstance<py::none>(obj)) return std::monostate{};
-    if (py::isinstance<py::bool_>(obj)) return obj.cast<bool>();
-    if (py::isinstance<py::int_>(obj)) return obj.cast<double>();
-    if (py::isinstance<py::float_>(obj)) return obj.cast<double>();
-    if (PyDateTime_Check(obj.ptr()) || PyDate_Check(obj.ptr()))
-        return py_to_datetime(obj);
+    // Fast path using the CPython C API directly (no pybind type dispatch or
+    // per-value refcount churn). This is the hot path for append() over large
+    // grids.
+    PyObject* const o = obj.ptr();
+    if (PyUnicode_Check(o)) {
+        Py_ssize_t length = 0;
+        const char* utf8 = PyUnicode_AsUTF8AndSize(o, &length);
+        if (!utf8) throw py::error_already_set();
+        return std::string(utf8, static_cast<std::size_t>(length));
+    }
+    if (o == Py_None) return std::monostate{};
+    if (PyBool_Check(o)) return o == Py_True;
+    if (PyLong_Check(o)) {
+        const auto value = PyLong_AsLongLong(o);
+        if (value == -1 && PyErr_Occurred()) throw py::error_already_set();
+        return static_cast<double>(value);
+    }
+    if (PyFloat_Check(o)) {
+        const auto value = PyFloat_AsDouble(o);
+        if (value == -1.0 && PyErr_Occurred()) throw py::error_already_set();
+        return value;
+    }
+    if (PyDateTime_Check(o) || PyDate_Check(o)) return py_to_datetime(obj);
     return obj.cast<std::string>();
 }
 
@@ -556,6 +572,240 @@ PYBIND11_MODULE(xlpp, m) {
     py::enum_<Chart::Grouping>(m, "ChartGrouping")
         .value("STANDARD", Chart::Grouping::Standard).value("STACKED", Chart::Grouping::Stacked)
         .value("PERCENT_STACKED", Chart::Grouping::PercentStacked).value("CLUSTERED", Chart::Grouping::Clustered);
+    py::enum_<ChartColor::Kind>(m, "ChartColorKind")
+        .value("None", ChartColor::Kind::None)
+        .value("SRgb", ChartColor::Kind::SRgb)
+        .value("Scheme", ChartColor::Kind::Scheme)
+        .value("System", ChartColor::Kind::System)
+        .value("Preset", ChartColor::Kind::Preset)
+        .value("Unknown", ChartColor::Kind::Unknown)
+        .export_values();
+
+    py::class_<ChartColor>(m, "ChartColor")
+        .def(py::init<>())
+        .def_readwrite("kind", &ChartColor::kind)
+        .def_readwrite("value", &ChartColor::value);
+
+    py::class_<ChartCustomDashStop>(m, "ChartCustomDashStop")
+        .def(py::init<>())
+        .def_readwrite("dash", &ChartCustomDashStop::dash)
+        .def_readwrite("space", &ChartCustomDashStop::space);
+
+    py::class_<ChartLineFormat>(m, "ChartLineFormat")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartLineFormat::present)
+        .def_readwrite("no_fill", &ChartLineFormat::noFill)
+        .def_readwrite("color", &ChartLineFormat::color)
+        .def_readwrite("width_points", &ChartLineFormat::widthPoints)
+        .def_readwrite("dash", &ChartLineFormat::dash)
+        .def_readwrite("cap", &ChartLineFormat::cap)
+        .def_readwrite("compound", &ChartLineFormat::compound)
+        .def_readwrite("join", &ChartLineFormat::join);
+
+    py::class_<ChartGradientStop>(m, "ChartGradientStop")
+        .def(py::init<>())
+        .def_readwrite("position", &ChartGradientStop::position)
+        .def_readwrite("color", &ChartGradientStop::color);
+
+    py::enum_<ChartFillFormat::Kind>(m, "ChartFillKind")
+        .value("None", ChartFillFormat::Kind::None)
+        .value("NoFill", ChartFillFormat::Kind::NoFill)
+        .value("Solid", ChartFillFormat::Kind::Solid)
+        .value("Gradient", ChartFillFormat::Kind::Gradient)
+        .value("Pattern", ChartFillFormat::Kind::Pattern)
+        .export_values();
+
+    py::class_<ChartFillFormat>(m, "ChartFillFormat")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartFillFormat::present)
+        .def_readwrite("no_fill", &ChartFillFormat::noFill)
+        .def_readwrite("color", &ChartFillFormat::color)
+        .def_readwrite("kind", &ChartFillFormat::kind)
+        .def_readwrite("gradient_angle_degrees", &ChartFillFormat::gradientAngleDegrees)
+        .def_readwrite("pattern", &ChartFillFormat::pattern)
+        .def_readwrite("foreground_color", &ChartFillFormat::foregroundColor)
+        .def_readwrite("background_color", &ChartFillFormat::backgroundColor);
+
+    py::class_<ChartTextRun>(m, "ChartTextRun")
+        .def(py::init<>())
+        .def_readwrite("text", &ChartTextRun::text)
+        .def_readwrite("bold", &ChartTextRun::bold)
+        .def_readwrite("italic", &ChartTextRun::italic)
+        .def_readwrite("font_size_points", &ChartTextRun::fontSizePoints)
+        .def_readwrite("typeface", &ChartTextRun::typeface)
+        .def_readwrite("color", &ChartTextRun::color);
+
+    py::class_<ChartTextStyle>(m, "ChartTextStyle")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartTextStyle::present)
+        .def_readwrite("bold", &ChartTextStyle::bold)
+        .def_readwrite("italic", &ChartTextStyle::italic)
+        .def_readwrite("font_size_points", &ChartTextStyle::fontSizePoints)
+        .def_readwrite("typeface", &ChartTextStyle::typeface)
+        .def_readwrite("color", &ChartTextStyle::color);
+
+    py::class_<ChartRichText>(m, "ChartRichText")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartRichText::present)
+        .def_readwrite("runs", &ChartRichText::runs)
+        .def("plain_text", &ChartRichText::plainText);
+
+    py::class_<ChartCachePoint>(m, "ChartCachePoint")
+        .def(py::init<>())
+        .def_readwrite("index", &ChartCachePoint::index)
+        .def_readwrite("value", &ChartCachePoint::value);
+
+    py::class_<ChartSeriesCache>(m, "ChartSeriesCache")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartSeriesCache::present)
+        .def_readwrite("numeric", &ChartSeriesCache::numeric)
+        .def_readwrite("format_code", &ChartSeriesCache::formatCode)
+        .def_readwrite("point_count", &ChartSeriesCache::pointCount)
+        .def_readwrite("points", &ChartSeriesCache::points)
+        .def("effective_point_count", &ChartSeriesCache::effectivePointCount)
+        .def("valid", &ChartSeriesCache::valid, py::arg("allow_sparse") = true);
+
+    py::class_<ChartMarkerFormat>(m, "ChartMarkerFormat")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartMarkerFormat::present)
+        .def_readwrite("symbol", &ChartMarkerFormat::symbol)
+        .def_readwrite("size", &ChartMarkerFormat::size)
+        .def_readwrite("fill", &ChartMarkerFormat::fill)
+        .def_readwrite("line", &ChartMarkerFormat::line);
+
+    py::class_<ChartDataLabelPoint>(m, "ChartDataLabelPoint")
+        .def(py::init<>())
+        .def_readwrite("index", &ChartDataLabelPoint::index)
+        .def_readwrite("deleted", &ChartDataLabelPoint::deleted)
+        .def_readwrite("show_value", &ChartDataLabelPoint::showValue)
+        .def_readwrite("show_category_name", &ChartDataLabelPoint::showCategoryName)
+        .def_readwrite("show_series_name", &ChartDataLabelPoint::showSeriesName)
+        .def_readwrite("show_percent", &ChartDataLabelPoint::showPercent)
+        .def_readwrite("position", &ChartDataLabelPoint::position);
+
+    py::class_<ChartDataLabels>(m, "ChartDataLabels")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartDataLabels::present)
+        .def_readwrite("show_value", &ChartDataLabels::showValue)
+        .def_readwrite("show_category_name", &ChartDataLabels::showCategoryName)
+        .def_readwrite("show_series_name", &ChartDataLabels::showSeriesName)
+        .def_readwrite("show_percent", &ChartDataLabels::showPercent)
+        .def_readwrite("position", &ChartDataLabels::position)
+        .def_readwrite("separator", &ChartDataLabels::separator);
+
+    py::class_<ChartDataTable>(m, "ChartDataTable")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartDataTable::present)
+        .def_readwrite("show_horizontal_border", &ChartDataTable::showHorizontalBorder)
+        .def_readwrite("show_vertical_border", &ChartDataTable::showVerticalBorder)
+        .def_readwrite("show_outline", &ChartDataTable::showOutline)
+        .def_readwrite("show_legend_keys", &ChartDataTable::showLegendKeys)
+        .def_readwrite("fill", &ChartDataTable::fill)
+        .def_readwrite("line", &ChartDataTable::line);
+
+    py::class_<ChartManualLayout>(m, "ChartManualLayout")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartManualLayout::present)
+        .def_readwrite("target", &ChartManualLayout::target)
+        .def_readwrite("x_mode", &ChartManualLayout::xMode)
+        .def_readwrite("y_mode", &ChartManualLayout::yMode)
+        .def_readwrite("width_mode", &ChartManualLayout::widthMode)
+        .def_readwrite("height_mode", &ChartManualLayout::heightMode)
+        .def_readwrite("has_x", &ChartManualLayout::hasX)
+        .def_readwrite("has_y", &ChartManualLayout::hasY)
+        .def_readwrite("has_width", &ChartManualLayout::hasWidth)
+        .def_readwrite("has_height", &ChartManualLayout::hasHeight)
+        .def_readwrite("x", &ChartManualLayout::x)
+        .def_readwrite("y", &ChartManualLayout::y)
+        .def_readwrite("width", &ChartManualLayout::width)
+        .def_readwrite("height", &ChartManualLayout::height);
+
+    py::class_<ChartAxisScaling>(m, "ChartAxisScaling")
+        .def(py::init<>())
+        .def_readwrite("has_minimum", &ChartAxisScaling::hasMinimum)
+        .def_readwrite("has_maximum", &ChartAxisScaling::hasMaximum)
+        .def_readwrite("has_log_base", &ChartAxisScaling::hasLogBase)
+        .def_readwrite("minimum", &ChartAxisScaling::minimum)
+        .def_readwrite("maximum", &ChartAxisScaling::maximum)
+        .def_readwrite("log_base", &ChartAxisScaling::logBase)
+        .def_readwrite("reverse_order", &ChartAxisScaling::reverseOrder);
+
+    py::class_<ChartDisplayUnits>(m, "ChartDisplayUnits")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartDisplayUnits::present)
+        .def_readwrite("built_in_unit", &ChartDisplayUnits::builtInUnit)
+        .def_readwrite("has_custom_unit", &ChartDisplayUnits::hasCustomUnit)
+        .def_readwrite("custom_unit", &ChartDisplayUnits::customUnit)
+        .def_readwrite("show_label", &ChartDisplayUnits::showLabel);
+
+    py::class_<ChartWallFormat>(m, "ChartWallFormat")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartWallFormat::present)
+        .def_readwrite("has_thickness", &ChartWallFormat::hasThickness)
+        .def_readwrite("thickness", &ChartWallFormat::thickness)
+        .def_readwrite("fill", &ChartWallFormat::fill)
+        .def_readwrite("line", &ChartWallFormat::line);
+
+    py::class_<ChartView3D>(m, "ChartView3D")
+        .def(py::init<>())
+        .def_readwrite("present", &ChartView3D::present)
+        .def_readwrite("has_rotation_x", &ChartView3D::hasRotationX)
+        .def_readwrite("has_rotation_y", &ChartView3D::hasRotationY)
+        .def_readwrite("has_height_percent", &ChartView3D::hasHeightPercent)
+        .def_readwrite("has_depth_percent", &ChartView3D::hasDepthPercent)
+        .def_readwrite("right_angle_axes", &ChartView3D::rightAngleAxes)
+        .def_readwrite("perspective", &ChartView3D::perspective);
+
+    py::enum_<ChartSeries::TrendlineType>(m, "TrendlineType")
+        .value("Linear", ChartSeries::TrendlineType::Linear)
+        .value("Exponential", ChartSeries::TrendlineType::Exponential)
+        .value("Logarithmic", ChartSeries::TrendlineType::Logarithmic)
+        .value("Polynomial", ChartSeries::TrendlineType::Polynomial)
+        .value("Power", ChartSeries::TrendlineType::Power)
+        .value("MovingAverage", ChartSeries::TrendlineType::MovingAverage)
+        .export_values();
+
+    py::enum_<ChartSeries::ErrorBarDirection>(m, "ErrorBarDirection")
+        .value("X", ChartSeries::ErrorBarDirection::X)
+        .value("Y", ChartSeries::ErrorBarDirection::Y)
+        .export_values();
+
+    py::enum_<ChartSeries::ErrorBarType>(m, "ErrorBarType")
+        .value("Both", ChartSeries::ErrorBarType::Both)
+        .value("Plus", ChartSeries::ErrorBarType::Plus)
+        .value("Minus", ChartSeries::ErrorBarType::Minus)
+        .export_values();
+
+    py::enum_<ChartSeries::ErrorValueType>(m, "ErrorValueType")
+        .value("FixedValue", ChartSeries::ErrorValueType::FixedValue)
+        .value("Percentage", ChartSeries::ErrorValueType::Percentage)
+        .value("StandardDeviation", ChartSeries::ErrorValueType::StandardDeviation)
+        .value("StandardError", ChartSeries::ErrorValueType::StandardError)
+        .value("Custom", ChartSeries::ErrorValueType::Custom)
+        .export_values();
+
+    py::class_<ChartSeries::Trendline>(m, "Trendline")
+        .def(py::init<>())
+        .def_readwrite("type", &ChartSeries::Trendline::type)
+        .def_readwrite("order", &ChartSeries::Trendline::order)
+        .def_readwrite("period", &ChartSeries::Trendline::period)
+        .def_readwrite("forward", &ChartSeries::Trendline::forward)
+        .def_readwrite("backward", &ChartSeries::Trendline::backward)
+        .def_readwrite("display_equation", &ChartSeries::Trendline::displayEquation)
+        .def_readwrite("display_r_squared", &ChartSeries::Trendline::displayRSquared)
+        .def_readwrite("line_format", &ChartSeries::Trendline::lineFormat);
+
+    py::class_<ChartSeries::ErrorBars>(m, "ErrorBars")
+        .def(py::init<>())
+        .def_readwrite("direction", &ChartSeries::ErrorBars::direction)
+        .def_readwrite("bar_type", &ChartSeries::ErrorBars::barType)
+        .def_readwrite("value_type", &ChartSeries::ErrorBars::valueType)
+        .def_readwrite("value", &ChartSeries::ErrorBars::value)
+        .def_readwrite("no_end_cap", &ChartSeries::ErrorBars::noEndCap)
+        .def_readwrite("plus_reference", &ChartSeries::ErrorBars::plusReference)
+        .def_readwrite("minus_reference", &ChartSeries::ErrorBars::minusReference)
+        .def_readwrite("line_format", &ChartSeries::ErrorBars::lineFormat);
+
     py::class_<ChartSeries>(m, "ChartSeries")
         .def(py::init<std::string>())
         .def_property("title", &ChartSeries::title, &ChartSeries::setTitle)
@@ -571,6 +821,7 @@ PYBIND11_MODULE(xlpp, m) {
         .def_property("x_axis_title", &Chart::xAxisTitle, &Chart::setXAxisTitle)
         .def_property("y_axis_title", &Chart::yAxisTitle, &Chart::setYAxisTitle)
         .def_property("style", &Chart::style, &Chart::setStyle)
+        .def_property("stable_id", &Chart::stableId, &Chart::setStableId)
         .def_property("width", &Chart::width, &Chart::setWidth)
         .def_property("height", &Chart::height, &Chart::setHeight)
         .def_property("show_legend", &Chart::showLegend, &Chart::setShowLegend)
@@ -1020,6 +1271,10 @@ PYBIND11_MODULE(xlpp, m) {
             [](Cell& c, const FormulaMetadata& m) { c.formulaMetadata() = m; },
             py::return_value_policy::reference_internal)
         .def("clear_formula", &Cell::clearFormula)
+        .def("has_rich_text", &Cell::hasRichText)
+        .def("rich_text_value", &Cell::richTextValue)
+        .def("set_rich_text", &Cell::setRichText)
+        .def("clear_rich_text", &Cell::clearRichText)
         .def("clear", &Cell::clear)
         .def("empty", &Cell::empty)
         .def("is_numeric", &Cell::isNumeric)
@@ -1225,6 +1480,48 @@ PYBIND11_MODULE(xlpp, m) {
         .def("chart", py::overload_cast<std::size_t>(&Worksheet::chart), py::return_value_policy::reference_internal)
         .def_property_readonly("chart_count", &Worksheet::chartCount)
         .def_property_readonly("charts", [](Worksheet& ws) -> std::vector<Chart>& { return ws.charts(); }, py::return_value_policy::reference_internal)
+        .def("move_image", &Worksheet::moveImage)
+        .def("move_image_absolute", &Worksheet::moveImageAbsolute, py::arg("stable_id"), py::arg("x_emu"), py::arg("y_emu"))
+        .def("resize_image", &Worksheet::resizeImage)
+        .def("remove_image", &Worksheet::removeImage)
+        .def("move_chart", &Worksheet::moveChart)
+        .def("move_chart_absolute", &Worksheet::moveChartAbsolute, py::arg("stable_id"), py::arg("x_emu"), py::arg("y_emu"))
+        .def("resize_chart", &Worksheet::resizeChart)
+        .def("remove_chart", &Worksheet::removeChart)
+        .def("set_chart_title", &Worksheet::setChartTitle)
+        .def("set_chart_style", &Worksheet::setChartStyle)
+        .def("set_chart_title_rich_text", &Worksheet::setChartTitleRichText)
+        .def("set_chart_x_axis_title", &Worksheet::setChartXAxisTitle)
+        .def("set_chart_y_axis_title", &Worksheet::setChartYAxisTitle)
+        .def("set_chart_axis_title", &Worksheet::setChartAxisTitle, py::arg("stable_id"), py::arg("axis_id"), py::arg("title"))
+        .def("set_chart_axis_number_format", &Worksheet::setChartAxisNumberFormat, py::arg("stable_id"), py::arg("axis_id"), py::arg("format_code"), py::arg("source_linked") = true)
+        .def("set_chart_axis_units", &Worksheet::setChartAxisUnits, py::arg("stable_id"), py::arg("axis_id"), py::arg("major_unit"), py::arg("minor_unit") = 0.0)
+        .def("set_chart_axis_scaling", &Worksheet::setChartAxisScaling, py::arg("stable_id"), py::arg("axis_id"), py::arg("scaling"))
+        .def("set_chart_axis_crossing", &Worksheet::setChartAxisCrossing, py::arg("stable_id"), py::arg("axis_id"), py::arg("crosses"), py::arg("cross_between") = std::string{})
+        .def("set_chart_axis_crosses_at", &Worksheet::setChartAxisCrossesAt, py::arg("stable_id"), py::arg("axis_id"), py::arg("crosses_at"))
+        .def("clear_chart_axis_crosses_at", &Worksheet::clearChartAxisCrossesAt)
+        .def("set_chart_axis_display_units", &Worksheet::setChartAxisDisplayUnits, py::arg("stable_id"), py::arg("axis_id"), py::arg("display_units"))
+        .def("clear_chart_axis_display_units", &Worksheet::clearChartAxisDisplayUnits)
+        .def("set_chart_axis_line_format", &Worksheet::setChartAxisLineFormat, py::arg("stable_id"), py::arg("axis_id"), py::arg("format"))
+        .def("set_chart_axis_gridline_format", &Worksheet::setChartAxisGridlineFormat, py::arg("stable_id"), py::arg("axis_id"), py::arg("major"), py::arg("format"))
+        .def("remove_chart_axis_gridlines", &Worksheet::removeChartAxisGridlines)
+        .def("set_chart_area_line_format", &Worksheet::setChartAreaLineFormat)
+        .def("set_chart_area_fill_format", &Worksheet::setChartAreaFillFormat)
+        .def("set_chart_plot_area_line_format", &Worksheet::setChartPlotAreaLineFormat)
+        .def("set_chart_plot_area_fill_format", &Worksheet::setChartPlotAreaFillFormat)
+        .def("set_chart_plot_area_layout", &Worksheet::setChartPlotAreaLayout, py::arg("stable_id"), py::arg("layout"))
+        .def("set_chart_data_table", &Worksheet::setChartDataTable, py::arg("stable_id"), py::arg("table"))
+        .def("remove_chart_data_table", &Worksheet::removeChartDataTable)
+        .def("set_chart_legend", &Worksheet::setChartLegend, py::arg("stable_id"), py::arg("show"), py::arg("position") = std::string{})
+        .def("set_chart_view_3d", &Worksheet::setChartView3D, py::arg("stable_id"), py::arg("view"))
+        .def("set_chart_floor_format", &Worksheet::setChartFloorFormat)
+        .def("set_chart_side_wall_format", &Worksheet::setChartSideWallFormat)
+        .def("set_chart_back_wall_format", &Worksheet::setChartBackWallFormat)
+        .def("set_chart_series_value_cache", &Worksheet::setChartSeriesValueCache, py::arg("stable_id"), py::arg("series_index"), py::arg("cache"))
+        .def("set_chart_series_line_format", &Worksheet::setChartSeriesLineFormat, py::arg("stable_id"), py::arg("series_index"), py::arg("format"))
+        .def("set_chart_series_fill_format", &Worksheet::setChartSeriesFillFormat, py::arg("stable_id"), py::arg("series_index"), py::arg("format"))
+        .def("add_chart_series_trendline", &Worksheet::addChartSeriesTrendline, py::arg("stable_id"), py::arg("series_index"), py::arg("trendline"))
+        .def("set_chart_series_error_bars", &Worksheet::setChartSeriesErrorBars, py::arg("stable_id"), py::arg("series_index"), py::arg("error_bars"))
         .def("add_pivot_table", &Worksheet::addPivotTable)
         .def_property_readonly("pivot_tables", [](Worksheet& ws) -> std::vector<PivotTable>& { return ws.pivotTables(); }, py::return_value_policy::reference_internal)
         .def("row", [](Worksheet& ws, std::size_t n) { return ws.row(n); })
@@ -1236,6 +1533,29 @@ PYBIND11_MODULE(xlpp, m) {
         }, py::arg("min_row") = 0, py::arg("max_row") = 0, py::arg("min_col") = 0, py::arg("max_col") = 0)
         .def("dirty", &Worksheet::dirty)
         .def("mark_dirty", &Worksheet::markDirty)
+        .def("save_csv", [](const Worksheet& ws, const std::string& path) { ws.saveCsv(std::filesystem::path(path)); })
+        .def("load_csv", [](Worksheet& ws, const std::string& path) { ws.loadCsv(std::filesystem::path(path)); })
+        .def_property_readonly("tracked_cell_change_count", &Worksheet::trackedCellChangeCount)
+        .def_property_readonly("has_tracked_cell_changes", &Worksheet::hasTrackedCellChanges)
+        .def("clear_tracked_cell_changes", &Worksheet::clearTrackedCellChanges)
+        .def_property_readonly("cells", [](const Worksheet& ws) -> py::dict {
+            py::dict out;
+            for (const auto& [key, cell] : ws.cells())
+                out[py::cast(cell.address())] = py::cast(&cell, py::return_value_policy::reference);
+            return out;
+        })
+        .def_property_readonly("row_dimensions", [](const Worksheet& ws) -> py::dict {
+            py::dict out;
+            for (const auto& [row, dim] : ws.rowDimensions())
+                out[py::cast(row)] = py::cast(&dim, py::return_value_policy::reference);
+            return out;
+        })
+        .def_property_readonly("column_dimensions", [](const Worksheet& ws) -> py::dict {
+            py::dict out;
+            for (const auto& [col, dim] : ws.columnDimensions())
+                out[py::cast(col)] = py::cast(&dim, py::return_value_policy::reference);
+            return out;
+        })
         .def("__iter__", [](Worksheet& ws) {
             auto rows = ws.rows();
             py::list result;
@@ -1334,6 +1654,76 @@ PYBIND11_MODULE(xlpp, m) {
         .def("set_parallel_workers", &StreamingWorkbookWriter::setParallelWorkers);
 
     // === Workbook ===
+    py::enum_<WorkbookSheetVisibility>(m, "WorkbookSheetVisibility")
+        .value("Visible", WorkbookSheetVisibility::Visible)
+        .value("Hidden", WorkbookSheetVisibility::Hidden)
+        .value("VeryHidden", WorkbookSheetVisibility::VeryHidden)
+        .export_values();
+
+    py::class_<ChartCacheSyncOptions>(m, "ChartCacheSyncOptions")
+        .def(py::init<>())
+        .def_readwrite("synchronize_titles", &ChartCacheSyncOptions::synchronizeTitles)
+        .def_readwrite("synchronize_categories", &ChartCacheSyncOptions::synchronizeCategories)
+        .def_readwrite("synchronize_values", &ChartCacheSyncOptions::synchronizeValues)
+        .def_readwrite("only_changed_cells", &ChartCacheSyncOptions::onlyChangedCells)
+        .def_readwrite("preserve_formula_cached_values", &ChartCacheSyncOptions::preserveFormulaCachedValues)
+        .def_readwrite("clear_tracked_changes_after_sync", &ChartCacheSyncOptions::clearTrackedChangesAfterSync)
+        .def_readwrite("propagate_formula_dependencies", &ChartCacheSyncOptions::propagateFormulaDependencies)
+        .def_readwrite("request_host_recalculation", &ChartCacheSyncOptions::requestHostRecalculationForFormulaDependencies)
+        .def_readwrite("max_formula_dependency_depth", &ChartCacheSyncOptions::maxFormulaDependencyDepth)
+        .def_readwrite("clear_unsupported_references", &ChartCacheSyncOptions::clearUnsupportedReferences);
+
+    py::class_<ChartCacheSyncReport>(m, "ChartCacheSyncReport")
+        .def_readonly("charts_visited", &ChartCacheSyncReport::chartsVisited)
+        .def_readonly("series_visited", &ChartCacheSyncReport::seriesVisited)
+        .def_readonly("dependencies_visited", &ChartCacheSyncReport::dependenciesVisited)
+        .def_readonly("dependencies_matched", &ChartCacheSyncReport::dependenciesMatched)
+        .def_readonly("dependencies_skipped_unchanged", &ChartCacheSyncReport::dependenciesSkippedUnchanged)
+        .def_readonly("caches_updated", &ChartCacheSyncReport::cachesUpdated)
+        .def_readonly("caches_cleared", &ChartCacheSyncReport::cachesCleared)
+        .def_readonly("references_skipped", &ChartCacheSyncReport::referencesSkipped)
+        .def_readonly("formula_cache_points_reused", &ChartCacheSyncReport::formulaCachePointsReused);
+
+    py::class_<ChartStyleApplyReport>(m, "ChartStyleApplyReport")
+        .def_readonly("series_visited", &ChartStyleApplyReport::seriesVisited)
+        .def_readonly("series_styled", &ChartStyleApplyReport::seriesStyled)
+        .def_readonly("colors_available", &ChartStyleApplyReport::colorsAvailable)
+        .def_readonly("fill_styles_available", &ChartStyleApplyReport::fillStylesAvailable)
+        .def_readonly("line_styles_available", &ChartStyleApplyReport::lineStylesAvailable);
+
+    py::enum_<VbaModuleType>(m, "VbaModuleType")
+        .value("Standard", VbaModuleType::Standard)
+        .value("Document", VbaModuleType::Document)
+        .value("Class", VbaModuleType::Class)
+        .value("Designer", VbaModuleType::Designer)
+        .export_values();
+
+    py::class_<VbaModule>(m, "VbaModule")
+        .def(py::init<>())
+        .def_readwrite("name", &VbaModule::name)
+        .def_readwrite("source", &VbaModule::source)
+        .def_readwrite("type", &VbaModule::type);
+
+    py::class_<VbaDesignerStorage>(m, "VbaDesignerStorage")
+        .def(py::init<>())
+        .def_readwrite("name", &VbaDesignerStorage::name);
+
+    py::class_<VbaProjectInfo>(m, "VbaProjectInfo")
+        .def(py::init<>())
+        .def_readwrite("name", &VbaProjectInfo::name)
+        .def_readwrite("description", &VbaProjectInfo::description)
+        .def_readwrite("help_file", &VbaProjectInfo::helpFile)
+        .def_readwrite("help_context_id", &VbaProjectInfo::helpContextId)
+        .def_readwrite("constants", &VbaProjectInfo::constants)
+        .def_readwrite("code_page", &VbaProjectInfo::codePage)
+        .def_readwrite("project_id", &VbaProjectInfo::projectId);
+
+    py::class_<xlpp::Chartsheet>(m, "Chartsheet")
+        .def_property_readonly("name", &xlpp::Chartsheet::name)
+        .def_property_readonly("has_chart", &xlpp::Chartsheet::hasChart)
+        .def("chart", static_cast<xlpp::Chart& (xlpp::Chartsheet::*)()>(&xlpp::Chartsheet::chart),
+             py::return_value_policy::reference_internal);
+
     py::class_<Workbook>(m, "Workbook")
         .def(py::init<>())
         .def("add_worksheet", &Workbook::addWorksheet, py::return_value_policy::reference_internal)
@@ -1418,6 +1808,56 @@ PYBIND11_MODULE(xlpp, m) {
         })
         .def_property("date_1904", &Workbook::date1904, &Workbook::setDate1904)
         .def("clear", &Workbook::clear)
+        .def("add_chartsheet", &Workbook::addChartsheet, py::return_value_policy::reference_internal)
+        .def("chartsheet", [](Workbook& wb, const std::string& name) -> py::object {
+            auto* c = wb.chartsheet(name);
+            return c ? py::cast(*c, py::return_value_policy::reference) : py::none{};
+        })
+        .def("remove_chartsheet", &Workbook::removeChartsheet)
+        .def("rename_chartsheet", &Workbook::renameChartsheet)
+        .def_property_readonly("chartsheet_count", &Workbook::chartsheetCount)
+        .def_property_readonly("workbook_sheet_count", &Workbook::workbookSheetCount)
+        .def_property_readonly("workbook_sheet_names", &Workbook::workbookSheetNames)
+        .def("workbook_sheet_visibility", [](Workbook& wb, std::size_t index) {
+            return wb.workbookSheetVisibility(index);
+        })
+        .def("set_workbook_sheet_visibility", [](Workbook& wb, std::size_t index, WorkbookSheetVisibility v) {
+            wb.setWorkbookSheetVisibility(index, v);
+        }, py::arg("index"), py::arg("visibility"))
+        .def("set_active_workbook_sheet_index", &Workbook::setActiveWorkbookSheetIndex)
+        .def("set_active_workbook_sheet", &Workbook::setActiveWorkbookSheet)
+        .def("move_workbook_sheet", &Workbook::moveWorkbookSheet)
+        .def("synchronize_chart_caches",
+            [](Workbook& wb, const ChartCacheSyncOptions& options) { return wb.synchronizeChartCaches(options); },
+            py::arg("options") = ChartCacheSyncOptions{})
+        .def("synchronize_changed_chart_caches",
+            [](Workbook& wb, const ChartCacheSyncOptions& options) { return wb.synchronizeChangedChartCaches(options); },
+            py::arg("options") = ChartCacheSyncOptions{})
+        .def("add_vba_project", [](Workbook& wb, const std::string& path) { wb.addVbaProject(std::filesystem::path(path)); })
+        .def("set_vba_project", [](Workbook& wb, const py::bytes& data) {
+            std::string raw = data.cast<std::string>();
+            wb.setVbaProject(std::vector<unsigned char>(raw.begin(), raw.end()));
+        })
+        .def("set_vba_module", &Workbook::setVbaModule)
+        .def("set_vba_project_info", &Workbook::setVbaProjectInfo)
+        .def("set_vba_designer_storage", &Workbook::setVbaDesignerStorage)
+        .def("remove_vba_designer_storage", &Workbook::removeVbaDesignerStorage)
+        .def("set_vba_module_text", &Workbook::setVbaModuleText)
+        .def("set_vba_class_module_text", &Workbook::setVbaClassModuleText)
+        .def("set_vba_document_module_text", &Workbook::setVbaDocumentModuleText)
+        .def("remove_vba_module", &Workbook::removeVbaModule)
+        .def("apply_chart_color_style",
+            [](Workbook& wb, const std::string& sheetName, const std::string& chartStableId,
+               bool applyFill, bool applyLine, bool applyMarker) {
+                return wb.applyChartColorStyle(sheetName, chartStableId, applyFill, applyLine, applyMarker);
+            }, py::arg("worksheet"), py::arg("chart_stable_id"),
+               py::arg("apply_fill") = true, py::arg("apply_line") = true, py::arg("apply_marker") = true)
+        .def("apply_chart_theme_style_matrix",
+            [](Workbook& wb, const std::string& sheetName, const std::string& chartStableId,
+               std::size_t fillStyleIndex, std::size_t lineStyleIndex, bool applyMarker) {
+                return wb.applyChartThemeStyleMatrix(sheetName, chartStableId, fillStyleIndex, lineStyleIndex, applyMarker);
+            }, py::arg("worksheet"), py::arg("chart_stable_id"),
+               py::arg("fill_style_index"), py::arg("line_style_index"), py::arg("apply_marker") = true)
         .def_property_readonly("preserved_parts", [](Workbook& wb) -> std::vector<PreservedPart>& { return wb.preservedParts(); }, py::return_value_policy::reference_internal)
         .def_property_readonly("strict_namespaces", &Workbook::strictNamespaces)
         .def_property_readonly("diagnostics", [](const Workbook& wb) -> const LoadDiagnostics& { return wb.diagnostics(); }, py::return_value_policy::reference_internal)

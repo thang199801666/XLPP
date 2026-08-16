@@ -291,6 +291,26 @@ namespace XLPP
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeCalculationReport
+    {
+        public ulong FormulaCellsVisited, FormulaCellsEvaluated, CachedValuesUpdated, DependencyEvaluations;
+        public ulong DefinedNamesResolved, CircularReferences, UnsupportedFormulas, EvaluationErrors;
+        public ulong DynamicArraysSpilled, SpillCellsUpdated, SpillConflicts, StructuredReferencesResolved;
+        public ulong IterativeIterations, IterativeConvergenceFailures, ExternalReferencesResolved, UnresolvedExternalReferences;
+        public int Success;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeStructuralReport
+    {
+        public ulong WorksheetsVisited, CellsMoved, CellsRemoved, FormulasUpdated;
+        public ulong FormulaMetadataUpdated, WorksheetReferencesUpdated, DefinedNamesUpdated;
+        public ulong ChartReferencesUpdated, PivotReferencesUpdated, DrawingAnchorsUpdated;
+        public ulong HyperlinksUpdated, ReferencesInvalidated, FormulasCalculated, ChartCachesUpdated;
+        public int Success;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct NativeWorksheetRenameReport
     {
         public ulong WorksheetsVisited, FormulasUpdated, FormulaMetadataUpdated, DefinedNamesUpdated;

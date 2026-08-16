@@ -67,6 +67,13 @@ public:
     // clear tracking after bulk population.
     Cell& cellNoTrack(const std::string& address);
     Cell& cellNoTrack(std::size_t row, std::size_t column);
+
+    // Comma-separated-value export/import. saveCsv writes the used cell range
+    // (values only) as UTF-8 with CRLF line endings; strings containing a comma,
+    // quote, CR or LF are quoted with "" escaping. loadCsv replaces the sheet's
+    // cells with the parsed grid, converting bare numeric/boolean tokens.
+    void saveCsv(const std::filesystem::path& path) const;
+    void loadCsv(const std::filesystem::path& path);
     const Cell* tryCell(const std::string& address) const noexcept;
     const Cell* tryCell(std::size_t row, std::size_t column) const noexcept;
 

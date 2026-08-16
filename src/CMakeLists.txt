@@ -10,9 +10,11 @@ set(XLPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookDrawingEdit.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartEditing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookSheetWriter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookUserForm.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookPivotRead.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Legacy/XlsBinaryReader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Legacy/XlsBinaryWriter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Legacy/XlsbBinaryReader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartSerializer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookIO.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/XLPP/Workbook/WorkbookChartsheetIO.cpp

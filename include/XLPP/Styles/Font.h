@@ -17,8 +17,11 @@ public:
     void setBold(bool value) noexcept { bold_ = value; }
     bool italic() const noexcept { return italic_; }
     void setItalic(bool value) noexcept { italic_ = value; }
-    bool underline() const noexcept { return underline_; }
-    void setUnderline(bool value) noexcept { underline_ = value; }
+    // Underline presence and style: "" (none), "single" or "double".
+    bool underline() const noexcept { return !underlineStyle_.isDefault() && underlineStyle_.get(emptyDefault()) != "none"; }
+    void setUnderline(bool value) noexcept { underlineStyle_.set(value ? std::string("single") : std::string(), emptyDefault()); }
+    const std::string& underlineStyle() const noexcept { return underlineStyle_.get(emptyDefault()); }
+    void setUnderlineStyle(std::string value) noexcept { underlineStyle_.set(std::move(value), emptyDefault()); }
     bool strike() const noexcept { return strike_; }
     void setStrike(bool value) noexcept { strike_ = value; }
     // Outlined font (OpenType "outline" style, rare in practice).
@@ -43,7 +46,7 @@ public:
     Color& color() noexcept { return color_; }
     const Color& color() const noexcept { return color_; }
     bool isDefault() const noexcept {
-        return name_.isDefault() && size_ == 11.0 && !bold_ && !italic_ && !underline_ && !strike_
+        return name_.isDefault() && size_ == 11.0 && !bold_ && !italic_ && underlineStyle_.isDefault() && !strike_
             && !outline_ && !condense_ && vertAlign_.isDefault() && charset_ == 0 && family_ == 0
             && scheme_.isDefault() && color_.isDefault();
     }
@@ -55,7 +58,7 @@ public:
         combine(size_);
         combine(bold_);
         combine(italic_);
-        combine(underline_);
+        combine(underlineStyle());
         combine(strike_);
         combine(outline_);
         combine(condense_);
@@ -80,7 +83,7 @@ private:
     double size_{11.0};
     bool bold_{false};
     bool italic_{false};
-    bool underline_{false};
+    internal::CompactString underlineStyle_;
     bool strike_{false};
     bool outline_{false};
     bool condense_{false};

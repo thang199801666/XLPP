@@ -31,11 +31,14 @@
     <ClCompile Include="Workbook\WorkbookPivotRead.cpp" />
     <ClCompile Include="Legacy\XlsBinaryReader.cpp" />
     <ClCompile Include="Legacy\XlsBinaryWriter.cpp" />
+    <ClCompile Include="Legacy\XlsbBinaryReader.cpp" />
     <ClCompile Include="Workbook\WorkbookIO.cpp" />
     <ClCompile Include="Workbook\WorkbookChartsheetIO.cpp" />
     <ClCompile Include="Workbook\WorkbookChartsheetPackage.cpp" />
     <ClCompile Include="Workbook\WorkbookPackageReader.cpp" />
     <ClCompile Include="Workbook\WorkbookVba.cpp" />
+    <ClCompile Include="Workbook\WorkbookUserForm.cpp" />
+    <ClInclude Include="Workbook\WorkbookUserForm.h" />
     <ClCompile Include="Workbook\WorkbookPivot.cpp" />
     <ClCompile Include="Workbook\WorkbookChartCache.cpp" />
     <ClCompile Include="Workbook\WorkbookChartSerializer.cpp" />
@@ -107,6 +110,7 @@
     <ClInclude Include="Packaging\RelationshipGraph.h" />
     <ClInclude Include="Legacy\XlsBinaryReader.h" />
     <ClInclude Include="Legacy\XlsBinaryWriter.h" />
+    <ClInclude Include="Legacy\XlsbBinaryReader.h" />
     <ClInclude Include="Workbook\WorkbookPackageReader.h" />
     <ClInclude Include="Workbook\WorkbookNamespaces.h" />
     <ClInclude Include="Workbook\WorkbookStylesIO.h" />
