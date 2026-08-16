@@ -11960,6 +11960,48 @@ void testXlsbWriterRoundTrip(TestContext& test) {
     std::filesystem::remove(path);
 }
 
+void testShapeAuthoring(TestContext& test) {
+    // Text boxes and auto-shapes must be serialized as xdr:sp anchors in the
+    // worksheet drawing part with text body, fill, and line attributes.
+    const auto source = std::filesystem::temp_directory_path() / "xlpp_shapes.xlsx";
+    xlpp::Workbook wb;
+    auto& sheet = wb.addWorksheet("S1");
+
+    xlpp::Shape box(xlpp::ShapeType::TextBox, "C3", "Hello\nWorld");
+    box.setName("Text Box 1");
+    box.setWidthPixels(180.0);
+    box.setHeightPixels(90.0);
+    box.setBold(true);
+    box.setTextColor("FF0000");
+    box.setFillColor("FFE0E0");
+    box.setTextHorizontalAlignment(xlpp::ShapeTextHorizontalAlignment::Center);
+    box.setTextVerticalAlignment(xlpp::ShapeTextVerticalAlignment::Middle);
+    sheet.addShape(std::move(box));
+
+    xlpp::Shape oval(xlpp::ShapeType::Oval, "F2", "");
+    oval.setName("Oval 1");
+    oval.setWidthPixels(120.0);
+    oval.setHeightPixels(120.0);
+    oval.setHasFill(false);
+    oval.setLineColor("0000FF");
+    oval.setLineWidthPt(2.0);
+    sheet.addShape(std::move(oval));
+
+    wb.save(source);
+    const auto archive = xlpp::internal::ZipArchive::open(source);
+    test.checkTrue(archive.contains("xl/drawings/drawing1.xml"), "Drawing part written for shapes");
+    const auto drawing = archive.get("xl/drawings/drawing1.xml");
+    test.checkTrue(drawing.find("<xdr:sp ") != std::string::npos, "Shape element written");
+    test.checkTrue(drawing.find("name=\"Text Box 1\"") != std::string::npos, "Text box name written");
+    test.checkTrue(drawing.find("<a:t xml:space=\"preserve\">Hello") != std::string::npos, "Text box content written");
+    test.checkTrue(drawing.find("prst=\"roundRect\"") == std::string::npos && drawing.find("prst=\"rect\"") != std::string::npos, "Text box uses rectangle preset");
+    test.checkTrue(drawing.find("prst=\"ellipse\"") != std::string::npos, "Oval uses ellipse preset");
+    test.checkTrue(drawing.find("<a:noFill/>") != std::string::npos, "No-fill shape emitted");
+    test.checkTrue(drawing.find("w=\"25400\"") != std::string::npos, "Two-point line width emitted");
+    test.checkTrue(drawing.find("b=\"1\"") != std::string::npos, "Bold text run emitted");
+    std::filesystem::remove(source);
+}
+
 void testLegacyXlsRoundTrip(TestContext& test) {
     // Save a workbook as .xls (BIFF8) and read it back.
     const auto path = std::filesystem::temp_directory_path() / "xlpp_roundtrip.xls";
@@ -13381,6 +13423,7 @@ int main() {
         {"CSV round-trip", testCsvRoundTrip},
         {"XLSB binary read", testXlsbRead},
     {"XLSB writer round-trip", testXlsbWriterRoundTrip},
+    {"Shape authoring", testShapeAuthoring},
         {"Legacy XLS round-trip", testLegacyXlsRoundTrip},
         {"Comment mutation after cached save", testCommentMutationAfterSave},
         {"Rich-text legacy comment import", testRichTextCommentImport},

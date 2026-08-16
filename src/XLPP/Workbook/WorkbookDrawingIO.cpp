@@ -55,6 +55,73 @@ std::string commentsVml(const xlpp::Worksheet& sheet) {
     return xml.str();
 }
 
+// Serialize one xlpp::Shape as an xdr:sp two-cell-free absolute anchor.
+std::string shapeElement(const xlpp::Shape& shape, std::size_t objectId, bool strict) {
+    std::ostringstream xml;
+    const auto ref = xlpp::CellReference::parse(shape.anchor());
+    const auto cx = static_cast<long long>(shape.widthPixels() * 9525.0);
+    const auto cy = static_cast<long long>(shape.heightPixels() * 9525.0);
+    xml << "<xdr:oneCellAnchor><xdr:from><xdr:col>" << (ref.column - 1) << "</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>" << (ref.row - 1)
+        << "</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx=\"" << cx << "\" cy=\"" << cy << "\"/>";
+    xml << "<xdr:sp macro=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"" << objectId << "\" name=\"" << xlpp::internal::xmlEscape(shape.name())
+        << "\"><a:extLst><a:ext uri=\"{FF2B3EF4-FFF0-44B4-AE4B-EA2EC5B6CDB3}\"><a16:creationId xmlns:a16=\"http://schemas.microsoft.com/office/drawing/2014/main\" id=\"{00000000-0000-0000-0000-000000000001}\"/></a:ext></a:extLst></xdr:cNvPr>"
+        << "<xdr:cNvSpPr/><xdr:nvPr/></xdr:nvSpPr><xdr:spPr><a:xfrm";
+    if (shape.rotation() != 0.0) xml << " rot=\"" << static_cast<long long>(shape.rotation() * 60000.0) << "\"";
+    if (shape.flipHorizontal()) xml << " flipH=\"1\"";
+    if (shape.flipVertical()) xml << " flipV=\"1\"";
+    xml << "><a:off x=\"0\" y=\"0\"/><a:ext cx=\"" << cx << "\" cy=\"" << cy << "\"/></a:xfrm>";
+    const char* preset = "rect";
+    const char* adjustment = nullptr;
+    switch (shape.type()) {
+        case xlpp::ShapeType::Rectangle: preset = "rect"; break;
+        case xlpp::ShapeType::RoundedRectangle: preset = "roundRect"; adjustment = "adj=\"16667\""; break;
+        case xlpp::ShapeType::Oval: preset = "ellipse"; break;
+        case xlpp::ShapeType::Line: preset = "line"; break;
+        case xlpp::ShapeType::Arrow: preset = "rightArrow"; break;
+        case xlpp::ShapeType::TextBox: preset = "rect"; break;
+    }
+    xml << "<a:prstGeom prst=\"" << preset << "\"><a:avLst>";
+    if (adjustment) xml << "<a:gd name=\"adj\" fmla=\"" << adjustment << "\"/>";
+    xml << "</a:avLst></a:prstGeom>";
+    if (shape.hasFill()) {
+        xml << "<a:solidFill><a:srgbClr val=\"" << xlpp::internal::xmlEscape(shape.fillColor()) << "\"";
+        if (shape.fillOpacity() < 1.0)
+            xml << "><a:alpha val=\"" << static_cast<long long>(shape.fillOpacity() * 100000.0) << "\"/></a:srgbClr>";
+        else xml << "/></a:solidFill>";
+    } else {
+        xml << "<a:noFill/>";
+    }
+    if (shape.hasLine()) {
+        xml << "<a:ln w=\"" << static_cast<long long>(shape.lineWidthPt() * 12700.0) << "\"><a:solidFill><a:srgbClr val=\""
+            << xlpp::internal::xmlEscape(shape.lineColor()) << "\"/></a:solidFill></a:ln>";
+    }
+    xml << "</xdr:spPr>";
+    const auto wrap = shape.wordWrap() ? "square" : "none";
+    const auto anchorV = shape.textVerticalAlignment() == xlpp::ShapeTextVerticalAlignment::Top ? "t"
+        : shape.textVerticalAlignment() == xlpp::ShapeTextVerticalAlignment::Middle ? "ctr" : "b";
+    const auto alignH = shape.textHorizontalAlignment() == xlpp::ShapeTextHorizontalAlignment::Left ? "l"
+        : shape.textHorizontalAlignment() == xlpp::ShapeTextHorizontalAlignment::Center ? "ctr"
+        : shape.textHorizontalAlignment() == xlpp::ShapeTextHorizontalAlignment::Right ? "r" : "just";
+    xml << "<xdr:txBody><a:bodyPr wrap=\"" << wrap << "\" anchor=\"" << anchorV << "\" rtlCol=\"0\">";
+    if (shape.autoSizeHeight()) xml << "<a:spAutoFit/>"; else xml << "<a:noAutofit/>";
+    xml << "</a:bodyPr><a:lstStyle/>";
+    const auto text = shape.text();
+    std::size_t start = 0;
+    do {
+        const auto end = text.find('\n', start);
+        const auto line = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        xml << "<a:p><a:r><a:rPr lang=\"en-US\" sz=\"" << static_cast<long long>(shape.fontSizePt() * 100.0)
+            << "\" b=\"" << (shape.bold() ? 1 : 0) << "\" i=\"" << (shape.italic() ? 1 : 0)
+            << "\" dirty=\"0\"><a:solidFill><a:srgbClr val=\"" << xlpp::internal::xmlEscape(shape.textColor())
+            << "\"/></a:solidFill></a:rPr><a:t xml:space=\"preserve\">" << xlpp::internal::xmlEscape(line)
+            << "</a:t></a:r></a:p>";
+        if (end == std::string::npos) break;
+        start = end + 1;
+    } while (start <= text.size());
+    xml << "</xdr:txBody></xdr:sp><xdr:clientData/></xdr:oneCellAnchor>";
+    return xml.str();
+}
+
 std::string drawingXml(const xlpp::Worksheet& sheet, bool strict) {
     std::ostringstream xml;
     const auto drawingNs = strict ? "http://purl.oclc.org/ooxml/drawingml/spreadsheetDrawing" : "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing";
@@ -87,6 +154,8 @@ std::string drawingXml(const xlpp::Worksheet& sheet, bool strict) {
             << "\"/></xdr:xfrm><a:graphic><a:graphicData uri=\"" << chartNs << "\"><c:chart xmlns:c=\"" << chartNs
             << "\" r:id=\"rIdChart" << chartIndex + 1 << "\"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:oneCellAnchor>";
     }
+    for (std::size_t shapeIndex = 0; shapeIndex < sheet.shapes().size(); ++shapeIndex)
+        xml << shapeElement(sheet.shapes()[shapeIndex], objectId++, strict);
     xml << "</xdr:wsDr>";
     return xml.str();
 }

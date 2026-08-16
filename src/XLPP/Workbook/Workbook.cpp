@@ -1648,7 +1648,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
     for (std::size_t sheetIndex = 0; sheetIndex < sheets_.size(); ++sheetIndex) {
         const auto& sheet = sheets_[sheetIndex];
         tableCount += sheet.tables().size();
-        if (!preserveDrawing[sheetIndex] && (!sheet.images().empty() || sheet.chartCount() > 0)) {
+        if (!preserveDrawing[sheetIndex] && (!sheet.images().empty() || !sheet.shapes().empty() || sheet.chartCount() > 0)) {
             generatedDrawingIds.push_back(nextDrawingId++);
             for (std::size_t chartIndex = 0; chartIndex < sheet.chartCount(); ++chartIndex)
                 generatedChartIds.push_back(nextChartId++);
@@ -1842,6 +1842,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
         const bool hasLinks = sheetHasExternalLinks[i] != 0;
         const bool hasComments = sheetHasComments[i] != 0;
         const bool hasGeneratedImages = !preserveDrawing[i] && !sheet.images().empty();
+        const bool hasSheetShapes = !preserveDrawing[i] && !sheet.shapes().empty();
         const bool hasSheetCharts = !preserveDrawing[i] && sheet.chartCount() > 0;
         const bool hasSheetPivots = generatedPivotCount[i] > 0;
         const auto sourceSheetIndex = sourceSheetIndices[i];
@@ -1883,7 +1884,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
             if (kind == "vmlDrawing") return preserveComments && hasOriginalCommentVmlOwner;
             return kind != "hyperlink";
         });
-        if (!sheet.tables().empty() || hasLinks || hasComments || hasGeneratedImages || hasSheetCharts || hasSheetPivots || hasPreservedSheetRelationships) {
+        if (!sheet.tables().empty() || hasLinks || hasComments || hasGeneratedImages || hasSheetShapes || hasSheetCharts || hasSheetPivots || hasPreservedSheetRelationships) {
             std::ostringstream sheetRels;
             sheetRels << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"" << nsRelsPkg(strict) << "\">";
             for (std::size_t t = 0; t < sheet.tables().size(); ++t, ++globalTableId) {
@@ -1908,7 +1909,7 @@ void Workbook::save(const std::filesystem::path& p, const SaveOptions& options) 
                 z.add("xl/drawings/commentsDrawing" + std::to_string(globalCommentId) + ".vml", commentsVml(sheet));
                 ++globalCommentId;
             }
-            if (hasGeneratedImages || hasSheetCharts) {
+            if (hasGeneratedImages || hasSheetShapes || hasSheetCharts) {
                 sheetRels << "<Relationship Id=\"rIdDrawing\" Type=\"" << nsRelsDoc(strict) << "/drawing\" Target=\"../drawings/drawing" << globalDrawingId << ".xml\"/>";
                 const auto firstChartId = globalChartId;
                 for (std::size_t ci = 0; ci < sheet.chartCount(); ++ci, ++globalChartId)

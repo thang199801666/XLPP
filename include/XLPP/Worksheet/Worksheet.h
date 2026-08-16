@@ -139,6 +139,13 @@ public:
     std::size_t loadedImageCount() const noexcept { return loadedImageCount_; }
     std::size_t appendedImageCount() const noexcept { return images_.size() > loadedImageCount_ ? images_.size() - loadedImageCount_ : 0; }
 
+    // Text boxes and auto-shapes. Like images they live in the worksheet
+    // drawing part but reference no external media, so adding one only marks
+    // the drawing for regeneration.
+    Shape& addShape(Shape shape) { dirty_ = true; drawingAppendDirty_ = true; shapes_.push_back(std::move(shape)); return shapes_.back(); }
+    std::vector<Shape>& shapes() noexcept { dirty_ = true; drawingsDirty_ = true; drawingAppendDirty_ = false; return shapes_; }
+    const std::vector<Shape>& shapes() const noexcept { return shapes_; }
+
     // Selective edits for package-imported images. These APIs intentionally do
     // not mark the whole drawing dirty: Workbook::save patches only the target
     // anchor/relationship/media while preserving sibling DrawingML verbatim.
@@ -659,6 +666,7 @@ private:
     HeaderFooter headerFooter_;
     WorksheetProtection protection_;
     std::vector<Image> images_;
+    std::vector<Shape> shapes_;
     SheetView sheetView_;
     static void syncBreakList(const std::set<std::size_t>& source, std::vector<std::size_t>& target) {
         target.assign(source.begin(), source.end());

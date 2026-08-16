@@ -778,7 +778,7 @@ std::string sheetXml(const xlpp::Worksheet& sheet, const StyleCatalog& styles, c
             xml << "<brk id=\"" << column << "\" max=\"1048575\" man=\"1\"/>";
         xml << "</colBreaks>";
     }
-    if (!sheet.images().empty() || sheet.chartCount() > 0)
+    if (!sheet.images().empty() || !sheet.shapes().empty() || sheet.chartCount() > 0)
         xml << "<drawing r:id=\"rIdDrawing\"/>";
     // CT_Worksheet requires legacyDrawing after page settings and drawing.
     // Placing it before printOptions/pageMargins causes desktop Excel to repair
